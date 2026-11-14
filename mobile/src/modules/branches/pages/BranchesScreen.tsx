@@ -172,7 +172,7 @@ export default function BranchesScreen() {
           <>
             {q ? (
               <Txt style={{ fontSize: 12, color: atLimit ? C.red : C.muted, paddingHorizontal: 18, paddingTop: 12 }}>
-                {q.unlimited ? `${q.used} branches · ${q.plan} plan, no limit` : `${q.used} of ${q.quota} branches used · ${q.plan} plan${atLimit ? " — upgrade to add more" : ""}`}
+                {q.unlimited ? null : `${q.used} of ${q.quota} branches used · ${q.plan} plan${atLimit ? " — upgrade to add more" : ""}`}
               </Txt>
             ) : null}
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by branch name, code, or address" style={{ paddingTop: 14 }} />

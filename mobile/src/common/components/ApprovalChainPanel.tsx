@@ -18,6 +18,8 @@ type ApprovalChainPanelProps = {
   rejectMessage?: string;
   /** Extra gate on top of the stage permission (e.g. can_update_loan). */
   canDecide?: boolean;
+  /** When set, Approve is disabled and this is shown (e.g. branch balance in hand too low to disburse). */
+  approveBlockedReason?: string;
   decide: (input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }) => Promise<unknown>;
   onSaved: () => void;
   onError: (message: string) => void;
@@ -38,6 +40,7 @@ export function ApprovalChainPanel({
   noun,
   rejectMessage,
   canDecide = true,
+  approveBlockedReason,
   decide,
   onSaved,
   onError,
@@ -102,10 +105,11 @@ export function ApprovalChainPanel({
                 label="Approve"
                 onPress={() => run.mutate({ action: "Approved", note: remarks })}
                 loading={run.isPending && run.variables?.action === "Approved"}
-                disabled={run.isPending}
+                disabled={run.isPending || !!approveBlockedReason}
               />
             </BtnRow2>
           </SheetFooter>
+          {approveBlockedReason ? <Txt style={{ fontSize: 12, color: C.red, marginTop: 8 }}>{approveBlockedReason}</Txt> : null}
           <ConfirmSheet
             visible={confirmReject}
             onClose={() => setConfirmReject(false)}

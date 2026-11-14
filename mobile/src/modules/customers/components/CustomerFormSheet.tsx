@@ -11,6 +11,19 @@ import { type CustomerInput, type Customer } from "@/modules/customers/types/cus
 import { ApiError } from "@/common/services/httpClient";
 import { todayISO } from "@/common/utils/format";
 
+// Same checks as web common/utils/kyc.ts.
+const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/;
+const stripDigits = (v: string) => v.replace(/\d/g, "");
+// Live PAN check, per keystroke: names the first character out of order (5 letters, 4 digits, 1 letter).
+function panLiveError(value: string): string {
+  const v = value.toUpperCase();
+  for (let i = 0; i < v.length && i < 10; i++) {
+    const wantLetter = i < 5 || i === 9;
+    if (!(wantLetter ? /[A-Z]/.test(v[i]) : /\d/.test(v[i]))) return "Format: ABCDE1234F";
+  }
+  return "";
+}
+
 // Register / Edit Customer (prototype #register-customer-modal) — one sheet
 // for both. Same field set, validation and payload as the old
 // customers/new.tsx + customers/edit/[id].tsx routes (and the web
@@ -69,7 +82,7 @@ export function CustomerFormSheet({
   const editing = !!customer;
   // Same rule as the web form: the Branch picker is for cross-branch roles on a multi-branch plan, and is
   // required there (the app has no global branch selector).
-  const showBranch = useShowBranch() && !editing;
+  const showBranch = useShowBranch();
   const [branch, setBranch] = useState<{ id: number; name: string } | null>(null);
 
   const [name, setName] = useState("");
@@ -103,7 +116,7 @@ export function CustomerFormSheet({
     const c = customer;
     const x = (c ?? {}) as CustomerExtras;
     setName(c?.name ?? "");
-    setBranch(null);
+    setBranch(c?.branchId ? { id: c.branchId, name: c.branch?.name ?? "" } : null);
     setPhone(c?.phone ?? "");
     setDob(isoDate(c?.dob));
     setAddress(c?.address ?? "");
@@ -129,13 +142,15 @@ export function CustomerFormSheet({
 
   const phoneOk = /^\d{10}$/.test(phone.trim());
   const aadhaarOk = !aadhaar || /^\d{12}$/.test(aadhaar);
-  const panOk = !pan.trim() || /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan.trim().toUpperCase());
+  const panOk = !pan.trim() || PAN_RE.test(pan.trim().toUpperCase());
+  const panLive = panLiveError(pan);
+  const nameOk = name.trim().length >= 3;
   // A server message about one field is shown under that field, not at the bottom of the sheet.
   const serverPanErr = error && /\bpan\b/i.test(error) ? error : null;
   const serverAadhaarErr = !serverPanErr && error && /aadhaar/i.test(error) ? error : null;
   const serverPhoneErr = !serverPanErr && !serverAadhaarErr && error && /^(?!.*nominee).*(phone|mobile)/i.test(error) ? error : null;
   const bottomError = serverPanErr || serverAadhaarErr || serverPhoneErr ? null : error;
-  const canSave = !!name.trim() && phoneOk && aadhaarOk && panOk && (!showBranch || !!branch);
+  const canSave = nameOk && phoneOk && aadhaarOk && panOk && (!showBranch || !!branch);
 
   const save = useMutation({
     mutationFn: () => {
@@ -144,7 +159,7 @@ export function CustomerFormSheet({
         phone: phone.trim(),
         dob: dob.trim() || undefined,
         address: address.trim() || undefined,
-        branchId: customer ? customer.branchId : branch?.id ?? employee!.branchId,
+        branchId: branch?.id ?? (customer ? customer.branchId : employee!.branchId),
         pan: pan.trim().toUpperCase() || undefined,
         aadhaar: aadhaar.trim() || undefined,
         nomineeName: nomineeName.trim() || undefined,
@@ -187,7 +202,8 @@ export function CustomerFormSheet({
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Customer" : "Register Customer"} maxHeightPct={88}>
       <SectionTitle flush>Personal Details</SectionTitle>
       <Field label="Full Name *">
-        <Input placeholder="Customer's full name" value={name} onChangeText={setName} />
+        <Input placeholder="Customer's full name" value={name} onChangeText={(t) => setName(stripDigits(t))} />
+        {name.length > 0 && !nameOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Please enter the customer&apos;s full name (at least 3 characters).</Txt> : null}
       </Field>
       <Field label="Mobile Number *">
         <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => { setPhone(digits(t)); setError(null); }} />
@@ -214,7 +230,7 @@ export function CustomerFormSheet({
       </Field>
       <FieldRow>
         <Field label="PAN Number">
-          <Input placeholder="ABCDE1234F" autoCapitalize="characters" maxLength={10} value={pan} onChangeText={(t) => { setPan(t); setError(null); }} />
+          <Input placeholder="ABCDE1234F" autoCapitalize="characters" maxLength={10} value={pan} onChangeText={(t) => { setPan(t.toUpperCase().replace(/[^A-Z0-9]/g, "")); setError(null); }} />
         </Field>
         <Field label="Aadhaar Number">
           <Input
@@ -226,7 +242,7 @@ export function CustomerFormSheet({
           />
         </Field>
       </FieldRow>
-      {!panOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>PAN must look like ABCDE1234F.</Txt> : null}
+      {panLive ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>{panLive}</Txt> : !panOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>Please enter a valid PAN (e.g. ABCDE1234F).</Txt> : null}
       {serverPanErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>{serverPanErr}</Txt> : null}
       {!aadhaarOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>Aadhaar must be 12 digits.</Txt> : null}
       {serverAadhaarErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>{serverAadhaarErr}</Txt> : null}
@@ -243,11 +259,11 @@ export function CustomerFormSheet({
         Nominee (optional)
       </SectionTitle>
       <Field label="Nominee Name">
-        <Input placeholder="Full name" value={nomineeName} onChangeText={setNomineeName} />
+        <Input placeholder="Full name" value={nomineeName} onChangeText={(t) => setNomineeName(stripDigits(t))} />
       </Field>
       <FieldRow>
         <Field label="Relation">
-          <Input placeholder="e.g. Spouse, Son" value={nomineeRelation} onChangeText={setNomineeRelation} />
+          <Input placeholder="e.g. Spouse, Son" value={nomineeRelation} onChangeText={(t) => setNomineeRelation(stripDigits(t))} />
         </Field>
         <Field label="Nominee Mobile Number">
           <Input placeholder="10-digit number" keyboardType="number-pad" maxLength={10} value={nomineePhone} onChangeText={(t) => setNomineePhone(digits(t))} />
@@ -263,7 +279,7 @@ export function CustomerFormSheet({
       {showMore ? (
         <>
           <Field label="Guardian Name">
-            <Input placeholder="e.g. Ravi Varma" value={fatherName} onChangeText={(t) => setFatherName(t.replace(/\d/g, ""))} />
+            <Input placeholder="e.g. Ravi Varma" value={fatherName} onChangeText={(t) => setFatherName(stripDigits(t))} />
           </Field>
           <FieldRow>
             <Field label="District">

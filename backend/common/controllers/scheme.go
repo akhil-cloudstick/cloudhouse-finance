@@ -19,7 +19,8 @@ type schemeRequest struct {
 	BranchID           uint                    `json:"branch_id"`
 	InterestRate       float64                 `json:"interest_rate"`
 	DurationMonths     int                     `json:"duration_months" binding:"required"`
-	LTVPercent         float64                 `json:"ltv_percent" binding:"required"`
+	LTVBased           *bool                   `json:"ltv_based"`
+	LTVPercent         float64                 `json:"ltv_percent"`
 	InterestMethod     string                  `json:"interest_method"`
 	PenalRate          float64                 `json:"penal_rate"`
 	AccrualBasis       string                  `json:"accrual_basis"`
@@ -42,6 +43,7 @@ type SchemeCreateInput struct {
 	BranchID           uint
 	InterestRate       float64
 	DurationMonths     int
+	LTVBased           bool
 	LTVPercent         float64
 	InterestMethod     string
 	PenalRate          float64
@@ -71,6 +73,7 @@ func (req schemeRequest) toInput() SchemeCreateInput {
 		BranchID:           req.BranchID,
 		InterestRate:       req.InterestRate,
 		DurationMonths:     req.DurationMonths,
+		LTVBased:           req.LTVBased == nil || *req.LTVBased,
 		LTVPercent:         req.LTVPercent,
 		InterestMethod:     req.InterestMethod,
 		PenalRate:          req.PenalRate,
@@ -271,6 +274,14 @@ func checkMultipleInterest(ctx context.Context, method, current string) error {
 	return nil
 }
 
+// schemeLTV is 0 for a scheme that is not based on gold LTV.
+func schemeLTV(in SchemeCreateInput) float64 {
+	if !in.LTVBased {
+		return 0
+	}
+	return in.LTVPercent
+}
+
 func schemeValidate(in SchemeCreateInput) error {
 	if err := validateTiers(in); err != nil {
 		return err
@@ -278,7 +289,7 @@ func schemeValidate(in SchemeCreateInput) error {
 	if in.DurationMonths <= 0 {
 		return NewBadRequest("duration must be greater than zero months")
 	}
-	if in.LTVPercent <= 0 || in.LTVPercent > 100 {
+	if in.LTVBased && (in.LTVPercent <= 0 || in.LTVPercent > 100) {
 		return NewBadRequest("ltv percent must be between 0 and 100")
 	}
 	if in.InterestRate < 0 {
@@ -339,7 +350,8 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 		Name:               in.Name,
 		InterestRate:       in.InterestRate,
 		DurationMonths:     in.DurationMonths,
-		LTVPercent:         in.LTVPercent,
+		LTVBased:           in.LTVBased,
+		LTVPercent:         schemeLTV(in),
 		InterestMethod:     in.InterestMethod,
 		PenalRate:          in.PenalRate,
 		AccrualBasis:       accrualBasisOrDefault(in.AccrualBasis),
@@ -409,7 +421,8 @@ func updateScheme(ctx context.Context, id uint, in SchemeUpdateInput, branchID *
 	rec.Name = in.Name
 	rec.InterestRate = in.InterestRate
 	rec.DurationMonths = in.DurationMonths
-	rec.LTVPercent = in.LTVPercent
+	rec.LTVBased = in.LTVBased
+	rec.LTVPercent = schemeLTV(in)
 	rec.InterestMethod = in.InterestMethod
 	rec.PenalRate = in.PenalRate
 	rec.AccrualBasis = accrualBasisOrDefault(in.AccrualBasis)

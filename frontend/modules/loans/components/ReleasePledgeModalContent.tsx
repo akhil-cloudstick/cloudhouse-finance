@@ -74,9 +74,7 @@ export function ReleasePledgeModalContent({
         )}
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? "Releasing…" : "Release"}</button>
+      <div className="ft">        <button className="btn" disabled={saving || !balanced} onClick={save}>{saving ? "Releasing…" : "Release"}</button>
       </div>
     </>
   );

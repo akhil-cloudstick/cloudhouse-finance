@@ -149,9 +149,7 @@ export function BranchModalContent({ branch: b, onSaved }: BranchModalContentPro
         <div className="notice"><Icon name="shield" /> Can&apos;t deactivate while branch is in use.</div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : b ? "Save Changes" : "Add Branch"}</button>
+      <div className="ft">        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : b ? "Save Changes" : "Add Branch"}</button>
       </div>
     </>
   );

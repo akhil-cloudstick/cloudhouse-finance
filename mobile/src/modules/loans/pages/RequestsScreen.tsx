@@ -16,7 +16,7 @@ import {
   type GroupedFilterValue,
   FlatHeader,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   ServerFlatList,
   Sheet,
   SheetListItem,
@@ -142,7 +142,7 @@ export default function RequestsScreen() {
   const count = groupedFilterCount(fv);
 
   return (
-    <Screen header={<FlatHeader title="Requests" subtitle="Extensions & release" />}>
+    <Screen header={<FlatHeader title="Extension & Release" subtitle="Loan extensions & gold release" />}>
       <ServerFlatList
         list={list}
         items={list.items}
@@ -150,10 +150,13 @@ export default function RequestsScreen() {
         emptyText={list.search || count ? "No requests match your search." : "No extension or release requests yet."}
         header={
           <>
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search loan no, customer, phone" style={{ paddingTop: 12, paddingBottom: 8 }} />
-            <View style={{ paddingHorizontal: 18, marginBottom: 14 }}>
-              <GroupedFilter title="Filter requests" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
-            </View>
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search loan no, customer, phone"
+              style={{ paddingTop: 12, paddingBottom: 14 }}
+              filter={<GroupedFilter title="Filter requests" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
+            />
             {listError ? <Txt style={{ fontSize: 12, color: C.red, paddingHorizontal: 18, marginBottom: 10 }}>{listError}</Txt> : null}
           </>
         }
@@ -174,13 +177,15 @@ export default function RequestsScreen() {
                     { k: "Type", v: r.isPartial ? "Partial release" : "Full release" },
                     { k: "Date", v: dmy(r.requestedAt) },
                   ];
+          const paymentOverdue = !!r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && new Date(r.paymentDueDate) < new Date();
           return (
             <AccRow
               defaultOpen={i === 0}
               id={r.loan?.loanNumber ?? `#${r.loanId}`}
               name={r.type}
               sub={r.loan?.customer?.name ?? "—"}
-              status={r.status}
+              status={paymentOverdue ? "Payment Overdue" : r.status}
+              statusTone={paymentOverdue ? "overdue" : undefined}
               details={details}
               actions={
                 approvedRelease

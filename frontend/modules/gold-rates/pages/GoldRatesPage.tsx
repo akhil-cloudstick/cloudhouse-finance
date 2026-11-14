@@ -14,6 +14,7 @@ import { TableSearch } from "@/common/components/ui/TableSearch";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { type GoldRateView } from "@/modules/gold-rates/types/gold-rate-types";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { searchGoldRateSetByPage } from "@/modules/reports/services/reportsService";
 import { useResponsivePageSize, useScrollPageSize, useIsSmallScreen } from "@/common/utils/responsive";
 
 const timeOf = (iso: string) => {
@@ -38,7 +39,7 @@ function RateTile({ k, r, small }: RateTileProps) {
     <div className={small ? "rate-tile rate-tile-sm" : "rate-tile"}>
       <div className="k">{k}</div>
       <div className="r">{fmt(r)}</div>
-      <div className="u">per gram</div>
+      <div className="u">Per Gram</div>
     </div>
   );
 }
@@ -65,7 +66,12 @@ export function GoldRatesPage() {
   // "YYYY-MM-DD", or "" for no limit.
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const filterCategories: FilterCategory[] = [{ key: "date", label: "Date", kind: "date" }];
+  const [setBy, setSetBy] = useState<string[]>([]);
+  // "Set by" names are paged and searched by the backend (the same list as the Gold Rate History report).
+  const filterCategories: FilterCategory[] = [
+    { key: "setBy", label: "Set By", kind: "async", searchHint: "Searches: name", fetchOptions: async (s, p) => { const r = await searchGoldRateSetByPage(s, p - 1); return { items: r.items.map((n) => ({ value: n, label: n })), hasMore: r.hasMore }; } },
+    { key: "date", label: "Date", kind: "date" },
+  ];
   // The typed search, and the value sent to the server once typing pauses.
   const [q, setQ] = usePersistedState("gold-rates:q", "");
   const [sentQ, setSentQ] = useState(q);
@@ -81,7 +87,7 @@ export function GoldRatesPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listGoldRateDaysPage(page, pageSize, from || undefined, to || undefined, sentQ)
+    listGoldRateDaysPage(page, pageSize, from || undefined, to || undefined, sentQ, setBy)
       .then((res) => {
         if (cancelled) return;
         setRows(res.items);
@@ -91,7 +97,7 @@ export function GoldRatesPage() {
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [page, pageSize, version, from, to, sentQ]);
+  }, [page, pageSize, version, from, to, sentQ, setBy]);
 
   return (
     <>
@@ -119,8 +125,8 @@ export function GoldRatesPage() {
             <TableSearch value={q} onChange={setQ} placeholder="Search rates…" searches="date, 24K, 22K, 18K rate, set by" />
             <FilterPanel
               categories={filterCategories}
-              value={{ __dateFrom: from || undefined, __dateTo: to || undefined }}
-              onChange={(next) => { setFrom(next.__dateFrom || ""); setTo(next.__dateTo || ""); setPage(1); }}
+              value={{ __dateFrom: from || undefined, __dateTo: to || undefined, setBy }}
+              onChange={(next) => { setFrom(next.__dateFrom || ""); setTo(next.__dateTo || ""); setSetBy(Array.isArray(next.setBy) ? next.setBy : []); setPage(1); }}
               hideChips
             />
           </div>

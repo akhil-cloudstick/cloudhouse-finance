@@ -357,7 +357,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   }, [stages.length, loans]);
   const stageFilterCategories: FilterCategory[] = [{
     key: "stage", label: "Auction Status", kind: "static",
-    options: (["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned", "Settled", "Withdrawn"] as const).map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] })),
+    options: [{ value: "Defaulted", label: "Defaulted (not yet eligible)" }, ...(["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned", "Settled", "Withdrawn"] as const).map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] }))],
   }];
 
   /* The two History sub-tables ("Auctions Conducted" / "Closed Without
@@ -395,8 +395,13 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
    * visible here while its shortfall decision is outstanding — otherwise the
    * case needing the most attention would drop off the page. */
   // With a status filter the server decides which cases match; only in-flight stages apply here.
+  // Defaulted loans that have no auction case yet — they appear here so they can be marked auction-eligible from this page.
+  const defaultedLoans = loans.filter((l) => isActiveAuctionCase(l) && l.isDefaulted && l.status !== "Auction Eligible" && l.status !== "Auctioned" && l.status !== "Auctioned - Balance Due");
   const auctionEligibleCases = stages.length
-    ? (activeStages.length ? (stageLoans ?? []).filter((l) => l.status === "Auctioned" || (loanDisplayStatus(l) !== "Closure Requested" && l.status !== "Closed")) : [])
+    ? [
+        ...(activeStages.length ? (stageLoans ?? []).filter((l) => l.status === "Auctioned" || (loanDisplayStatus(l) !== "Closure Requested" && l.status !== "Closed")) : []),
+        ...(stages.includes("Defaulted") ? defaultedLoans.filter((d) => !activeStages.length || !(stageLoans ?? []).some((l) => l.numericId === d.numericId)) : []),
+      ]
     : [...loans.filter(isActiveAuctionCase), ...soldLoans.filter((s) => !loans.some((l) => l.numericId === s.numericId))];
   const trimmedQ = q.trim().toLowerCase();
   const allCases = trimmedQ
@@ -474,12 +479,18 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
       rows={[
         ["Loan", r.loanNumber], ["Customer", r.customerName], ["Auction date", fmtDate(r.auctionDate)],
         ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"], ["Net proceeds", fmt(r.saleAmount - (r.auctionExpenses || 0))],
-        // Due at sale = net proceeds minus surplus (or plus shortfall); the backend stores surplusShortfall = net - due.
-        ["Amount due at auction", fmt(Math.max(0, r.saleAmount - (r.auctionExpenses || 0) - r.surplusShortfall))],
-        [r.surplusShortfall >= 0 ? "Surplus" : "Shortfall", fmt(Math.abs(r.surplusShortfall))], ["Outcome", AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]],
+        // Due at sale time, stored when the sale was recorded; older cases show a dash.
+        // Falls back to net proceeds less the surplus (plus the shortfall) for cases that stored no due figure.
+        ["Amount due at auction", fmt(r.dueTotal ?? (r.saleAmount - (r.auctionExpenses || 0) - r.surplusShortfall))],
+        [r.surplusShortfall >= 0 ? "Surplus" : "Shortfall", fmt(Math.abs(r.surplusShortfall))],
+        ...(r.surplusDisposition === "RefundedToCustomer" ? [["Refund to customer", fmt(r.surplusPayableAmount || Math.max(0, r.surplusShortfall))] as [string, string]] : []),
+        ["Outcome", AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]],
         // The remarks recorded on this auction: each decision (keep / pursue / write-off) and the settlement.
         ...r.decisionRequests.filter((d) => d.decisionRemarks).map((d, i, all) => [all.length > 1 ? `Decision remarks ${i + 1}` : "Decision remarks", d.decisionRemarks] as [string, string]),
-        ...(r.surplusRemarks ? [["Settlement remarks", r.surplusRemarks] as [string, string]] : []),
+        ...(r.surplusDisposition === "RecordedAsIncome" ? [["Surplus settlement", "Kept as company income"] as [string, string]] : []),
+        ...(r.surplusDisposition === "RecordedAsIncome"
+          ? [["Reason for keeping surplus", r.surplusRemarks || "—"] as [string, string]]
+          : r.surplusRemarks ? [["Settlement remarks", r.surplusRemarks] as [string, string]] : []),
       ]}
       description={<>Auction sale of {fmt(r.saleAmount)} less {fmt(r.auctionExpenses)} expenses.{r.surplusDisposition ? <><br />Surplus {r.surplusDisposition === "RefundedToCustomer" ? "refunded to the customer" : "kept as income"}.</> : null}</>}
       actions={actions}
@@ -536,39 +547,40 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
         <TableSearch placeholder="Search loan no, customer, reference…" searches="loan number, customer name, customer code · auction reference on the History tab only" value={q} onChange={setQ} />
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      {/* Each tab has its own filter: Active Cases filters by auction status, History by sale outcome. */}
-      {tab === "history" && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-          <FilterPanel
-            categories={[{ key: "outcome", label: "Sale Outcome", kind: "static", options: [{ value: "surplus", label: "Settle Surplus" }, { value: "shortfall", label: "Shortfall" }] }]}
-            value={{ outcome: outcomes }}
-            onChange={(next) => { setOutcomes(Array.isArray(next.outcome) ? next.outcome : []); setConductedPage(1); }}
-            hideChips
-            hideClearAll
-          />
-        </div>
-      )}
-      {tab === "active" && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-          <FilterPanel
-            categories={stageFilterCategories}
-            value={{ stage: stages }}
-            onChange={(next) => { setStages(Array.isArray(next.stage) ? next.stage : []); setActivePage(1); }}
-            hideChips
-            hideClearAll
-          />
-        </div>
-      )}
-
       {/* .tabs's own overflow-x:auto (app.css) clips the last pill's right
           edge/shadow the instant its content is even 1-2px wider than the
           container — invisible on rows with room to spare, but this
           2-button row sits right at that edge. auctions-tabs turns
           overflow off for just this row, matching Loans.tsx's own
           loans-cat-tabs fix for the same symptom. */}
-      <div className="tabs auctions-tabs" style={{ marginTop: 4, marginBottom: 8 }}>
-        <button className={tab === "active" ? "on" : ""} onClick={() => setTab("active")}>Active Cases</button>
-        <button className={tab === "history" ? "on" : ""} onClick={() => setTab("history")}>Auction History</button>
+      {/* Tab switch on the left, this tab's filter on the right — one row. */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 4, marginBottom: 8 }}>
+      <div className="tabs auctions-tabs" style={{ margin: 0 }}>
+        <button className={tab === "active" ? "on" : ""} onClick={() => { setTab("active"); refresh(); setAuctionVersion((v) => v + 1); }}>Active Cases</button>
+        <button className={tab === "history" ? "on" : ""} onClick={() => { setTab("history"); void loadConducted(conductedPage, q.trim()); void loadClosed(closedPage, q.trim()); }}>Auction History</button>
+      </div>
+  {tab === "history" && (
+          <div>
+            <FilterPanel
+              categories={[{ key: "outcome", label: "Sale Outcome", kind: "static", options: [{ value: "surplus", label: "Settle Surplus" }, { value: "shortfall", label: "Shortfall" }] }]}
+              value={{ outcome: outcomes }}
+              onChange={(next) => { setOutcomes(Array.isArray(next.outcome) ? next.outcome : []); setConductedPage(1); }}
+              hideChips
+              hideClearAll
+            />
+          </div>
+        )}
+  {tab === "active" && (
+          <div>
+            <FilterPanel
+              categories={stageFilterCategories}
+              value={{ stage: stages }}
+              onChange={(next) => { setStages(Array.isArray(next.stage) ? next.stage : []); setActivePage(1); }}
+              hideChips
+              hideClearAll
+            />
+          </div>
+        )}
       </div>
 
       {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
@@ -616,20 +628,20 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
              * stop the card spilling over the next one (see app.css). */}
             <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl tbl-center tbl-cards">
-                <TableCols widths={[9, 9, 9, 10, 9, 10, 11, 12, 10, 6]} />
+                <TableCols widths={[11, 11, 11, 12, 11, 12, 14, 12, 6]} />
                 <thead>
                   <tr>
                     <th>Loan</th><th>Auction Date</th><th>Reference</th>
                     <th className="num">Sale Amount</th><th className="num">Expenses</th>
                     <th className="num">Net Proceeds</th>
-                    <th className="num">Surplus / Shortfall</th><th>Surplus Disposition</th><th>Outcome</th><th></th>
+                    <th className="num">Surplus / Shortfall</th><th>Outcome</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {conductedLoading && !(cards && conducted.length > 0) ? (
-                    <tr><td colSpan={10} className="empty">Loading…</td></tr>
+                    <tr><td colSpan={9} className="empty">Loading…</td></tr>
                   ) : conducted.length === 0 ? (
-                    <tr><td colSpan={10} className="empty">No auctions have been conducted yet.</td></tr>
+                    <tr><td colSpan={9} className="empty">No auctions have been conducted yet.</td></tr>
                   ) : conducted.map((r) => (
                     <tr key={r.id}>
                       <td data-label="Loan">{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
@@ -641,7 +653,6 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
                       <td className="num" data-label="Surplus / Shortfall" style={{ color: r.surplusShortfall >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
                         {r.surplusShortfall >= 0 ? "+" : "−"}{fmt(Math.abs(r.surplusShortfall))}
                       </td>
-                      <td data-label="Surplus Disposition">{r.surplusDisposition === "RefundedToCustomer" ? "Refunded to customer" : r.surplusDisposition === "RecordedAsIncome" ? "Kept as income" : "—"}</td>
                       <td data-label="Outcome"><span className="pill green">{AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]}</span></td>
                       <td style={{ width: 40, minWidth: 40 }}>
                         <span className="ledger-info" style={{ right: "50%", transform: "translate(50%, -50%)" }}><button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }} onClick={() => viewConducted(r)}><Icon name="info" /></button></span>

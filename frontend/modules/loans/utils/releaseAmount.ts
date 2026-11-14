@@ -8,8 +8,9 @@ export function partialReleaseRemaining(outstandingBalance: number, remainingGol
 // What must be paid (payment plus discount) before this release's gold can go, from the loan as it stands now —
 // the same figure the backend checks when the payment is recorded (releaseAmountNeeded in release.go).
 // `keptOrnamentIds` are the ornaments that stay pledged after a partial release; null means a full release.
-export function releaseAmountNeeded(loan: LoanView, keptOrnamentIds: number[] | null): number {
+// `excludedOrnamentIds` are ornaments locked by an earlier open release request: left out of the sum entirely.
+export function releaseAmountNeeded(loan: LoanView, keptOrnamentIds: number[] | null, excludedOrnamentIds: number[] = []): number {
   if (keptOrnamentIds == null) return Math.max(loan.totalOutstandingBalance, 0);
-  const keptValue = loan.ornaments.filter((o) => !o.releasedAt && keptOrnamentIds.includes(o.id)).reduce((sum, o) => sum + o.goldValue, 0);
+  const keptValue = loan.ornaments.filter((o) => !o.releasedAt && keptOrnamentIds.includes(o.id) && !excludedOrnamentIds.includes(o.id)).reduce((sum, o) => sum + o.goldValue, 0);
   return Math.max(partialReleaseRemaining(loan.totalOutstandingBalance, keptValue, loan.schemeLtv), 0);
 }

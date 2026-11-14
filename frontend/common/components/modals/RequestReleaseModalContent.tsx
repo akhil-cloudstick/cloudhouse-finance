@@ -89,7 +89,11 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
   const [pendingOrnamentIds, setPendingOrnamentIds] = useState<Set<number> | null>(null);
   useEffect(() => {
     let cancelled = false;
-    listLoanRequests({ loanId: loan.numericId, status: "Pending" }).then((reqs) => {
+    Promise.all([
+      listLoanRequests({ loanId: loan.numericId, status: "Pending" }),
+      listLoanRequests({ loanId: loan.numericId, status: "Approved" }),
+    ]).then(([pend, appr]) => {
+      const reqs = [...pend, ...appr];
       if (cancelled) return;
       const ids = new Set<number>();
       for (const r of reqs) {
@@ -106,6 +110,15 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loan.numericId]);
   const hasPendingRelease = !!pendingOrnamentIds && pendingOrnamentIds.size > 0;
+  // Ornaments already in a pending or approved release can't be requested again: disabled, deselected and not counted.
+  const isLocked = (id: number) => !!pendingOrnamentIds?.has(id);
+  useEffect(() => {
+    if (!pendingOrnamentIds || pendingOrnamentIds.size === 0) return;
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((id) => !pendingOrnamentIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [pendingOrnamentIds]);
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -116,20 +129,24 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
     setOrnamentsErr("");
   }
 
-  const allSelected = selected.size === pledged.length;
-  const remainingOrnaments = pledged.filter((o) => !selected.has(o.id));
+  const selectable = pledged.filter((o) => !isLocked(o.id));
+  const picked = new Set(Array.from(selected).filter((id) => !isLocked(id)));
+  // Ornaments already in another open release request are left out of this calculation entirely (not kept as
+  // collateral); the backend (partialReleaseRemainingGoldValue) does the same.
+  const allSelected = selectable.length > 0 && picked.size === selectable.length;
+  const remainingOrnaments = selectable.filter((o) => !picked.has(o.id));
   const remainingCollateral = remainingOrnaments.reduce((sum, o) => sum + o.goldValue, 0);
   const remaining = allSelected ? 0 : partialReleaseRemaining(loan.totalOutstandingBalance, remainingCollateral, loan.schemeLtv);
   const conditionMet = allSelected || remaining <= 0.01;
 
   async function save() { return singleFlight("modal:requestextension:save:2", async () => {
     if (submittingRef.current) return;
-    if (selected.size === 0) return;
+    if (picked.size === 0) return;
     submittingRef.current = true;
     setErr(""); setOrnamentsErr("");
     setSaving(true);
     try {
-      const ornamentIds = Array.from(selected);
+      const ornamentIds = Array.from(picked);
       // Passing every pledged ornament's id behaves identically to omitting
       // ornamentIds entirely — see createReleaseRequest's own doc comment —
       // so there is no separate "full release" branch to keep in sync here.
@@ -170,8 +187,8 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
               return (
                 <tr key={o.id}>
                   {/* The trailing empty span keeps `.ccheck>span:last-child` off the mark; gap 0 so it adds no width. */}
-                  <td><label className="ccheck" style={{ gap: 0, alignItems: "center" }}><input type="checkbox" aria-label={`Release ${o.name}`} checked={selected.has(o.id)} onChange={() => toggle(o.id)} /><span className="mark" style={{ marginTop: 0 }} /><span /></label></td>
-                  <td>{o.name}{isPending && <span className="chip" style={{ color: "var(--red)", display: "table", marginTop: 3 }} title="Already requested for release, not yet approved">Pending release</span>}</td>
+                  <td><label className="ccheck" style={{ gap: 0, alignItems: "center" }}><input type="checkbox" aria-label={`Release ${o.name}`} checked={picked.has(o.id)} disabled={isPending} onChange={() => toggle(o.id)} /><span className="mark" style={{ marginTop: 0 }} /><span /></label></td>
+                  <td>{o.name}{isPending && <span className="chip" style={{ color: "var(--red)", display: "table", marginTop: 3 }} title="Already in a release request that is not yet completed">Release requested</span>}</td>
                   <td><span className="chip brand">{o.purity}</span></td>
                   <td className="num">{o.netWeight.toFixed(1)}</td>
                   <td className="num">{fmt(o.goldValue)}</td>
@@ -192,7 +209,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
           </div>
         </div>
         <div className="notice" style={{ margin: "14px 0" }}>
-          <Icon name="unlock" /> {allSelected ? `${fmtW(loan.totalNetWeight)} gold pledged` : `${selected.size} of ${pledged.length} ornaments selected`} 
+          <Icon name="unlock" /> {allSelected ? `${fmtW(loan.totalNetWeight)} gold pledged` : `${picked.size} of ${pledged.length} ornaments selected`} 
         </div>
         <div className="frow c2">
           <div><label className="f">Request Date *</label><DatePicker value={requestedOn} min={loan.opened?.slice(0, 10) || undefined} max={today} onChange={setRequestedOn} /></div>
@@ -200,9 +217,7 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
         </div>
       </div>
       <div className="ft">
-        <span className="pay-ft-msg">{err}</span>
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={selected.size === 0 || saving} onClick={save}>
+        <span className="pay-ft-msg">{err}</span>        <button className="btn" disabled={picked.size === 0 || saving} onClick={save}>
           <Icon name="check" /> {saving ? "Saving…" : noApprover ? "Release" : "Log Request"}
         </button>
       </div>

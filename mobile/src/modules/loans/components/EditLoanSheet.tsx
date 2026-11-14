@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AsyncSelect, C, ChipToggle, DashedButton, Field, FieldRow, Input, NoticeBanner, OrnamentCard, PrimaryButton, ResultBox, SectionTitle, Sheet, TextField, ThemeDropdown, Txt } from "@/common/components/ui";
+import { AsyncSelect, C, ChipToggle, DashedButton, DateField, Field, FieldRow, Input, NoticeBanner, OrnamentCard, PrimaryButton, ResultBox, SectionTitle, Sheet, TextField, ThemeDropdown, Txt } from "@/common/components/ui";
 import { useQuery } from "@tanstack/react-query";
 import { latestGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { rateForPurityFull } from "@/common/utils/purity";
-import { inr, fmtDate } from "@/common/utils/format";
+import { inr, fmtDate, todayISO } from "@/common/utils/format";
 import { addOrnament, addOrnamentImage, deleteOrnament, previewLoanEdit, updateLoanWithFlags, updateOrnament, type LoanEditDependent, type LoanEditFollowing, type LoanEditInterestChange } from "@/modules/loans/services/loanService";
 import { type OrnamentRequestInput, type Loan, type Ornament } from "@/modules/loans/types/loan-types";
 import { listActiveSchemes } from "@/modules/schemes/services/schemeService";
@@ -40,11 +40,22 @@ type EditLoanSheetProps = { loan: Loan; visible: boolean; onClose: () => void };
 /** Prototype #act-edit — scheme, principal and ornament details. Mirrors web
  * EditLoanModal.tsx: loan PATCH, then one call per ornament row. */
 export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps) {
+  const lockersAllFull = useRef(false);
   const qc = useQueryClient();
   const [schemeId, setSchemeId] = useState<number>(l.schemeId);
   const [schemeLabel, setSchemeLabel] = useState("");
   const [schemeLtv, setSchemeLtv] = useState(0);
+  // The loan's opening date; changing it moves the due date and redoes the interest from the new date.
+  const [openedDate, setOpenedDate] = useState(l.openedDate);
+  // A scheme not based on gold LTV (LTV 0) puts no cap on the amount.
+  const ltvBased = schemeLtv > 0;
+  // The Amount the customer asks for (like New Loan): the principal follows it, with the service charge added on top
+  // or taken off the payout depending on the charge method.
   const [principal, setPrincipal] = useState("");
+  type ChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
+  const loanMode: ChargeMode = l.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout";
+  const [chargeMode, setChargeMode] = useState<ChargeMode>(loanMode);
+  const [newScheme, setNewScheme] = useState<Scheme | null>(null);
   const [rows, setRows] = useState<OrnRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [overallPhoto, setOverallPhoto] = useState("");
@@ -70,7 +81,10 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
     setSchemeId(l.schemeId);
     setSchemeLabel(l.scheme ? `${l.scheme.name} — ${l.schemeLtvPercent ?? l.scheme.ltvPercent}% LTV @ ${l.scheme.interestRate}%` : `Scheme #${l.schemeId}`);
     setSchemeLtv(l.schemeLtvPercent ?? l.scheme?.ltvPercent ?? 0);
-    setPrincipal(String(l.principalAmount));
+    setOpenedDate(l.openedDate);
+    setPrincipal(String(Math.round((l.principalAmount - (loanMode === "AddedToPrincipal" ? l.serviceChargeAmount ?? 0 : 0)) * 100) / 100));
+    setChargeMode(loanMode);
+    setNewScheme(null);
     setRows((l.ornaments ?? []).map(toRow));
     setError(null);
     setReviewedFor(null);
@@ -92,31 +106,45 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
   const totalGoldValue = active.reduce((s, r) => s + (+r.net || 0) * (rateForPurityFull(rates, r.purity) ?? 0), 0);
   const eligible = (totalGoldValue * schemeLtv) / 100;
   // The principal can never be typed above the eligible amount — pulled back to it (floored to a whole rupee).
-  const capToEligible = (value: string) => (eligible > 0 && +value > eligible ? String(Math.floor(eligible)) : value);
-  // Only a changed scheme or principal sends the loan back through the sanction chain (same as the backend).
-  const triggersReapproval = schemeId !== l.schemeId || (+principal > 0 && +principal !== l.principalAmount);
-  const reviewKey = `${schemeId}|${principal}`;
+  const capToEligible = (value: string) => (ltvBased && eligible > 0 && +value > eligible ? String(Math.floor(eligible)) : value);
+  // Service charge: the switched scheme's terms, else the loan's own; worked out on the Amount.
+  const useNew = newScheme !== null && schemeId !== l.schemeId;
+  const chargeType = useNew ? newScheme.serviceChargeType : l.serviceChargeType;
+  const chargeValue = useNew ? newScheme.serviceChargeValue ?? 0 : l.serviceChargeValue ?? 0;
+  const hasCharge = !!chargeType && chargeType !== "None";
+  const amountNum = +principal > 0 ? +principal : 0;
+  const charge = !hasCharge ? 0 : chargeType === "Percent" ? Math.round(amountNum * chargeValue) / 100 : useNew ? chargeValue : l.serviceChargeAmount ?? 0;
+  const principalTotal = amountNum > 0 ? Math.round((hasCharge && chargeMode === "AddedToPrincipal" ? amountNum + charge : amountNum) * 100) / 100 : l.principalAmount;
+  const payout = hasCharge && chargeMode === "WithheldFromPayout" ? amountNum - charge : amountNum;
+  const modeChanged = hasCharge && chargeMode !== loanMode;
+  // A switched scheme brings its own mode on the server, so the chosen one is always sent along with it.
+  const sendMode = hasCharge && (modeChanged || schemeId !== l.schemeId);
+  // Only a changed scheme, principal or charge method sends the loan back through the sanction chain (same as the backend).
+  const triggersReapproval = schemeId !== l.schemeId || (amountNum > 0 && principalTotal !== l.principalAmount) || modeChanged;
+  const reviewKey = `${schemeId}|${principalTotal}|${modeChanged ? chargeMode : ""}`;
   const reviewing = reviewedFor === reviewKey;
   const activeFollowing = reviewing ? following : [];
   const activeDeps = reviewing ? deps : [];
   const save = useMutation({
     mutationFn: async () => {
-      if (!(+principal > 0)) throw new Error("__v__Please enter a valid principal amount.");
+      if (!(amountNum > 0)) throw new Error("__v__Please enter a valid amount.");
+      if (hasCharge && payout <= 0) throw new Error("__v__The service charge must be less than the amount.");
       if (!active.length) throw new Error("__v__A loan must have at least one ornament.");
       if (active.some((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0))) throw new Error("__v__Every ornament needs a name, gross weight and net weight.");
       if (active.some((r) => +r.net > +r.gross)) throw new Error("__v__Net Wt cannot be greater than Gross Wt for any ornament.");
-      if (additionalInfo.trim().length > 2000) throw new Error("__v__Additional information cannot be longer than 2000 characters.");
+      if (additionalInfo.trim().length > 150) throw new Error("__v__Additional information cannot be longer than 150 characters.");
       const branchChanged = !!branch && branch.id !== l.branchId;
       const lockerChanged = !!locker && locker.id !== packetLockerId;
       if (canMove && branchChanged && hasPacket && packetLockerId && !locker) throw new Error("__v__Choose a locker in the new branch for the gold.");
-      if (goldRate.data && eligible > 0 && +principal > eligible) throw new Error("__v__Principal exceeds eligible amount.");
+      if (goldRate.data && eligible > 0 && amountNum > eligible) throw new Error("__v__Amount exceeds eligible amount.");
       // A disbursed loan recalculated by a scheme / principal change is looked at first: nothing is saved until the
       // staff member has seen the later payments it affects and pressed Save again (same as web).
-      const principalChanged = +principal !== l.principalAmount;
-      if (l.disbursementDate && (schemeId !== l.schemeId || principalChanged) && !reviewing) {
+      const principalChanged = principalTotal !== l.principalAmount;
+      if (l.disbursementDate && (schemeId !== l.schemeId || principalChanged || modeChanged) && !reviewing) {
         const probe = await previewLoanEdit(l.id, {
           schemeId: schemeId !== l.schemeId ? schemeId : undefined,
-          principalAmount: principalChanged ? +principal : undefined,
+          principalAmount: principalChanged ? principalTotal : undefined,
+          serviceChargeMode: sendMode ? chargeMode : undefined,
         });
         if (probe.following.length || probe.dependents.length || probe.interestChanges.length) {
           setFollowing(probe.following);
@@ -150,7 +178,9 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
         l.id,
         {
           schemeId: schemeId !== l.schemeId ? schemeId : undefined,
-          principalAmount: +principal !== l.principalAmount ? +principal : undefined,
+          principalAmount: principalChanged ? principalTotal : undefined,
+          serviceChargeMode: sendMode ? chargeMode : undefined,
+          openedDate: openedDate && openedDate !== l.openedDate ? openedDate : undefined,
           overallPhotoUrl: overallPhoto !== (l.overallPhotoUrl ?? "") ? overallPhoto : undefined,
           additionalInfo: additionalInfo.trim() !== (l.additionalInfo ?? "").trim() ? additionalInfo.trim() : undefined,
           ...(canMove && branchChanged ? { branchId: branch!.id } : {}),
@@ -199,15 +229,35 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
         fetcher={(q) => listActiveSchemes(q || undefined)}
         selectedLabel={schemeLabel}
         keyOf={(s) => s.id}
-        renderItem={(s) => ({ title: `${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`, sub: s.code })}
+        renderItem={(s) => ({ title: s.ltvBased === false ? `${s.name} — @ ${s.interestRate}%` : `${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`, sub: s.code })}
         onSelect={(s) => {
           setSchemeId(s.id);
-          setSchemeLabel(`${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`);
-          setSchemeLtv(s.ltvPercent);
+          setSchemeLabel(s.ltvBased === false ? `${s.name} — @ ${s.interestRate}%` : `${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`);
+          setSchemeLtv(s.ltvBased === false ? 0 : s.ltvPercent);
+          setNewScheme(s);
+          setChargeMode(s.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout");
         }}
       />
-      <ResultBox k="Eligible loan amount" v={eligible > 0 ? inr(Math.floor(eligible)) : "—"} />
-      <TextField label={`Principal amount${eligible > 0 ? ` (max ${inr(Math.floor(eligible))})` : ""}`} keyboardType="decimal-pad" value={principal} onChangeText={(v) => setPrincipal(capToEligible(v))} />
+      {ltvBased ? <ResultBox k="Eligible loan amount" v={eligible > 0 ? inr(Math.floor(eligible)) : "—"} /> : null}
+      <DateField label="Loan date" value={openedDate} onChange={setOpenedDate} max={todayISO()} />
+      {hasCharge ? (
+        <Field label="Charge method">
+          <ChipToggle
+            options={["WithheldFromPayout", "AddedToPrincipal"] as const}
+            labels={{ WithheldFromPayout: "Deduct from loan", AddedToPrincipal: "Add to loan" }}
+            value={chargeMode}
+            onChange={setChargeMode}
+          />
+        </Field>
+      ) : null}
+      <TextField label={`${hasCharge ? "Amount" : "Principal amount"}${eligible > 0 ? ` (max ${inr(Math.floor(eligible))})` : ""}`} keyboardType="decimal-pad" value={principal} onChangeText={(v) => setPrincipal(capToEligible(v))} />
+      {hasCharge ? (
+        <>
+          <ResultBox k={`Service charge${chargeType === "Percent" ? ` (${chargeValue}%)` : ""}`} v={`${chargeMode === "WithheldFromPayout" ? "−" : "+"}${inr(charge)}`} />
+          <ResultBox k="Principal" v={inr(principalTotal)} />
+          <ResultBox k="Customer receives" v={inr(Math.max(0, payout))} />
+        </>
+      ) : null}
 
       {canMove ? (
         <>
@@ -229,7 +279,13 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
               label="Locker"
               placeholder="Search locker code"
               queryKey={["lockers", "edit-loan", branch?.id ?? l.branchId]}
-              fetcher={async (q) => (await listLockersPage({ branchId: branch?.id ?? l.branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+              fetcher={async (q) => {
+                const all = (await listLockersPage({ branchId: branch?.id ?? l.branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? [];
+                const free = all.filter((x) => (x.occupied ?? 0) < x.capacity);
+                lockersAllFull.current = all.length > 0 && free.length === 0;
+                return free;
+              }}
+              emptyText={() => (lockersAllFull.current ? "All lockers full" : undefined)}
               selectedLabel={locker ? `${locker.code} (${locker.occupied}/${locker.capacity} packets)` : undefined}
               onSelect={setLocker}
               keyOf={(x) => x.id}
@@ -289,7 +345,7 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
       <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginBottom: 12 }}>Total net weight: {totalNet.toFixed(2)} g</Txt>
 
       <UploadField label="Overall photo" value={overallPhoto} onChange={setOverallPhoto} allowPdf={false} />
-      <TextField label="Additional information" multiline maxLength={2000} placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChangeText={setAdditionalInfo} style={{ minHeight: 70 }} />
+      <TextField label="Additional information" multiline maxLength={150} placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChangeText={setAdditionalInfo} style={{ minHeight: 70 }} />
 
       {reviewing && (activeFollowing.length || activeDeps.length || interest.length) ? (
         <View style={{ marginBottom: 12 }}>

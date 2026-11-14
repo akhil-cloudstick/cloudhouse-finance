@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Buffering, C, Field, FieldGrid, NoticeBanner, PIcon, PrimaryButton, SectionTitle, Sheet, SheetListItem, Txt } from "@/common/components/ui";
-import { checkIndemnityBondEsign, listLoanRequests, startIndemnityBondEsign } from "@/modules/loans/services/loanService";
+import { checkIndemnityBondEsign, checkPledgeSlipEsign, listLoanRequests, startIndemnityBondEsign, startPledgeSlipEsign } from "@/modules/loans/services/loanService";
 import { type BondDeliverBy, type BondLang, type Loan } from "@/modules/loans/types/loan-types";
 import {
   printLabelAndSlipOnePage,
@@ -20,6 +20,7 @@ import {
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { ErrorText } from "@/common/components/ErrorText";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { printPolicy } from "@/common/config/brand";
 
 // Short mark shown in the language tile.
 const LANG_MARKS: Record<DocLang, string> = { en: "EN", ta: "த", ml: "മ", gu: "ગ" };
@@ -88,6 +89,33 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
   const st = l.indemnityBondSignStatus;
   const signed = st === "sign_complete" && !!l.indemnityBondSignedUrl;
   const status = esignStatusText(l);
+  // Pledge slip eSign (GML only) — the customer is the only signer; delivery is WhatsApp or an in-person link.
+  const [slipOpen, setSlipOpen] = useState(false);
+  const [slipNotice, setSlipNotice] = useState<string | null>(null);
+  const slipSt = l.pledgeSlipSignStatus ?? l.pledge_slip_sign_status;
+  const slipSignedUrl = l.pledgeSlipSignedUrl ?? l.pledge_slip_signed_url;
+  const slipSigned = slipSt === "sign_complete" && !!slipSignedUrl;
+  const slipStatus = slipSt === "sign_complete" ? { text: "Signed", color: C.green } : slipSt === "sign_initiated" ? { text: "Awaiting customer signature", color: C.amber } : slipSt === "failed" ? { text: "Last attempt failed", color: C.red } : { text: "Not signed", color: C.amber };
+  const isGml = printPolicy() === "gml";
+  const slipStart = useMutation({
+    mutationFn: (deliverBy: BondDeliverBy) => startPledgeSlipEsign(l.id, "cloudhouse://esign-callback", deliverBy),
+    onSuccess: (started, deliverBy) => {
+      if (deliverBy === "open" && started.url) {
+        Linking.openURL(started.url).catch(() => setError("Could not open the Aadhaar eSign link."));
+        setSlipNotice("eSign link is ready — complete it, then check the status here.");
+      } else setSlipNotice("Pledge slip eSign link sent to the customer via WhatsApp.");
+      invalidateLoan(qc, l.id);
+    },
+    onError: (e) => setError(apiErr(e)),
+  });
+  const slipCheck = useMutation({
+    mutationFn: () => checkPledgeSlipEsign(l.id),
+    onSuccess: (r) => {
+      setSlipNotice(r.status === "sign_complete" ? "Pledge slip signed successfully." : r.status === "failed" ? "Aadhaar eSign failed — send it again." : "Still waiting on the customer to complete Aadhaar eSign.");
+      invalidateLoan(qc, l.id);
+    },
+    onError: (e) => setError(apiErr(e)),
+  });
 
   // deliverBy: open the link here, or send it to the customer's WhatsApp / dashboard.
   const start = useMutation({
@@ -143,6 +171,19 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
         <SheetListItem first icon="layers" title="Print Label" sub={sub("label", "Packet label with QR code")} onPress={() => run("label", () => printPacketLabel(l), "Could not print the label — try again.")} />
         <SheetListItem icon="doc" title="Print Slip" sub={sub("slip", "Pledge slip for the customer")} onPress={() => run("slip", () => printPledgeSlip(l), "Could not print the slip — try again.")} />
         <SheetListItem icon="doc" title="Print Slip + Label" sub={sub("slipLabel", "Both on one A4 page")} onPress={() => run("slipLabel", () => printLabelAndSlipOnePage(l), "Could not print the slip and label — try again.")} />
+        {isGml && (slipSigned || (canSendEsign && !isFinished)) ? (
+          <SheetListItem
+            icon="doc"
+            title="Pledge Slip eSign"
+            sub={slipSigned ? "Pledge slip · eSigned" : slipSt === "sign_initiated" ? "Awaiting customer signature — check status" : "Send the slip for Aadhaar eSign"}
+            onPress={() => {
+              setError(null);
+              setSlipNotice(null);
+              onClose();
+              setSlipOpen(true);
+            }}
+          />
+        ) : null}
         {canExport ? (
           <SheetListItem icon="note" title="Statement" sub={sub("statement", "Statement of account for this loan")} onPress={() => run("statement", () => printStatement(l), "Could not print the statement — try again.")} />
         ) : null}
@@ -181,6 +222,41 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
           />
         ) : null}
         {busy ? <Buffering /> : null}
+        <ErrorText>{error}</ErrorText>
+      </Sheet>
+
+      <Sheet visible={slipOpen} onClose={() => setSlipOpen(false)} title="Pledge Slip eSign">
+        <FieldGrid
+          style={{ marginTop: 8, marginBottom: 14 }}
+          items={[
+            { k: "Loan", v: `${l.loanNumber} · ${l.customer?.name ?? `Customer #${l.customerId}`}` },
+            { k: "eSign status", v: slipStatus.text, color: slipStatus.color },
+          ]}
+        />
+        {slipSigned ? (
+          <PrimaryButton label="Open Signed Slip" variant="outline" style={{ marginBottom: 10 }} onPress={() => Linking.openURL(slipSignedUrl!).catch(() => setError("Could not open the signed slip."))} />
+        ) : (
+          <>
+            {slipStart.isPending ? (
+              <Buffering block />
+            ) : canSendEsign && !isFinished ? (
+              <>
+                <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginBottom: 4 }}>Send signing link by</Txt>
+                <SheetListItem first icon="card" title="WhatsApp" sub={`Send signing link to the customer's WhatsApp${l.customer?.phone ? ` (${l.customer.phone})` : ""}`} onPress={() => slipStart.mutate("whatsapp")} />
+                <SheetListItem icon="share" title="Signing Link" sub="Open the link here, for in-person signing at the branch" onPress={() => slipStart.mutate("open")} />
+              </>
+            ) : null}
+            {slipSt === "sign_initiated" ? (
+              <PrimaryButton label={slipCheck.isPending ? "Checking…" : "Check eSign Status"} variant="outline" style={{ marginTop: 10, marginBottom: 10 }} loading={slipCheck.isPending} onPress={() => slipCheck.mutate()} />
+            ) : null}
+          </>
+        )}
+        <Txt style={{ fontSize: 11.5, color: C.muted, marginVertical: 8 }}>Only the customer signs, with their own Aadhaar OTP.</Txt>
+        {slipNotice ? (
+          <View style={{ marginTop: 4 }}>
+            <NoticeBanner>{slipNotice}</NoticeBanner>
+          </View>
+        ) : null}
         <ErrorText>{error}</ErrorText>
       </Sheet>
 

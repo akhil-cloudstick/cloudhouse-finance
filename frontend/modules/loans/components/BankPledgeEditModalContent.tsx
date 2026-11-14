@@ -215,7 +215,6 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
         <FieldError msg={err} />
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
         <button className="btn" onClick={openPreview} disabled={saving}>
           <Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : "Preview the change"}
         </button>

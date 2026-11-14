@@ -256,9 +256,9 @@ func ListInvestors(c echo.Context) error {
 	if s := strings.TrimSpace(c.QueryParam("search")); s != "" {
 		if IsDigitQuery(s) {
 			q = q.Order(clause.Expr{SQL: NumericExactFirstOrder("code"), Vars: []any{NumericExactFirstArg(s)}})
-			q = q.Where("("+NumericPrefixSQL("code")+" OR phone LIKE ?)", NumericPrefixArg(s), s+"%")
+			q = q.Where("("+NumericPrefixSQL("code")+" OR phone LIKE ?)", NumericPrefixArg(s), "%"+s+"%")
 		} else {
-			q = q.Where("(name ILIKE ? OR code ILIKE ? OR phone ILIKE ?)", "%"+s+"%", "%"+s+"%", s+"%")
+			q = q.Where("(name ILIKE ? OR code ILIKE ? OR phone ILIKE ?)", "%"+s+"%", "%"+s+"%", "%"+s+"%")
 		}
 	}
 	if b := auth.GetBranchScope(c); b != nil {
@@ -357,7 +357,28 @@ func CreateInvestor(c echo.Context) error {
 	if err != nil {
 		return FailErr(c, err)
 	}
-	rec, err := SaveInvestor(auth.RequestContext(c), in)
+	ctx := auth.RequestContext(c)
+	// An existing customer can be made an investor (?from_customer_id=). The Aadhaar number is stored
+	// encrypted and never sent to the console, so it is carried over from the customer record here.
+	// The phone / PAN / Aadhaar uniqueness checks only look at other investors, so the customer's own
+	// number never blocks this; a number that already belongs to an investor still does.
+	if id := parseUintCSV(c.QueryParam("from_customer_id")); len(id) == 1 {
+		cust, err := FindCustomerByID(ctx, id[0])
+		if err != nil || (auth.GetBranchScope(c) != nil && cust.BranchID != *auth.GetBranchScope(c)) {
+			return FailErr(c, NewNotFound("customer not found"))
+		}
+		if in.Aadhaar == "" && cust.AadhaarEncrypted != "" {
+			aadhaar, err := config.AadhaarCipher.Decrypt(cust.AadhaarEncrypted)
+			if err != nil {
+				return FailErr(c, err)
+			}
+			in.Aadhaar = aadhaar
+		}
+		if in.PAN == "" {
+			in.PAN = cust.PAN
+		}
+	}
+	rec, err := SaveInvestor(ctx, in)
 	if err != nil {
 		return FailErr(c, err)
 	}

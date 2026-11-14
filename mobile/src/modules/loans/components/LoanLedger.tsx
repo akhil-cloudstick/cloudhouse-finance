@@ -10,6 +10,8 @@ import { dmy, inr } from "@/common/utils/format";
 import type { Loan, LoanTopUp } from "@/modules/loans/types/loan-types";
 import { LedgerPaymentEditSheet } from "@/modules/loans/components/LedgerPaymentEditSheet";
 import { TopUpEditSheet } from "@/modules/loans/components/TopUpEditSheet";
+import { useAuctionEntryEditor } from "@/modules/auctions/components/useAuctionEntryEditor";
+import { SanctionEditSheet } from "@/modules/loans/components/SanctionEditSheet";
 
 type Payment = NonNullable<Loan["payments"]>[number];
 
@@ -35,6 +37,10 @@ type Entry = {
   editable?: Payment;
   /** The top-up behind a row (set on a split top-up's first row only) — it can be edited or deleted. */
   editableTopUp?: LoanTopUp;
+  /** An auction entry behind a row (sale / surplus settlement / write-off) — it can be edited or deleted. */
+  auctionKind?: "sale" | "surplus" | "write-off";
+  /** The sanction row — Edit Loan Sanction (first row of a split payout only). */
+  editableSanction?: boolean;
 };
 
 // Payment rows the server can recalculate the loan around.
@@ -110,6 +116,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
         sub: Number(c.amount) > 0 ? inr(Number(c.amount)) : undefined,
         memo: "Auction",
         kind: "auction",
+        auctionKind: c.kind === "auction-sale" ? "sale" : "surplus",
         split: [],
       });
       continue;
@@ -152,6 +159,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
               { k: "Withheld", v: inr(withheld) },
             ]
           : [],
+      editableSanction: true,
     };
     const parts = disbursement ? splitParts(disbursement) : [];
     if (parts.length === 0) rows.push(sanction);
@@ -166,6 +174,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
         balance: sanctioned - later,
         method: pt.mode,
         split: pt.index === 0 ? sanction.split : [],
+        editableSanction: pt.index === 0,
       });
     }
   }
@@ -228,6 +237,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
       reference: p.reference || undefined,
       split,
       editable: EDITABLE_TYPES.includes(p.type) ? p : undefined,
+      auctionKind: p.type === "Auction Write-Off" ? "write-off" : undefined,
     };
     const parts = nonCash ? [] : splitParts(p);
     if (parts.length === 0) rows.push(payment);
@@ -244,6 +254,7 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
         // The allocation breakdown is the whole payment's — shown once.
         split: pt.index === 0 ? split : [],
         editable: pt.index === 0 ? payment.editable : undefined,
+        auctionKind: pt.index === 0 ? payment.auctionKind : undefined,
       });
     }
   }
@@ -297,8 +308,10 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
   // Editing/deleting a ledger entry recalculates the loan from its first day, so each has its own grant.
   const canEdit = can("Loan_Management", "can_edit_ledger_entry");
   const canDelete = can("Loan_Management", "can_delete_ledger_entry");
+  const auctionEditor = useAuctionEntryEditor();
   const [editing, setEditing] = useState<{ payment: Payment; mode: "edit" | "delete" } | null>(null);
   const [editingTopUp, setEditingTopUp] = useState<{ topUp: LoanTopUp; mode: "edit" | "delete" } | null>(null);
+  const [editingSanction, setEditingSanction] = useState(false);
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const kinds = gfValues(fv, "kind");
   const { from, to } = gfDate(fv, "date");
@@ -400,7 +413,11 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
               statusTone={chip.tone}
               details={details}
               actions={
-                (e.editable || e.editableTopUp) && (canEdit || canDelete)
+                e.auctionKind
+                  ? auctionEditor.actionsFor({ loanId: loan.id, loanNumber: loan.loanNumber, kinds: [e.auctionKind] })
+                  : e.editableSanction && canEdit && !e.editable && !e.editableTopUp
+                  ? [{ label: "Edit", onPress: () => setEditingSanction(true) }]
+                  : (e.editable || e.editableTopUp) && (canEdit || canDelete)
                   ? [
                       ...(canEdit ? [{ label: "Edit", onPress: () => (e.editable ? setEditing({ payment: e.editable, mode: "edit" as const }) : setEditingTopUp({ topUp: e.editableTopUp!, mode: "edit" as const })) }] : []),
                       ...(canDelete ? [{ label: "Delete", danger: true, onPress: () => (e.editable ? setEditing({ payment: e.editable, mode: "delete" as const }) : setEditingTopUp({ topUp: e.editableTopUp!, mode: "delete" as const })) }] : []),
@@ -418,6 +435,8 @@ export function LoanLedger({ loan, topUps }: LoanLedgerProps) {
         mode={editing?.mode ?? "edit"}
         onClose={() => setEditing(null)}
       />
+      <SanctionEditSheet loan={loan} visible={editingSanction} onClose={() => setEditingSanction(false)} />
+      {auctionEditor.sheet}
       <TopUpEditSheet loanId={loan.id} loanStart={loan.openedDate} topUp={editingTopUp?.topUp ?? null} mode={editingTopUp?.mode ?? "edit"} onClose={() => setEditingTopUp(null)} />
     </View>
   );

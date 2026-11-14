@@ -183,7 +183,6 @@ export function RequestExtensionModalContent({ loan: initialLoan, onSaved, onPai
       </div>
       <div className="ft">
         <span className="pay-ft-msg">{err}</span>
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={submit} disabled={saving || hasArrears || !monthsOk} title={hasArrears ? "Pay the outstanding interest/penal interest first" : undefined}>
           <Icon name="check" /> {saving ? "Saving…" : actionLabel}
         </button>

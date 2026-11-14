@@ -1,5 +1,4 @@
 import { Alert } from "react-native";
-import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 
 type PresentOptions = { mimeType?: string; UTI?: string; title?: string };
@@ -18,7 +17,8 @@ export async function shareNow(uri: string, opts: PresentOptions = {}) {
 }
 
 export async function previewPdf(uri: string) {
-  await Print.printAsync({ uri });
+  // printAsync({ uri }) crashes the app on Android; the share sheet (FileProvider content URI) lists PDF viewers.
+  await shareNow(uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf", title: "Open with" });
 }
 
 export function presentFile(uri: string, opts: PresentOptions = {}): Promise<void> {
@@ -26,7 +26,7 @@ export function presentFile(uri: string, opts: PresentOptions = {}): Promise<voi
   if (!isPdf) return shareNow(uri, opts);
   return new Promise((resolve) => {
     const share = () => { shareNow(uri, { ...opts, mimeType: "application/pdf", UTI: opts.UTI ?? "com.adobe.pdf" }).catch(() => {}); resolve(); };
-    const preview = () => { previewPdf(uri).catch(() => {}); resolve(); };
+    const preview = () => { previewPdf(uri).catch((e) => Alert.alert("Cannot open", String(e?.message ?? e))); resolve(); };
     Alert.alert(opts.title ?? "Document ready", "Your PDF has been downloaded.", [
       { text: "Open", onPress: preview },
       { text: "Share / Save", onPress: share },

@@ -86,6 +86,9 @@ func goldRelease(ctx context.Context, f models.Filter) ([]models.GoldReleaseRow,
 	if len(f.LoanIDs) > 0 {
 		q = q.Where("l.id IN ?", f.LoanIDs)
 	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("LOWER(TRIM(req.status)) IN ?", lowerTrimmed(f.Statuses))
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.GoldReleaseTotals{}, err
 	}
@@ -115,6 +118,9 @@ func auctionsReport(ctx context.Context, f models.Filter) ([]models.AuctionRow, 
 	}
 	if len(f.LoanIDs) > 0 {
 		q = q.Where("l.id IN ?", f.LoanIDs)
+	}
+	if len(f.Settlements) > 0 {
+		q = q.Where("LOWER(TRIM(r.final_settlement_status)) IN ?", lowerTrimmed(f.Settlements))
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.AuctionTotals{}, err

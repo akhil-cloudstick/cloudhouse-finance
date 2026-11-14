@@ -55,8 +55,8 @@ export function LoanRiskPage() {
   // One grouped filter: Status, Risk level (single choice each) and the
   // opened-date range.
   const filterCategories: FilterCategory[] = [
-    { key: "status", label: "Status", kind: "static", options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
-    { key: "risk", label: "Risk", kind: "static", options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
+    { key: "status", label: "Status", kind: "static", singleSelect: true, options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
+    { key: "risk", label: "Risk", kind: "static", singleSelect: true, options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
     { key: "__date", label: "Opened Date", kind: "date" },
   ];
   const filterValue: FilterValue = {

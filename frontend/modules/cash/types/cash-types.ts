@@ -388,7 +388,7 @@ export type PartyTotals = {
 };
 // loanNumbers is the customer drilldown's Loan filter, now multi-select —
 // loanNumber (singular) is kept for any caller still passing exactly one.
-export type PartyDateRange = { search?: string; focusDate?: string; focusAmount?: number; focusPayment?: number; fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
+export type PartyDateRange = { search?: string; focusDate?: string; focusAmount?: number; focusPayment?: number; focusRef?: string; fromDate?: string; toDate?: string; loanNumber?: string; loanNumbers?: string[]; modes?: string[] };
 /* Combined ledger row shape returned by the customer/bank drill-down
  * endpoints (backend/internal/cash/ledger.go's LedgerRow) — a UNION of
  * CashMovement/LoanPayment/PersonalLoanPayment/GoldSale rows, not just plain
@@ -418,6 +418,7 @@ export type LedgerRowView = {
   // The gold-loan repayment behind a row — the ledger offers its edit and delete.
   loanId?: number;
   paymentId?: number;
+  ref?: string; // unique row identity "<kind>:<id>" (m, e, g, lp, ld, pp, la), carried through ledger links
   // The personal-loan payment (with paymentId) behind a row, and an Interest / Penal Interest Charged row (loanId).
   personalLoanId?: number;
   loanAccrual?: boolean;
@@ -446,6 +447,7 @@ export type BackendLedgerRow = {
   editable?: boolean;
   loanId?: number;
   paymentId?: number;
+  ref?: string; // unique row identity "<kind>:<id>" (m, e, g, lp, ld, pp, la), carried through ledger links
   // The personal-loan payment (with paymentId) behind a row, and an Interest / Penal Interest Charged row (loanId).
   personalLoanId?: number;
   loanAccrual?: boolean;

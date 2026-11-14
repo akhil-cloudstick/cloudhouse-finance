@@ -53,9 +53,14 @@ func TestUnsettledInterestOccurrences(t *testing.T) {
 	opened, due := d(2026, 1, 10), d(2026, 7, 10)
 	from, to := d(2026, 1, 1), d(2026, 7, 10)
 	count := func(paid ...time.Time) int { return len(unsettledInterestOccurrences(opened, from, to, due, paid)) }
-	base := count() // the opening-day entry plus six monthly ones
-	if base != 7 {
-		t.Fatalf("no payments: got %d, want 7", base)
+	base := count() // six monthly ones; never the opening day
+	if base != 6 {
+		t.Fatalf("no payments: got %d, want 6", base)
+	}
+	for _, o := range unsettledInterestOccurrences(opened, from, to, due, nil) {
+		if o.Equal(opened) {
+			t.Error("no interest reminder on the loan opening date")
+		}
 	}
 	if got := count(d(2026, 2, 10)); got != base-1 {
 		t.Errorf("one payment on the Feb due date: got %d, want %d", got, base-1)

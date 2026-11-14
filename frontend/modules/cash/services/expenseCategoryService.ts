@@ -71,12 +71,13 @@ export function categoryLedgerPath(categoryId: number | string): string {
 export async function getExpenseCategoryLedger(
   categoryId: number,
   page: number,
-  range?: { fromDate?: string; toDate?: string; focusDate?: string; focusAmount?: number },
+  range?: { fromDate?: string; toDate?: string; focusDate?: string; focusAmount?: number; focusRef?: string },
   pageSize: number = EXPENSE_CATEGORY_LEDGER_PAGE_SIZE
 ): Promise<{ items: LedgerRowView[]; total: number; totalDebit: number; totalCredit: number; categoryName: string; loan?: LoanLedgerSummary; focusPage?: number }> {
   const params = new URLSearchParams();
   if (range?.fromDate) params.set("fromDate", range.fromDate);
   if (range?.toDate) params.set("toDate", range.toDate);
+  if (range?.focusRef) params.set("focusRef", range.focusRef);
   if (range?.focusAmount != null) {
     params.set("focusAmount", String(range.focusAmount));
     if (range.focusDate) params.set("focusDate", range.focusDate);

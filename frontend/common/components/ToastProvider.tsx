@@ -20,7 +20,7 @@ export function ToastProvider({ children }: ToastProviderProps) {
     setMsg(text);
     setShow(true);
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setShow(false), 2600);
+    timer.current = setTimeout(() => setShow(false), 4500);
   }, []);
 
   // Every 403 from the API surfaces here (httpClient dispatches the event).

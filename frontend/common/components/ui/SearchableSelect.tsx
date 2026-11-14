@@ -72,6 +72,8 @@ type SearchableSelectProps<T> = {
   // Opt-in: called with the typed text when focus leaves the field without a result being picked, so a value
   // that was typed but never confirmed (no Enter / click) is not lost.
   onBlurText?: (text: string) => void;
+  // Opt-in: text of the empty-list row in place of "No results" (a function is read on every render).
+  emptyText?: string | (() => string);
 };
 
 /**
@@ -132,6 +134,7 @@ export function SearchableSelect<T>({
   compactMinWidth = 60,
   portal = false,
   onBlurText,
+  emptyText,
 }: SearchableSelectProps<T>) {
   const floating = compact || portal;
   const [query, setQuery] = useState(value);
@@ -483,7 +486,7 @@ export function SearchableSelect<T>({
   ) : items.length === 0 && !showCreateRow ? (
     <>
       {createNewRow}
-      <div className="gs-none">No results</div>
+      <div className="gs-none">{(typeof emptyText === "function" ? emptyText() : emptyText) || "No results"}</div>
     </>
   ) : (
     <>

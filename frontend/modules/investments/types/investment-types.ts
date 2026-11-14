@@ -78,6 +78,10 @@ export type BackendInvestment = {
   interestWithdrawn: number;
   outstandingInterest: number;
   lastAccrualDate: string | null;
+  /* Fixed-payout ("Schedule") investments only: the interest closing would pay right now (payouts due plus the share
+   * earned in the running period) and the principal already paid back by earlier withdrawals. */
+  settlementInterest?: number;
+  principalReturned?: number;
 };
 /* One append-only ledger row (Add Cash deposit, or Withdraw of Interest/
  * Principal/Both) against an Engine "Live" investment — mirrors

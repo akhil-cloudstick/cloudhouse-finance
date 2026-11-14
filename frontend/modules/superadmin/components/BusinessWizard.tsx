@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { autoGrowTextarea } from "@/common/components/ui/NoteField";
 import { createBusiness, changeTier, updateProfile, setBranding, setModules, setLanguages, uploadLogo, clearLogo, uploadSignature, fetchSignatureUrl, clearSignature, getAdminLogin, updateAdminLogin, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business, type Tier, type Catalogue } from "@/modules/superadmin/types/superadmin-types";
 import { Select } from "@/modules/superadmin/components/Select";
@@ -649,7 +650,7 @@ export function BusinessWizard({
                     * (see resolveLockup); a third would push the nav down. */}
                   <textarea
                     value={tagline}
-                    onChange={(e) => { setTaglineTouched(true); setTagline(e.target.value); }}
+                    onChange={(e) => { setTaglineTouched(true); setTagline(e.target.value); autoGrowTextarea(e.target); }}
                     placeholder={name || "e.g. Gold Finance"}
                     rows={2}
                   />

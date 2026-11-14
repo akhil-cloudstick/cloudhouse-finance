@@ -17,12 +17,13 @@ export function listLoansPage(params: {
   servicing?: string; // due_soon | overdue | defaulted (read-time classifications)
   branchId?: number | string; // comma-joined for several
   customerId?: number | string;
-  schemeId?: number;
+  schemeId?: number | string;
   from?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
   to?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
   // Auction case buckets, computed server-side (replaces the old on-phone
   // isDefaulted filter): eligible | defaulted | auctioned_balance_due.
   auctionCase?: string;
+  auction_case?: string; // all | eligible | defaulted | auctioned_balance_due (snake_case as the backend reads it)
   auction_stage?: string; // comma-joined auction stages (sent snake_case as the backend reads it)
   bankPledgeStatus?: string;
   excludeBankPledged?: boolean;
@@ -360,9 +361,10 @@ export type LoanEditFlags = {
 };
 
 const editBody = (input: UpdateLoanInput, flags?: LoanEditFlags) => {
-  const { overallPhotoUrl, additionalInfo, branchId, lockerId, ...core } = input;
+  const { overallPhotoUrl, additionalInfo, branchId, lockerId, serviceChargeMode, ...core } = input;
   return {
   ...core,
+  ...(serviceChargeMode !== undefined ? { service_charge_mode: serviceChargeMode } : {}),
   ...(overallPhotoUrl !== undefined ? { overall_photo_url: overallPhotoUrl } : {}),
   ...(additionalInfo !== undefined ? { additional_info: additionalInfo } : {}),
   ...(branchId !== undefined ? { branch_id: branchId } : {}),
@@ -391,4 +393,88 @@ export async function previewLoanEdit(loanId: number, input: UpdateLoanInput): P
 
 export function updateLoanWithFlags(loanId: number, input: UpdateLoanInput, flags?: LoanEditFlags) {
   return apiRequest<Loan>(`/loans/${loanId}`, { method: "PATCH", body: editBody(input, flags) });
+}
+
+// --- Bank pledge edit / delete, sanction edit, release record, pledge-slip eSign (mirrors web loanService.ts) ---
+export type EditBankPledgeInput = {
+  bankId?: number;
+  bankName?: string;
+  pledgedAmount?: number;
+  pledgeDate?: string;
+  bankPledgeDueDate?: string; // "" clears it
+  bankInterestRate?: number;
+  referenceNumber?: string;
+  cashTreatment?: "CashIn" | "RecordOnly";
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number;
+  releaseDate?: string;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number;
+};
+export type BankPledgeEditPreview = { before: import("@/modules/loans/types/loan-types").BankPledgeRecord; after: import("@/modules/loans/types/loan-types").BankPledgeRecord | null; dryRun: boolean };
+
+export function editBankPledge(loanId: number, pledgeId: number, input: EditBankPledgeInput, dryRun = false) {
+  return apiRequest<BankPledgeEditPreview>(`/loans/${loanId}/bank-pledge/${pledgeId}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+}
+export function deleteBankPledge(loanId: number, pledgeId: number, dryRun = false) {
+  return apiRequest<BankPledgeEditPreview>(`/loans/${loanId}/bank-pledge/${pledgeId}${dryRun ? "?dry_run=true" : ""}`, { method: "DELETE" });
+}
+
+export type SanctionEditDependent = { kind: string; description: string; current: string; suggested: string; warning?: string };
+export type SanctionEditPreview = {
+  before: { principal: number; interest: number; penalInterest: number; total: number; status: string };
+  after: { principal: number; interest: number; penalInterest: number; total: number; status: string };
+  following?: LoanEditFollowing[];
+  dependents?: SanctionEditDependent[];
+};
+export type EditLoanDisbursementInput = {
+  disbursedOn?: string;
+  dueDate?: string;
+  sanctionedAmount?: number;
+  serviceCharge?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  bankId?: number;
+  reversePacket?: boolean;
+  restorePartialRelease?: boolean;
+  adjustFollowing?: { id: number; amount: number }[];
+};
+export function editLoanDisbursement(loanId: number, input: EditLoanDisbursementInput, dryRun = false) {
+  const { adjustFollowing, restorePartialRelease, ...rest } = input;
+  const body = { ...rest, ...(adjustFollowing ? { adjust_following: adjustFollowing } : {}), ...(restorePartialRelease ? { restore_partial_release: true } : {}) };
+  return apiRequest<SanctionEditPreview>(`/loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body });
+}
+
+export function editReleaseRecord(requestId: number, input: { requestedAt?: string; remarks?: string; verificationNotes?: string }) {
+  return apiRequest<unknown>(`/loans/requests/${requestId}/release-record`, { method: "PATCH", body: input });
+}
+export function deleteReleaseRecord(requestId: number) {
+  return apiRequest<unknown>(`/loans/requests/${requestId}/release-record`, { method: "DELETE" });
+}
+
+export function startPledgeSlipEsign(loanId: number, redirectUrl: string, deliverBy: BondDeliverBy = "open") {
+  return apiRequest<IndemnityBondEsignStart>(`/loans/${loanId}/indemnity-bond/esign/start`, { method: "POST", body: { document: "slip", redirectUrl, deliverBy } });
+}
+export function checkPledgeSlipEsign(loanId: number) {
+  return apiRequest<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`, { params: { document: "slip" } });
+}
+
+/** Mirrors web loanDisplayStatus: one status — Defaulted / Overdue / Due Soon / Active / Closure Requested / ... */
+export function loanDisplayStatus(l: Loan): string {
+  switch (l.status) {
+    case "Active": case "Due Soon": case "Overdue": case "Auction Eligible": break;
+    default: return l.status;
+  }
+  const outstanding = l.totalOutstandingBalance ?? l.outstandingAmount ?? 0;
+  if (outstanding <= 0.01) return "Closure Requested";
+  if (l.status === "Auction Eligible") return l.status;
+  if (l.isDefaulted) return "Defaulted";
+  if (l.isOverdue) return (l.outstandingInterest ?? 0) > 0.01 || (l.outstandingPenalInterest ?? 0) > 0.01 ? "Overdue" : "Active";
+  if (l.isDueSoon) return "Due Soon";
+  return "Active";
 }

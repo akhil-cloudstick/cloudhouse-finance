@@ -117,9 +117,7 @@ export function UpgradePlanModal({
           One-time payment. There are no renewals. Your current branches, staff and data stay as they are.
         </p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={runUpgrade}>Confirm · pay {formatRupees(toPay)}</button>
+      <div className="ft">        <button className="btn" onClick={runUpgrade}>Confirm · pay {formatRupees(toPay)}</button>
       </div>
     </>
   );

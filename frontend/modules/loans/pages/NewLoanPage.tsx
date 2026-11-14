@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_ORN_PHOTOS } from "@/modules/loans/utils/ornamentPhotos";
 import { useData } from "@/common/providers/DataProvider";
@@ -12,7 +13,8 @@ import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { stageByPending } from "@/common/services/approvalWorkflowService";
 import { Icon } from "@/common/components/Icon";
-import { fmt, roundRupee, custOf, schemeOf, fmtDateTime } from "@/common/utils/format";
+import { fmt, roundRupee, custOf, schemeOf, fmtDateTime, schemeOptionLabel } from "@/common/utils/format";
+import { FieldError } from "@/common/components/ui/FieldError";
 import { uploadFile, searchBorrowersPage, getCustomer } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
@@ -20,8 +22,13 @@ import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeServic
 import { type SchemeView } from "@/modules/schemes/types/scheme-types";
 import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
-import { createLoan, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber } from "@/modules/loans/services/loanService";
-import { type BackendLoanDraft, type SaveDraftInput } from "@/modules/loans/types/loan-types";
+import { createLoan, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber, getLoanByNumber, updateLoan, previewLoanEdit, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage, type LedgerEditDependent, type LedgerFollowingEntry } from "@/modules/loans/services/loanService";
+import { type BackendLoanDraft, type SaveDraftInput, type LoanView } from "@/modules/loans/types/loan-types";
+import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
+import { InterestChangesTable, type InterestChangeView } from "@/modules/loans/components/InterestChangesTable";
+import { GoldReleaseDependents, goldChoicesOf } from "@/modules/loans/components/GoldReleaseDependents";
+import { SplitPaymentInput, type SplitAmounts, type SplitPaymentLine } from "@/common/components/SplitPaymentInput";
+import { listPackets } from "@/modules/packets/services/packetService";
 import { publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
@@ -63,7 +70,9 @@ import { navigate } from "@/common/services/appRoutes";
 // backend/internal/loan/service.go) and already prices GoldValue as
 // NetWeight × rate with no quantity factor — this frontend calc was the
 // one out of step, not the backend.
-type OrnRow = { n: string; p: string; w: number; lessWt: number; netW: number; q: number; imgs?: string[] };
+// Edit mode: `id` is the saved ornament this row stands for (none for one added in this edit) and `saved` its photos
+// as saved — those can't be removed here, only photos added in this edit.
+type OrnRow = { n: string; p: string; w: number; lessWt: number; netW: number; q: number; imgs?: string[]; id?: number; saved?: string[] };
 const blankOrnRow = (): OrnRow => ({ n: "", p: "22K", w: 0, lessWt: 0, netW: 0, q: 1 });
 
 // A focused <input type="number"> steps its value on mouse-wheel scroll, so
@@ -113,13 +122,15 @@ function localISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-type NewLoanPageProps = { customerId?: string };
+type NewLoanPageProps = { customerId?: string; editLoanNumber?: string };
 
 /* Ported from legacy/app.js's `renderNewLoan()` (legacy/app.js:845-1151).
  * Customer/scheme/ornament-type pickers now hit the real backend search
  * endpoints (via SearchableSelect) instead of filtering an in-memory mock
  * list or a localStorage-backed type list. */
-export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
+export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {}) {
+  // Edit mode: the same form, opened on an existing loan (customer fixed, everything else prefilled and editable).
+  const isEdit = !!editLoanNumber;
   const { isCrossBranch, can, selectedBranchId, employee } = useAuth();
   const canPublishRate = can("Gold_Rate_Management", "can_create_gold_rate");
   // Locker is optional on a new loan ("Assign later") — without locker view
@@ -226,6 +237,8 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // selecting a customer.
   const [custId, setCustId] = useState("");
   const [custLabel, setCustLabel] = useState("");
+  // Missing mandatory fields (customer, scheme, ornaments), flagged together in form order on submit.
+  const [fe, setFe] = useState<Record<string, string>>({});
   // Opened from a customer's profile ("New Loan" on CustomerDetail.tsx) —
   // the route carries that customer's id, so pre-select them here. This is
   // an explicit choice by staff, not the hidden default warned about above.
@@ -316,6 +329,80 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   const [drafts, setDrafts] = useState<BackendLoanDraft[]>([]);
   // Search box over the Saved drafts card (customer name / scheme).
   const [draftQ, setDraftQ] = useState("");
+  // ---- Edit mode -----------------------------------------------------------------------------------------------
+  // The loan being edited, and what only an edit needs: where its gold is kept, the review of what a recalculation
+  // would do to later payments, and how the payout of a loan already paid out was made.
+  const [editLoan, setEditLoan] = useState<LoanView | null>(null);
+  const [editLoadFailed, setEditLoadFailed] = useState(false);
+  const [hasPacket, setHasPacket] = useState(false);
+  const [packetLocker, setPacketLocker] = useState<number | null>(null);
+  const [following, setFollowing] = useState<LedgerFollowingEntry[]>([]);
+  const [follow, setFollow] = useState<Record<number, string>>({});
+  const [reviewedFor, setReviewedFor] = useState("");
+  const [depList, setDepList] = useState<LedgerEditDependent[]>([]);
+  const [interestList, setInterestList] = useState<InterestChangeView[]>([]);
+  const [chosenDeps, setChosenDeps] = useState<Record<string, boolean>>({});
+  const [payoutSplit, setPayoutSplit] = useState<SplitAmounts | null>(null);
+  const [payoutRemaining, setPayoutRemaining] = useState(0);
+  const [payoutBankId, setPayoutBankId] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (!editLoanNumber) return;
+    let cancelled = false;
+    getLoanByNumber(editLoanNumber)
+      .then((ln) => {
+        if (cancelled) return;
+        const added = ln.serviceChargeMode === "AddedToPrincipal";
+        setEditLoan(ln);
+        setCustId(ln.customerId);
+        setCustLabel(`${ln.customerName} (${ln.customerCode})`);
+        setSchemeId(ln.schemeId);
+        setSchemeLabel(ln.schemeName);
+        // The loan runs on the terms frozen onto it, so those (not the scheme's current ones) drive the figures here.
+        setSchemeObj({
+          id: ln.schemeId, code: "", name: ln.schemeName, rate: ln.schemeRate, rateTiers: [], minimumDays: 0, durationMonths: 0,
+          ltv: ln.schemeLtv, ltvBased: ln.schemeLtv > 0, method: ln.schemeMethod, penal: ln.schemePenal, accrualBasis: "daily", cond: "",
+          active: true, branchId: ln.branchId, branchName: ln.branchName,
+          serviceChargeType: ln.serviceChargeType || "None", serviceChargeValue: ln.serviceChargeValue ?? 0,
+          serviceChargeMode: added ? "AddedToPrincipal" : "WithheldFromPayout",
+        } as SchemeView);
+        setBranchId(ln.branchId);
+        setBranchLabel(ln.branchName);
+        setOpenedDate(ln.opened);
+        setChargeMode(added ? "AddedToPrincipal" : "WithheldFromPayout");
+        setAdditionalInfo(ln.additionalInfo || "");
+        setOverallPhoto(ln.overallPhotoUrl || "");
+        setRows(ln.ornaments.length ? ln.ornaments.map((o) => ({
+          id: o.id, n: o.name, p: o.purity, w: o.grossWeight, netW: o.netWeight,
+          lessWt: round3(Math.max(0, o.grossWeight - o.netWeight)), q: o.quantity,
+          ...(o.photoUrls?.length ? { imgs: o.photoUrls, saved: o.photoUrls } : {}),
+        })) : [blankOrnRow()]);
+        // The Amount is what the customer asked for: the principal, less the charge when that was added on top of it.
+        setPrincipalOverride(String(Math.round((ln.principal - (added ? ln.serviceChargeAmount || 0 : 0)) * 100) / 100));
+        if (isCrossBranch && canViewLockers) {
+          listPackets({ loanId: ln.numericId }).then((ps) => {
+            setHasPacket(ps.length > 0);
+            const lid = ps[0]?.currentLockerId ?? null;
+            setPacketLocker(lid);
+            if (lid) {
+              setLockerId(lid);
+              getLocker(lid).then((k) => setLockerLabel(lockerLabelOf(k))).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+      })
+      .catch(() => { if (!cancelled) setEditLoadFailed(true); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editLoanNumber]);
+
+  // When Save turns up a review (later payments, interest changes, released gold), bring it into view: it sits below the
+  // ornaments, so without this the save looks like it did nothing.
+  const reviewRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!reviewedFor) return;
+    requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+  }, [reviewedFor]);
+
   useEffect(() => {
     listActiveBranches()
       .then((list) => {
@@ -354,16 +441,33 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // branch: a locker physically lives at one branch, so listing every
   // branch's lockers here would let staff assign gold into a locker the
   // branch doesn't actually have access to.
+  // Set when the matching lockers all exist but are all full, so the empty list says so instead of "No results".
+  const lockersAllFullRef = useRef(false);
   function searchLockers(q: string, page: number): Promise<{ items: LockerView[]; hasMore: boolean }> {
-    return searchLockersPage(q, page, { activeOnly: true, branchId: branchId === "" ? undefined : branchId }).then((res) => ({
-      items: res.items.filter((k) => k.occupied < k.capacity),
-      hasMore: res.hasMore,
-    }));
+    return searchLockersPage(q, page, { activeOnly: true, branchId: branchId === "" ? undefined : branchId }).then((res) => {
+      const items = res.items.filter((k) => k.occupied < k.capacity);
+      if (page === 0) lockersAllFullRef.current = res.items.length > 0 && items.length === 0 && !res.hasMore;
+      return { items, hasMore: res.hasMore };
+    });
   }
 
+  // The ornaments message goes away as soon as the rows are touched.
+  useEffect(() => { setFe((c) => (c.ornaments ? { ...c, ornaments: "" } : c)); }, [rows]);
+
   const draftNeedle = draftQ.trim().toLowerCase();
+  // Names starting with the typed text rank first, then names merely containing it, then code/scheme matches.
   const visibleDrafts = draftNeedle
-    ? drafts.filter((d) => (d.customer?.name || "").toLowerCase().includes(draftNeedle) || (d.customer?.code || "").toLowerCase().includes(draftNeedle) || (d.scheme?.name || "").toLowerCase().includes(draftNeedle))
+    ? drafts
+        .map((d, i) => {
+          const name = (d.customer?.name || "").toLowerCase();
+          // One typed character is a first-letter filter: only names starting with it, nothing that merely contains it.
+          const rank = name.startsWith(draftNeedle) ? 0 : draftNeedle.length < 2 ? -1 : name.includes(draftNeedle) ? 1
+            : ((d.customer?.code || "").toLowerCase().includes(draftNeedle) || (d.scheme?.name || "").toLowerCase().includes(draftNeedle)) ? 2 : -1;
+          return { d, i, rank };
+        })
+        .filter((x) => x.rank >= 0)
+        .sort((a, b) => a.rank - b.rank || a.i - b.i)
+        .map((x) => x.d)
     : drafts;
 
   const sch = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((s) => s.id === schemeId);
@@ -372,10 +476,19 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // exact 22K/18K ornament at its independently published K22/K18 rate, and
   // rejects a principal above ITS eligible amount — so the preview here must
   // use the same rate or it offers an amount the server then refuses.
-  const rowVals = rows.map((r) => r.netW * (rateForPurityFull(rates, r.p) ?? 0));
+  // An ornament left as it was keeps the value it was given when saved; only a new or changed one is valued at today's
+  // rate (otherwise the eligible amount of an old loan would drop whenever the gold rate has fallen since).
+  const rowVals = rows.map((r) => {
+    const saved = editLoan && r.id != null ? editLoan.ornaments.find((o) => o.id === r.id) : undefined;
+    if (saved && saved.purity === r.p && Math.abs(r.netW - saved.netWeight) < 0.0005) return saved.goldValue;
+    return r.netW * (rateForPurityFull(rates, r.p) ?? 0);
+  });
   const totalWeight = round3(rows.reduce((s, r) => s + r.netW, 0));
   const totalGross = rowVals.reduce((s, v) => s + v, 0);
-  const eligible = sch ? (totalGross * sch.ltv) / 100 : 0;
+  // A scheme that is not based on gold LTV has no eligible amount and no cap: staff enter any amount, and the gold
+  // value is still stored with the loan for releases.
+  const ltvBased = !sch || sch.ltvBased;
+  const eligible = sch && ltvBased ? (totalGross * sch.ltv) / 100 : 0;
   // Clear a stale manual override whenever the eligible amount it was based
   // on changes (ornaments edited, scheme swapped, rates refreshed) — the
   // field falls back to showing the new eligible amount as a placeholder
@@ -394,7 +507,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // (see loan.Service.Create).
   // Rounded to a whole rupee exactly as the backend's RoundMoney does (5.5 -> 6), so the full
   // eligible amount can be entered and the server accepts it.
-  const maxPrincipalEntry = roundRupee(eligible);
+  const maxPrincipalEntry = ltvBased ? roundRupee(eligible) : Number.MAX_SAFE_INTEGER;
   // Staff can reduce the disbursed principal below the ceiling, but never
   // raise it above — maxPrincipalEntry (eligible amount, minus any
   // AddedToPrincipal charge) is the hard cap a manual override may not
@@ -402,12 +515,47 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // full roundedEligible — defaulting to that when a charge applies would
   // prefill a figure that fails submission the moment the charge is added
   // on top).
-  const principal = principalOverride.trim() ? Math.min(Math.max(0, roundRupee(+principalOverride)), maxPrincipalEntry) : maxPrincipalEntry;
+  const principal = principalOverride.trim() ? Math.min(Math.max(0, roundRupee(+principalOverride)), maxPrincipalEntry) : ltvBased ? maxPrincipalEntry : 0;
+  // ---- Edit mode figures, worked the same way the Valuation card does for a new loan ----------------------------
+  // The service charge comes off the Amount (Deduct) or rides on top of it (Add to loan); the principal and the payout follow.
+  const hasCharge = !!sch && sch.serviceChargeType !== "None";
+  const chargeAmount = !sch || sch.serviceChargeType === "None" ? 0 : sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : roundRupee((principal * sch.serviceChargeValue) / 100);
+  const chargeWithheld = chargeMode === "WithheldFromPayout";
+  const principalTotal = hasCharge && !chargeWithheld ? principal + chargeAmount : principal;
+  const payout = hasCharge && chargeWithheld ? principal - chargeAmount : principal;
+  const loanMode = editLoan?.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout";
+  const schemeChanged = !!editLoan && schemeId !== editLoan.schemeId;
+  const modeChanged = !!editLoan && hasCharge && chargeMode !== loanMode;
+  const principalChanged = !!editLoan && principal > 0 && principalTotal !== editLoan.principal;
+  // A switched scheme brings its own mode on the server, so the chosen one is always sent along with it.
+  const sendMode = hasCharge && (modeChanged || schemeChanged);
+  const reviewKey = `${schemeId}|${principalTotal}|${modeChanged ? chargeMode : ""}`;
+  const activeFollowing = reviewedFor === reviewKey ? following : [];
+  const activeDeps = reviewedFor === reviewKey ? depList : [];
+  const paidOut = !!editLoan?.disbursementDate;
+  // the payout in force: a loan edited the old way also keeps an earlier payout and its reversal
+  const disbursement = editLoan ? [...editLoan.payments].reverse().find((x) => x.type === "Disbursement") : undefined;
+  const payoutLines: SplitPaymentLine[] | undefined = disbursement ? [
+    disbursement.cashAmount > 0 && { mode: "Cash" as const, amount: String(disbursement.cashAmount) },
+    disbursement.upiAmount > 0 && { mode: "UPI" as const, amount: String(disbursement.upiAmount), bankId: disbursement.bankId ?? undefined, bankName: disbursement.bankName },
+    disbursement.bankTransferAmount > 0 && { mode: "Bank Transfer" as const, amount: String(disbursement.bankTransferAmount), bankId: disbursement.bankId ?? undefined, bankName: disbursement.bankName },
+  ].filter(Boolean) as SplitPaymentLine[] : undefined;
+  const payoutChanged = !!disbursement && !!payoutSplit && (
+    Math.abs(payoutSplit.cashAmount - disbursement.cashAmount) > 0.005 ||
+    Math.abs(payoutSplit.upiAmount - disbursement.upiAmount) > 0.005 ||
+    Math.abs(payoutSplit.bankTransferAmount - disbursement.bankTransferAmount) > 0.005 ||
+    ((payoutSplit.upiAmount > 0 || payoutSplit.bankTransferAmount > 0) && (payoutBankId ?? null) !== (disbursement.bankId ?? null))
+  );
+  // Only a changed scheme, amount or charge method sends a loan that is not paid out yet back through approval.
+  const triggersReapproval = schemeChanged || principalChanged || modeChanged;
+
   // Set when a saved draft is being applied: that draft's own override
   // arrived together with its ornaments, so it is not stale and must survive
   // the reset this effect would otherwise perform. See applyDraft().
   const skipOverrideResetRef = useRef(false);
   useEffect(() => {
+    // An edit keeps the loan's own amount — it is never re-filled from the eligible amount.
+    if (isEdit) return;
     if (skipOverrideResetRef.current) {
       skipOverrideResetRef.current = false;
       return;
@@ -418,7 +566,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     // ready-to-submit figure, not a placeholder staff have to notice and
     // accept, and never one that would fail submission as soon as the
     // charge is added on top.
-    setPrincipalOverride(maxPrincipalEntry > 0 ? String(maxPrincipalEntry) : "");
+    setPrincipalOverride(ltvBased && maxPrincipalEntry > 0 ? String(maxPrincipalEntry) : "");
     setPrincipalExceedsEligible(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maxPrincipalEntry]);
@@ -515,6 +663,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     }
   }
   function delOrnImg(i: number, url: string) {
+    if (rows[i]?.saved?.includes(url)) { toast("A saved photo cannot be removed here, only photos added in this edit"); return; }
     setRows((rs) => rs.map((r, idx) => {
       if (idx !== i) return r;
       const imgs = (r.imgs ?? []).filter((u) => u !== url);
@@ -718,14 +867,103 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
     }
   }
 
+  // Saves an edit to the loan: ornaments first (each call revalues its row and recalculates the eligible amount, which
+  // the loan update then checks), then the loan itself. A loan already paid out that a scheme / amount / method change
+  // recalculates is looked at first: nothing is saved until the later payments it affects have been seen.
+  async function submitEdit() {
+    if (!editLoan) return;
+    const ln = editLoan;
+    const s = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((x) => x.id === schemeId);
+    const missing: Record<string, string> = {};
+    if (!s) missing.scheme = "Please select a scheme.";
+    const validRows = rows.filter((r) => r.w > 0 && r.q > 0);
+    if (!validRows.length) missing.ornaments = "A loan must have at least one ornament.";
+    else if (validRows.some((r) => !r.n.trim())) missing.ornaments = "Please select an ornament type for every row.";
+    else if (rows.some((r) => r.id != null && !(r.w > 0 && r.q > 0))) missing.ornaments = "Every saved ornament needs a weight and quantity.";
+    setFe(missing);
+    if (Object.keys(missing).length) return;
+    if (validRows.some((r) => r.lessWt > r.w)) { toast("Less Wt cannot be greater than Gross Wt"); return; }
+    if (!(principal > 0)) { toast("Please enter a valid loan amount"); return; }
+    if (hasCharge && payout <= 0) { toast("The service charge must be less than the amount."); return; }
+    if (!openedDate) { toast("Please select the loan date"); return; }
+    if (openedDate > localISO(new Date())) { toast("Loan date cannot be in the future"); return; }
+    const branchChanged = branchId !== "" && Number(branchId) !== ln.branchId;
+    const lockerChanged = lockerId !== "" && Number(lockerId) !== packetLocker;
+    if (isCrossBranch && branchChanged && hasPacket && packetLocker && lockerId === "") { toast("Choose a locker in the new branch for the gold."); return; }
+    if (paidOut && disbursement && (payoutChanged || principalChanged)) {
+      if (Math.abs(payoutRemaining) > 0.01) { toast(`The payout breakdown must add up to ${fmt(payout)}.`); return; }
+      if (payoutSplit && (payoutSplit.upiAmount > 0 || payoutSplit.bankTransferAmount > 0) && !payoutBankId) { toast("Select the bank for the UPI / Bank Transfer part of the payout."); return; }
+    }
+    const payoutPart = paidOut && payoutSplit && (payoutChanged || principalChanged)
+      ? { cashAmount: payoutSplit.cashAmount, upiAmount: payoutSplit.upiAmount, bankTransferAmount: payoutSplit.bankTransferAmount, bankId: payoutBankId }
+      : {};
+    setSubmitting(true);
+    try {
+      if (paidOut && (schemeChanged || principalChanged || modeChanged) && reviewedFor !== reviewKey) {
+        const probe = await previewLoanEdit(ln.numericId, {
+          schemeId: schemeChanged ? Number(schemeId) : undefined,
+          principalAmount: principalChanged ? principalTotal : undefined,
+          serviceChargeMode: sendMode ? chargeMode : undefined,
+          ...payoutPart,
+        });
+        if (probe.following?.length || probe.dependents?.length || probe.interestChanges?.length) {
+          setInterestList(probe.interestChanges ?? []);
+          setFollowing(probe.following ?? []);
+          setDepList(probe.dependents ?? []);
+          setReviewedFor(reviewKey);
+          setFollow(Object.fromEntries((probe.following ?? []).map((f) => [f.id, String(f.current)])));
+          setChosenDeps(Object.fromEntries((probe.dependents ?? []).map((d) => [d.kind, true])));
+          toast("Review what this changes below, then save again");
+          return;
+        }
+      }
+      const keptIds = new Set(rows.filter((r) => r.id != null).map((r) => r.id as number));
+      for (const o of ln.ornaments) if (!keptIds.has(o.id)) await deleteOrnament(o.id);
+      for (const r of validRows) {
+        const input = { name: r.n.trim(), purity: r.p, grossWeight: r.w, deductionWeight: r.lessWt, quantity: r.q };
+        if (r.id != null) {
+          await updateOrnament(r.id, input);
+          for (const url of (r.imgs ?? []).filter((u) => !(r.saved ?? []).includes(u))) await addOrnamentImage(r.id, url);
+        } else {
+          await addOrnament(ln.numericId, { ...input, ...(r.imgs?.length ? { images: r.imgs } : {}) });
+        }
+      }
+      await updateLoan(ln.numericId, {
+        schemeId: schemeChanged ? Number(schemeId) : undefined,
+        principalAmount: principalChanged ? principalTotal : undefined,
+        serviceChargeMode: sendMode ? chargeMode : undefined,
+        openedDate: openedDate !== ln.opened ? openedDate : undefined,
+        overallPhotoUrl: overallPhoto !== (ln.overallPhotoUrl || "") ? overallPhoto : undefined,
+        additionalInfo: additionalInfo.trim() !== (ln.additionalInfo || "").trim() ? additionalInfo.trim() : undefined,
+        ...goldChoicesOf(activeDeps, chosenDeps),
+        ...(activeFollowing.length ? { adjustFollowing: activeFollowing.map((f) => ({ id: f.id, amount: +(follow[f.id] ?? f.current) || 0 })) } : {}),
+        ...(isCrossBranch && branchChanged ? { branchId: Number(branchId) } : {}),
+        ...(isCrossBranch && hasPacket && lockerChanged ? { lockerId: Number(lockerId) } : {}),
+        ...payoutPart,
+      });
+      refresh();
+      refreshLoans();
+      toast("Loan updated");
+      navigate("loan/" + ln.loanNumber);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not save changes. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function submitNewLoan() {
     const validRows = rows.filter((r) => r.w > 0 && r.q > 0);
-    if (!validRows.length) { toast("Add at least one ornament with weight and qty"); return; }
-    if (validRows.some((r) => !r.n.trim())) { toast("Please select an ornament type for every row"); return; }
-    if (validRows.some((r) => r.lessWt > r.w)) { toast("Less Wt cannot be greater than Gross Wt"); return; }
     const s = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((x) => x.id === schemeId);
-    if (!s) { toast("Please select a scheme"); return; }
-    if (!custId) { toast("Please select a verified customer"); return; }
+    const missing: Record<string, string> = {};
+    if (!custId) missing.customer = "Please select a verified customer.";
+    if (!s) missing.scheme = "Please select a scheme.";
+    if (!validRows.length) missing.ornaments = "Add at least one ornament with weight and qty.";
+    else if (validRows.some((r) => !r.n.trim())) missing.ornaments = "Please select an ornament type for every row.";
+    setFe(missing);
+    if (Object.keys(missing).length) return;
+    if (!s) return;
+    if (validRows.some((r) => r.lessWt > r.w)) { toast("Less Wt cannot be greater than Gross Wt"); return; }
     if (branchId === "") { toast("Please select a branch"); return; }
 
     if (!(principal > 0)) { toast("Please enter a valid loan amount"); return; }
@@ -802,13 +1040,18 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
   // page-level route guard (app/(product)/app/page.tsx's ROUTE_PERMISSIONS) already
   // blocks direct navigation to #newloan, this is a defensive second check
   // in case this component is ever rendered another way.
-  if (!can("Loan_Management", "can_create_loan")) {
+  if (!can("Loan_Management", isEdit ? "can_update_loan" : "can_create_loan")) {
     return (
       <div className="empty">
-        You don&apos;t have permission to create a loan. Contact a Loan Operator, Branch Manager, or Administrator.
+        You don&apos;t have permission to {isEdit ? "edit a loan" : "create a loan"}. Contact a Loan Operator, Branch Manager, or Administrator.
       </div>
     );
   }
+  if (isEdit && editLoadFailed) {
+    return <div className="empty">Could not load this loan. Go back and try again.</div>;
+  }
+  // Edit: the locker is only offered when the loan's gold is in a packet, and only to a role that may move it.
+  const showLocker = canViewLockers && (!isEdit || (hasPacket && isCrossBranch));
 
   return (
     /* display:contents keeps this key handler in the DOM (keydown still
@@ -818,9 +1061,11 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
      * .page-h/.gold-rule/etc. sit directly under .page, was pushing this
      * page's title row out of alignment with the rest. */
     <div className="newloan-root" onKeyDown={onEnterSubmit} style={{ display: "contents" }}>
-      <div className="page-h"><div><h1>New Gold Loan</h1><p>Select a verified customer, choose a scheme, and record pledged ornaments</p></div></div>
+      <div className="page-h"><div>{isEdit
+        ? <><h1>Edit Loan — {editLoanNumber}</h1><p>Correct the scheme, amount, ornaments and storage of this loan. The customer cannot be changed.</p></>
+        : <><h1>New Gold Loan</h1><p>Select a verified customer, choose a scheme, and record pledged ornaments</p></>}</div></div>
       <hr className="gold-rule" style={{ margin: "4px 0 18px" }} />
-      {!isTodaySet && (
+      {!isTodaySet && !isEdit && (
         <div
           className={`notice${shakeRateBanner ? " shake-attention" : ""}`}
           style={{ borderColor: "var(--red)", marginBottom: 16, flexDirection: "column", alignItems: "stretch", gap: 10 }}
@@ -867,10 +1112,10 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
          * meant to handle exactly this. */}
         <div className="card gtop orn-form-card"><div className="bd">
           <div className="frow c2">
-            <div><label className="f">Customer</label>
+            <div className={fe.customer ? "has-err" : undefined}><label className="f">Customer *</label>
               <SearchableSelect<CustomerView>
                 value={custLabel}
-                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} (${item.code})`); applyCustomerBranch(item); }}
+                onChange={(id, item) => { setCustId(id); setCustLabel(`${item.name} (${item.code})`); applyCustomerBranch(item); setFe((c) => ({ ...c, customer: "" })); }}
                 fetchFn={searchBorrowersPage}
                 searchHint="Searches: customer name, customer code, phone"
                 getLabel={(c) => `${c.name} (${c.code})`}
@@ -889,21 +1134,26 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 )}
                 getId={(c) => c.id}
                 placeholder="Search customers…"
-              /></div>
-            <div><label className="f">Scheme</label>
+                disabled={isEdit}
+              /><FieldError msg={fe.customer} /></div>
+            <div className={fe.scheme ? "has-err" : undefined}><label className="f">Scheme *</label>
               <SearchableSelect<SchemeView>
                 value={schemeLabel}
-                onChange={(id, item) => { setSchemeId(id); setSchemeObj(item); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); }}
+                onChange={(id, item) => {
+                  setSchemeId(id); setSchemeObj(item); setSchemeLabel(schemeOptionLabel(item)); setFe((c) => ({ ...c, scheme: "" }));
+                  // Editing: the switched scheme brings its own charge method (still changeable below).
+                  if (isEdit) setChargeMode(item.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout");
+                }}
                 fetchFn={searchActiveSchemesPage}
                 searchHint="Searches: scheme name, scheme code"
-                getLabel={(s) => `${s.name} — ${s.ltv}% LTV @ ${s.rate}%`}
+                getLabel={schemeOptionLabel}
                 getId={(s) => s.id}
                 placeholder="Search active schemes…"
-              /></div>
+              /><FieldError msg={fe.scheme} /></div>
           </div>
           {/* Single branch: Locker, Loan No and Loan Date share one 3-column row
               so Locker isn't stretched full width. */}
-          <div className={showBranch || !canViewLockers ? "frow c2" : "frow c3"}>
+          <div className={showBranch || !showLocker ? "frow c2" : "frow c3"}>
             {showBranch && <div><label className="f">Branch</label>
               {/* Locked unless there's a real choice: only cross-branch roles
                   (Administrator, Management) may pick — the backend pins
@@ -921,12 +1171,12 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 getLabel={(b) => b.name}
                 getId={(b) => String(b.id)}
                 placeholder={branches.length === 0 ? "Loading branches…" : "Search branch…"}
-                disabled={!isCrossBranch || singleBranch || selectedBranchId != null || branches.length <= 1 || !!custId}
+                disabled={!isCrossBranch || singleBranch || selectedBranchId != null || branches.length <= 1 || (!isEdit && !!custId)}
               />
               {!!custId && isCrossBranch && !singleBranch && selectedBranchId == null && branches.length > 1 && (
                 <div className="muted" style={{ fontSize: 12, marginTop: 4 }}></div>
               )}</div>}
-            {canViewLockers && <div><label className="f">Locker / Storage</label>
+            {showLocker && <div><label className="f">Locker / Storage</label>
               {/* key={branchId}: SearchableSelect caches results per search
                 * term, so without remounting it kept showing the previous
                 * branch's lockers after the branch changed. */}
@@ -935,23 +1185,24 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                 value={lockerLabel}
                 onChange={(id, item) => { setLockerId(+id); setLockerLabel(lockerLabelOf(item)); }}
                 fetchFn={searchLockers}
+                emptyText={() => (lockersAllFullRef.current ? "All lockers full" : "No results")}
                 searchHint="Searches: locker code"
                 getLabel={lockerLabelOf}
                 getId={(k) => String(k.id)}
                 placeholder="— Assign later — or search locker…"
               /></div>}
             {!showBranch && <>
-              <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
+              <div><label className="f">{isEdit ? "Loan No" : "Loan No (auto)"}</label><input className="inp" value={isEdit ? editLoanNumber : provId} disabled /></div>
               <div><label className="f">Loan Date</label><DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} /></div>
             </>}
           </div>
           {showBranch && (
             <div className="frow c2">
-              <div><label className="f">Loan No (auto)</label><input className="inp" value={provId} disabled /></div>
+              <div><label className="f">{isEdit ? "Loan No" : "Loan No (auto)"}</label><input className="inp" value={isEdit ? editLoanNumber : provId} disabled /></div>
               <div><label className="f">Loan Date</label><DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} /></div>
             </div>
           )}
-          <label className="f" style={{ marginTop: 6 }}>Pledged Ornaments</label>
+          <label className="f" style={{ marginTop: 6 }}>Pledged Ornaments *</label>
           {/* Deliberately NOT wrapped in .tbl-wrap (unlike other tables) — that
               class sets overflow-x:auto, and per the CSS overflow spec,
               setting either overflow axis to a value other than visible
@@ -1151,6 +1402,29 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               here — adding another ornament from then on is a deliberate
               mouse click. */}
           <button className="btn plain sm" style={{ marginTop: 10 }} tabIndex={rows.length === 0 ? 0 : -1} onClick={() => addOrnRow()}><Icon name="plus" /> Add Ornament</button>
+          <FieldError msg={fe.ornaments} />
+          {isEdit && paidOut && disbursement && (
+            <div style={{ marginTop: 14 }}>
+              <label className="f">Payout breakdown — {fmt(payout)}</label>
+              <SplitPaymentInput totalAmount={payout} initialLines={payoutLines} label={null}
+                onChange={(sp, r, b) => { setPayoutSplit(sp); setPayoutRemaining(r); setPayoutBankId(b); }} />
+            </div>
+          )}
+          {isEdit && (
+            <div ref={reviewRef} style={{ scrollMarginTop: 16 }}>
+              <InterestChangesTable changes={reviewedFor === reviewKey ? interestList : []} />
+              {activeFollowing.length > 0 && (
+                <FollowingEntriesTable entries={activeFollowing} values={follow} onChange={(id, v) => setFollow((cur) => ({ ...cur, [id]: v }))} />
+              )}
+              <GoldReleaseDependents dependents={activeDeps} chosen={chosenDeps} onToggle={(k, on) => setChosenDeps((c) => ({ ...c, [k]: on }))} />
+              {/* a loan already paid out is edited where it is; only one still waiting for approval goes back to its first stage */}
+              {triggersReapproval && !paidOut && (
+                <div className="notice" style={{ marginTop: 14, color: "var(--red)" }}>
+                  <Icon name="shield" /> Saving will resubmit this loan for approval from the first stage.
+                </div>
+              )}
+            </div>
+          )}
         </div>
           <div className="ft" style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap", padding: "14px 18px" }}>
             {/* Slip/Label and Pledge Agreement print/download were removed
@@ -1160,12 +1434,21 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               * hand out paperwork for a loan that might still change during
               * approval. The same documents remain available from
               * LoanDetail.tsx once the loan is saved. */}
+            {isEdit ? (
+              <>
+                <button className="btn ghost" onClick={() => navigate("loan/" + editLoanNumber)}>Cancel</button>
+                <button className="btn" onClick={submitEdit} disabled={submitting || !editLoan}>
+                  <Icon name="check" /> {submitting ? "Saving…" : "Save Changes"}
+                </button>
+              </>
+            ) : (<>
             <button className="btn ghost" onClick={saveDraftNow} disabled={savingDraft}>
               {savingDraft ? "Saving…" : draftId ? "Update Draft" : "Save Draft"}
             </button>
             <button className="btn" onClick={submitNewLoan} disabled={submitting || !isTodaySet} title={!isTodaySet ? "Today's gold rate must be set before creating a loan." : undefined}>
               <Icon name="check" /> {submitting ? "Submitting…" : "Submit for Approval"}
             </button>
+            </>)}
           </div>
         </div>
 
@@ -1174,13 +1457,17 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
             <div className="bd" style={{ fontSize: 13.5 }}>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Total net weight</span><b>{totalWeight.toFixed(3)} g</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Gross gold value</span><b>{fmt(totalGross)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Scheme LTV</span><b>{sch ? sch.ltv + "%" : "—"}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
-                <span>Eligible gold amount</span><b>{fmt(eligible)}</b></div>
+              {ltvBased && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}><span>Scheme LTV</span><b>{sch ? sch.ltv + "%" : "—"}</b></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0" }}>
+                    <span>Eligible gold amount</span><b>{fmt(eligible)}</b></div>
+                </>
+              )}
               {/* Option 4 layout: charge rows first, then the one editable
                   Amount, then Principal / Disbursed as the headline figures. */}
               {(() => {
-                const hasCharge = !!sch;
+                const hasCharge = !!sch && sch.serviceChargeType !== "None";
                 const amount = +principalOverride || 0;
                 const charge = !sch || sch.serviceChargeType === "None" ? 0 : sch.serviceChargeType === "Flat" ? sch.serviceChargeValue : roundRupee((amount * sch.serviceChargeValue) / 100);
                 const withheld = chargeMode === "WithheldFromPayout";
@@ -1205,7 +1492,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
                         </div>
                         <div style={row}>
                           <span>Charge method</span>
-                          <div style={{ width: 170, flex: "0 0 170px", boxSizing: "border-box" }}>
+                          <div className="charge-method-select" style={{ width: 170, flex: "0 0 170px", boxSizing: "border-box" }}>
                             <Select
                               value={chargeMode}
                               onChange={(v) => setChargeMode(v as "WithheldFromPayout" | "AddedToPrincipal")}
@@ -1328,15 +1615,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               </div>
               <div style={{ padding: "10px 0 2px" }}>
                 <label className="f" htmlFor="additional-info-input">Additional Information (optional)</label>
-                <textarea
-                  id="additional-info-input"
-                  className="inp"
-                  rows={3}
-                  placeholder="Anything else worth recording on this loan…"
-                  value={additionalInfo}
-                  onChange={(e) => setAdditionalInfo(e.target.value)}
-                  style={{ resize: "vertical", width: "100%" }}
-                />
+                <NoteField id="additional-info-input" placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChange={setAdditionalInfo} />
               </div>
             </div>
           </div>
@@ -1345,7 +1624,7 @@ export function NewLoanPage({ customerId }: NewLoanPageProps = {}) {
               Drafts are this employee's own (scoped server-side from the
               JWT), so this is a personal work-in-progress list, not a
               branch queue. */}
-          {drafts.length > 0 && (
+          {!isEdit && drafts.length > 0 && (
             <div className="card gtop newloan-drafts">
               <div className="hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                 <h3 style={{ whiteSpace: "nowrap" }}>Saved drafts</h3>

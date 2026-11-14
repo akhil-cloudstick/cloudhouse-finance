@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { AppState } from "react-native";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "@/common/services/secureStorage";
 import { colors as defaultColors, type Colors } from "./colors";
 import { typeScale } from "./typography";
 import { DEFAULT_BRAND_COLOR } from "./brandRamp";

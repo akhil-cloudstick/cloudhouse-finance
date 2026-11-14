@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View } from "react-native";
-import { AccRow, ConfirmSheet, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { AccRow, ConfirmSheet, FabCorner, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, emptyGroupedFilter, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { userMessage } from "@/common/services/apiErrors";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
@@ -93,10 +93,9 @@ export default function SchemesScreen() {
         emptyText={list.search ? "No schemes match your search." : "No schemes yet."}
         header={
             <>
-              <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-                <GroupedFilter title="Filter schemes" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+              <View style={{ paddingTop: 12 }}>
+                <SearchFilterRow value={list.search} onChangeText={list.setSearch} placeholder="Search by name, code, LTV % or months" filter={<GroupedFilter title="Filter schemes" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />} />
               </View>
-              <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by name, code, LTV % or months" style={{ paddingTop: 0 }} />
             </>
           }
         renderItem={(sc, i) => {
@@ -108,7 +107,7 @@ export default function SchemesScreen() {
               sub={sc.rateTiers && sc.rateTiers.length > 1 ? `Interest ${sc.rateTiers[0].rate}% → ${sc.rateTiers[sc.rateTiers.length - 1].rate}% p.a.` : `Interest ${sc.interestRate}% p.a.`}
               status={sc.isActive ? "Active" : "Inactive"}
               details={[
-                { k: "LTV", v: `${sc.ltvPercent}%` },
+                { k: "LTV", v: sc.ltvBased === false ? "Not based on LTV" : `${sc.ltvPercent}%` },
                 { k: "Duration", v: `${sc.durationMonths} month${sc.durationMonths === 1 ? "" : "s"}` },
                 { k: "Code", v: sc.code || "—" },
                 ...(showBranch ? [{ k: "Branch", v: sc.branch?.name || "—" }] : []),

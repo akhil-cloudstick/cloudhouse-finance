@@ -30,6 +30,16 @@ type Filter struct {
 	CollectionModes    []string
 	Frequencies        []string
 	Statuses           []string
+	// Report-specific filters (ornament type, packet locker, auction settlement, KYC, role, channel).
+	OrnamentTypes   []string
+	LockerIDs       []uint
+	Settlements     []string
+	KYCStatuses     []string
+	PANStatuses     []string
+	AadhaarStatuses []string
+	Roles           []string
+	TriggerType     string
+	Channels        []string
 }
 
 type Result struct {

@@ -25,6 +25,7 @@ import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { setPagePrefetch, TabNameContext } from "@/common/components/ui/shellContext";
 import { getLoan } from "@/modules/loans/services/loanService";
+import { getCustomer } from "@/modules/customers/services/customerService";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { routeEnabled } from "@/common/config/tenantModules";
 import { routeAllowed, setRouteChecker } from "@/common/config/routePermissions";
@@ -135,6 +136,11 @@ function usePagePrefetch() {
   const qc = useQueryClient();
   useEffect(() => {
     setPagePrefetch((path) => {
+      const cid = path.match(/^\/?(?:\(tabs\)\/)?customers\/(\d+)/)?.[1];
+      if (cid) {
+        if (qc.getQueryData(["customer", cid])) return null;
+        return qc.prefetchQuery({ queryKey: ["customer", cid], queryFn: () => getCustomer(Number(cid)) });
+      }
       const id = path.match(/^\/?(?:\(tabs\)\/)?loans\/(\d+)/)?.[1];
       if (!id || qc.getQueryData(["loan", id])) return null;
       return qc.prefetchQuery({ queryKey: ["loan", id], queryFn: () => getLoan(Number(id)) });
@@ -255,7 +261,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="packets" options={{ title: "Packets & Lockers" }} />
         <Tabs.Screen name="banks" options={{ title: "Bank Pledges" }} />
         <Tabs.Screen name="bank-management" options={{ title: "Bank Management" }} />
-        <Tabs.Screen name="requests" options={{ title: "Requests" }} />
+        <Tabs.Screen name="requests" options={{ title: "Extension & Release" }} />
         <Tabs.Screen name="cash" options={{ title: "Ledger" }} />
         <Tabs.Screen name="personal-loans" options={{ title: "Personal Loans" }} />
         <Tabs.Screen name="investments" options={{ title: "Investments" }} />
@@ -267,6 +273,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="branches" options={{ title: "Branches" }} />
         <Tabs.Screen name="roles" options={{ title: "Roles & Permissions" }} />
         <Tabs.Screen name="billing" options={{ title: "Billing & Plan" }} />
+        <Tabs.Screen name="support" options={{ title: "Support" }} />
       </Tabs>
       {/* One header above every page — see Screen in Shell.tsx. */}
       <HeaderHost />

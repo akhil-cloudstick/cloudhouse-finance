@@ -283,7 +283,6 @@ export function SchemeStatementModalContent({ scheme: s }: SchemeStatementModalC
           )}
         </span>
         <span style={{ flex: 1 }} />
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn ghost" disabled={downloading !== null || shown.length === 0} onClick={() => handleDownload("xlsx")}>
           <Icon name="download" /> {downloading === "xlsx" ? "Preparing…" : "Excel"}
         </button>

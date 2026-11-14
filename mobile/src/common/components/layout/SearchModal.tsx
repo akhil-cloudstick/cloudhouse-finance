@@ -97,7 +97,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
       ))}
       {allSchemes.length > 0 && <Txt style={sectionLabel}>Schemes</Txt>}
       {allSchemes.map((sc) => (
-        <Hit key={`s${sc.id}`} name={sc.name} meta={`${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
+        <Hit key={`s${sc.id}`} name={sc.name} meta={sc.ltvBased === false ? `${sc.interestRate}% p.a. · no LTV` : `${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
       ))}
       {!allLoading && allCustomers.length + allLoans.length + allSchemes.length === 0 ? <EmptyText>No results match your search.</EmptyText> : null}
       {allCustomers.length + allLoans.length + allSchemes.length > 0 ? <Txt style={{ ...sectionLabel, textAlign: "center" }}>Pick a category above to see more.</Txt> : null}
@@ -128,7 +128,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
         emptyText="No schemes match your search."
         keyOf={(sc) => `s${sc.id}`}
         renderItem={(sc) => (
-          <Hit name={sc.name} meta={`${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
+          <Hit name={sc.name} meta={sc.ltvBased === false ? `${sc.interestRate}% p.a. · no LTV` : `${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
         )}
       />
     ) : (

@@ -27,6 +27,9 @@ func goldWeight(ctx context.Context, f models.Filter) ([]models.GoldWeightRow, m
 	if len(f.CustomerIDs) > 0 {
 		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
 	}
+	if len(f.OrnamentTypes) > 0 {
+		q = q.Where("LOWER(TRIM(o.name)) IN ?", lowerTrimmed(f.OrnamentTypes))
+	}
 	if len(f.Purities) > 0 {
 		// an ornament's purity is stored as "22K" or as a fineness such as "75%", so a picked karat matches both
 		purities := append([]string(nil), f.Purities...)
@@ -72,6 +75,12 @@ func packetsReport(ctx context.Context, f models.Filter) ([]models.PacketRow, mo
 	if len(f.LoanIDs) > 0 {
 		q = q.Where("l.id IN ?", f.LoanIDs)
 	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("LOWER(TRIM(p.status)) IN ?", lowerTrimmed(f.Statuses))
+	}
+	if len(f.LockerIDs) > 0 {
+		q = q.Where("p.current_locker_id IN ?", f.LockerIDs)
+	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.PacketTotals{}, err
 	}
@@ -101,7 +110,7 @@ func goldRateHistory(ctx context.Context, f models.Filter) ([]models.GoldRateHis
 	// set_by is the free-text name a rate was signed with, so it is filtered on the names themselves
 	// (picked from GoldRateSetByOptions), not through employee ids.
 	if len(f.SetByNames) > 0 {
-		q = q.Where("set_by IN ?", f.SetByNames)
+		q = q.Where("LOWER(TRIM(set_by)) IN ?", lowerTrimmed(f.SetByNames))
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.GoldRateHistoryTotals{}, err

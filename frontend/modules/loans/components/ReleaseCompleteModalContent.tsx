@@ -81,15 +81,15 @@ export function ReleaseCompleteModalContent({ request: req, loan, onSaved }: Rel
           )}
         </table></div>
       </div>
-      <div className="ft">
-        {canEditLedger && payment && (
+      {/* the × in the header closes the popup; the footer is only for Edit */}
+      {canEditLedger && payment && (
+        <div className="ft">
           <button className="btn ghost"
             onClick={() => openModal(<LedgerPaymentEditModalContent loanId={loan.numericId} payment={payment} linkedDiscount={linkedDiscountOf(loan.payments, payment)} mode="edit" minDate={loan.opened?.slice(0, 10) || undefined} onSaved={() => { onSaved(); closeModal(); }} />, true)}>
             <Icon name="edit" /> Edit
           </button>
-        )}
-        <button className="btn" onClick={closeModal}><Icon name="check" /> Release</button>
-      </div>
+        </div>
+      )}
     </>
   );
 }

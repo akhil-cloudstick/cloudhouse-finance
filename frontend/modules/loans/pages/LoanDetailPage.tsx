@@ -21,6 +21,7 @@ import {
 } from "@/common/services/approvalWorkflowService";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
+import { AdditionalInfoView } from "@/common/components/ui/AdditionalInfoView";
 import { fmt, fmtW, fmtDate, fmtDateTime, fmtToday } from "@/common/utils/format";
 import { rupeesInWords } from "@/common/utils/numberToWords";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
@@ -54,7 +55,6 @@ import { EsignStatusModalContent,type EsignStatusSigner } from "@/modules/loans/
 import { PledgeSlipModalContent } from "@/modules/loans/components/PledgeSlipModalContent";
 import { RequestExtensionModalContent } from "@/common/components/modals/RequestExtensionModalContent";
 import { RequestReleaseModalContent } from "@/common/components/modals/RequestReleaseModalContent";
-import { EditLoanModalContent } from "@/modules/loans/components/EditLoanModalContent";
 import { navigate, routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { DisburseLoanModalContent } from "@/modules/loans/components/DisburseLoanModalContent";
@@ -513,7 +513,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
       ? "Purity standard module is disabled"
       : "";
   const editLoanButton = canUpdateLoans && !isFinished && l.status !== "Auctioned" ? (
-    <button className="btn ghost" title={editLoanBlocked || undefined} disabled={!!editLoanBlocked} onClick={() => openModal(<EditLoanModalContent loan={l} onSaved={load} />, true)}>
+    <button className="btn ghost" title={editLoanBlocked || undefined} disabled={!!editLoanBlocked} onClick={() => navigate("editloan", l.id)}>
       <Icon name="edit" /> Edit Loan
     </button>
   ) : null;
@@ -771,18 +771,18 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         : "—";
       openPrintWindow("Statement — " + l.id, `
         ${brandHeader("Statement of Account")}
-        <table>
-          <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${fmtToday()}</td></tr>
+        <table style="table-layout:fixed;width:100%;word-break:break-word;overflow-wrap:anywhere"><colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup>
+          <tr><th>Loan No</th><td>${l.id}</td><th>Statement Date</th><td>${fmtToday()}</td></tr>
           <tr><th>Debtor Name</th><td colspan="3">${esc(c.name)}</td></tr>
           <tr><th>Debtor Address</th><td colspan="3">${esc(c.address || "—")}</td></tr>
           <tr><th>Amount of Loan</th><td>${fmt(l.principal)}</td><th>Amount in Words</th><td>${rupeesInWords(l.principal)}</td></tr>
           <tr><th>Date of Loan</th><td>${fmtDate(l.opened)}</td><th>Date of Maturity</th><td>${fmtDate(l.due)}</td></tr>
           <tr><th>Rate of Interest</th><td>${l.schemeRate}% p.a.</td><th>Status</th><td>${l.status}</td></tr>
           <tr><th>Nature of Security</th><td colspan="3">${esc(security)}</td></tr>
-          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${esc(l.additionalInfo)}</td></tr>` : ""}
+          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3" style="white-space:normal">${esc(l.additionalInfo)}</td></tr>` : ""}
         </table>
         <p><b>True account of the transaction with the debtor:</b></p>
-        <table>
+        <table style="table-layout:fixed;width:100%;word-break:break-word;overflow-wrap:anywhere"><colgroup><col style="width:13%"><col style="width:33%"><col style="width:11%"><col style="width:13%"><col style="width:14%"><col style="width:16%"></colgroup>
           <thead><tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th class="num">Amount</th><th class="num">Running Balance</th></tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr><th colspan="4">Outstanding Principal</th><th class="num">${fmt(l.outstanding)}</th><th></th></tr></tfoot>
@@ -1216,7 +1216,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     </a>
                   )}
                 {!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
-                  <a href="#" title={editLoanBlocked || "Edit Loan"} aria-disabled={!!editLoanBlocked} style={editLoanBlocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={(e) => { e.preventDefault(); if (editLoanBlocked) return; setLoanActionsMenuOpen(false); openModal(<EditLoanModalContent loan={l} onSaved={load} />, true); }}>
+                  <a href="#" title={editLoanBlocked || "Edit Loan"} aria-disabled={!!editLoanBlocked} style={editLoanBlocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={(e) => { e.preventDefault(); if (editLoanBlocked) return; setLoanActionsMenuOpen(false); navigate("editloan", l.id); }}>
                     <Icon name="edit" /><span className="tx">Edit Loan</span>
                   </a>
                 )}
@@ -1513,8 +1513,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               {l.additionalInfo && (
                 <div className="i" style={{ gridColumn: "1 / -1" }}>
                   <div className="k">Additional Information</div>
-                  {/* about four lines tall, then it scrolls (wheel / touch) with no visible scrollbar */}
-                  <div className="v addl-info" style={{ whiteSpace: "pre-wrap", fontWeight: 400 }}>{l.additionalInfo}</div>
+                  <div className="v"><AdditionalInfoView text={l.additionalInfo} /></div>
                 </div>
               )}
               {l.overallPhotoUrl && (
@@ -1675,7 +1674,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                               {fmt(entry.balance)}
                               {infoIcon({
                                 title: "Loan Top-Up", kind: "Debit · Top-up",
-                                rows: [["Date", fmtDate(entry.date)], ["Reference", t.reference || "—"], ["Amount", fmt(part ? part.amount : t.amount)], ["Eligible at top-up", fmt(t.eligibleAmountAtTopUp)], ["Mode", modeParts.length === 0 ? "—" : modeParts.map(([m, v]) => v > 0 ? `${m} ${fmt(v)}` : m).join(" · ")], ["Balance", fmt(entry.balance)]],
+                                rows: [["Date", fmtDate(entry.date)], ["Reference", t.reference || "—"], ["Amount", fmt(part ? part.amount : t.amount)], ["Eligible at top-up", fmt(t.eligibleAmountAtTopUp)], ["Mode", modeParts.length === 0 ? "—" : modeParts.map(([m]) => m).join(" · ")], ["Balance", fmt(entry.balance)]],
                                 description: <>Loan Top-Up of {fmt(t.amount)}{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(t.amount)}</>}<br />Eligible at top-up {fmt(t.eligibleAmountAtTopUp)}</>,
                                 actions: (!part || part.index === 0) && t.status === "Active" ? [
                                   ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openChildModal(<TopUpEditModalContent loanId={l.numericId} topUp={t} mode="edit" minDate={l.opened?.slice(0, 10) || undefined} onSaved={savedEdit} />, true) }] : []),
@@ -1804,6 +1803,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                        * marks it Auctioned without touching the ornaments — so for those the loan's status is the truth. */
                       : l.status === "Closed" ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title="Gold handed back to the customer when the loan closed">Released</span>
                       : l.status === "Auctioned" || l.status === "Auctioned - Balance Due" ? <span className="chip" style={{ color: "var(--red)" }} title="Sold in the auction">Auctioned</span>
+                      : l.bankPledges.some((p) => p.status === "Active" && (!p.ornamentIds || p.ornamentIds.length === 0 || p.ornamentIds.includes(o.id))) ? <span className="chip" title="Pledged to a bank">Pledged to Bank</span>
                       : <span className="chip">Held</span>}</td>
                   </tr>
                 ))}

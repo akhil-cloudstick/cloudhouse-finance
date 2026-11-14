@@ -7,8 +7,10 @@ import { createLocker, updateLocker } from "@/modules/lockers/services/lockerSer
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import type { Locker } from "@/modules/lockers/types/locker-types";
 import type { Branch } from "@/modules/branches/types/branch-types";
+import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { errText } from "./lockerHelpers";
 
+const CODE_RE = /^[A-Za-z0-9-]*$/;
 const ACTIVE_OPTIONS = ["Active", "Inactive"] as const;
 type LockerFormSheetProps = { visible: boolean; editing: Locker | null; onClose: () => void };
 
@@ -21,6 +23,8 @@ export function LockerFormSheet({ visible, editing, onClose }: LockerFormSheetPr
   const [branch, setBranch] = useState<{ id: number; name?: string } | null>(null);
   const [active, setActive] = useState<(typeof ACTIVE_OPTIONS)[number]>("Active");
   const [error, setError] = useState<string | null>(null);
+  // Single-branch plans never show a branch — the locker just takes the business's one branch.
+  const showBranch = useShowBranch();
 
   useEffect(() => {
     if (!visible) return;
@@ -38,11 +42,18 @@ export function LockerFormSheet({ visible, editing, onClose }: LockerFormSheetPr
     }
   }, [visible, editing, employee?.branchId]);
 
+  // Hidden picker: fall back to the first active branch (web does the same).
+  useEffect(() => {
+    if (!visible || showBranch || editing || branch) return;
+    listBranchesPage({ active: true, limit: 1, offset: 0 }).then((r) => { const b = r.items?.[0]; if (b) setBranch({ id: b.id, name: b.name }); }).catch(() => {});
+  }, [visible, showBranch, editing, branch]);
+
+  const codeValid = CODE_RE.test(code.trim());
   const capacityNum = Number(capacity);
   const capacityValid = Number.isInteger(capacityNum) && capacityNum > 0;
   // Shrinking below what's already stored would strand packets.
   const belowOccupied = !!editing && capacityValid && capacityNum < (editing.occupied ?? 0);
-  const canSave = !!code.trim() && capacityValid && !belowOccupied && branch != null;
+  const canSave = !!code.trim() && codeValid && capacityValid && !belowOccupied && branch != null;
 
   const save = useMutation({
     mutationFn: () => {
@@ -62,10 +73,12 @@ export function LockerFormSheet({ visible, editing, onClose }: LockerFormSheetPr
       <Field label="Locker code">
         <Input value={code} onChangeText={(v) => setCode(v.toUpperCase())} autoCapitalize="characters" autoCorrect={false} placeholder="e.g. LKR-04" />
       </Field>
+      {!codeValid ? errText("Locker code may only contain letters, numbers and hyphens.") : null}
       <Field label={editing ? `Capacity (holds ${editing.occupied ?? 0} now)` : "Capacity"}>
         <Input value={capacity} onChangeText={(v) => setCapacity(v.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder="e.g. 40" />
       </Field>
       {belowOccupied ? errText(`Capacity can't be lower than the ${editing!.occupied} packets already stored.`) : null}
+      {showBranch ? (
       <AsyncSelect<Branch>
         label="Branch"
         placeholder="Search branch"
@@ -76,6 +89,7 @@ export function LockerFormSheet({ visible, editing, onClose }: LockerFormSheetPr
         keyOf={(b) => b.id}
         renderItem={(b) => ({ title: b.name, sub: b.code })}
       />
+      ) : null}
       {editing ? (
         <Field label="Status">
           <ChipToggle options={ACTIVE_OPTIONS} value={active} onChange={setActive} />

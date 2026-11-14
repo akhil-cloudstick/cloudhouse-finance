@@ -107,11 +107,9 @@ export function BranchesPage() {
         )}
       </div>
       <hr className="gold-rule" />
-      {quota && (
+      {quota && !quota.unlimited && (
         <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 10px" }}>
-          {quota.unlimited
-            ? `${quota.used} active branch${quota.used === 1 ? "" : "es"} · ${quota.plan} plan (no branch limit)`
-            : `${quota.used} of ${quota.quota} branch${quota.quota === 1 ? "" : "es"} used · ${quota.plan} plan`}
+          {`${quota.used} of ${quota.quota} branch${quota.quota === 1 ? "" : "es"} used · ${quota.plan} plan`}
         </p>
       )}
       {atLimit && canCreateBranches && (

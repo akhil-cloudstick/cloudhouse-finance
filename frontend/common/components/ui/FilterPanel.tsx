@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { fmtDate } from "@/common/utils/format";
@@ -85,32 +85,37 @@ function CategoryOptionList({
 
   const isAsync = category.kind === "async";
 
+  // Latest category/callback live in refs so loadPage keeps a stable identity:
+  // a parent re-render (e.g. after selecting a customer) must not refetch page 1
+  // and reset the list's scroll position.
+  const categoryRef = useRef(category);
+  const onLoadedRef = useRef(onOptionsLoaded);
+  useLayoutEffect(() => {
+    categoryRef.current = category;
+    onLoadedRef.current = onOptionsLoaded;
+  });
+
   const loadPage = useCallback((p: number, term: string, append: boolean) => {
-    if (category.kind !== "async") return;
+    const cat = categoryRef.current;
+    if (cat.kind !== "async") return;
     setLoading(true);
-    category
+    cat
       .fetchOptions(term, p)
       .then(({ items, hasMore: more }) => {
         setAsyncItems((prev) => (append ? [...prev, ...items] : items));
         setHasMore(more);
-        onOptionsLoaded?.(items);
+        onLoadedRef.current?.(items);
       })
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category]);
+  }, []);
 
   useEffect(() => {
     if (!isAsync) return;
     setPage(1);
     loadPage(1, search, false);
-    // loadPage (not just category.key/search) is a dependency on purpose —
-    // its own identity changes whenever `category` does (see its useCallback
-    // above), which is what makes this refire when a caller's fetchOptions
-    // closure changes to reflect new outside state (e.g. Cash.tsx's Customer
-    // picker re-querying once the Branch section's selection changes) even
-    // though category.key stays "customer" the whole time. Without this, a
-    // cross-filtering async category kept its first-loaded, now-stale page
-    // until the user switched tabs away and back or typed in its search box.
+    // Keyed on category.key and search only. A cross-filtering category (e.g. Customer
+    // narrowed by Branch) passes a changing `refetchKey` via its fetchOptions identity
+    // only when the user is on another tab, since the list remounts per category.
   }, [isAsync, category.key, search, loadPage]);
 
   // A small page (5 rows) can leave the list shorter than its box, so there is nothing to scroll and the next
@@ -364,8 +369,10 @@ export function FilterPanel({
                   overflowY: "visible",
                   flexShrink: 0,
                   flexWrap: smallScreen ? "nowrap" : undefined,
-                  minWidth: smallScreen ? 0 : 130,
+                  width: smallScreen ? undefined : 150,
+                  minWidth: smallScreen ? 0 : 150,
                   maxWidth: smallScreen ? "none" : 150,
+                  boxSizing: "border-box",
                   gap: smallScreen ? 4 : 2,
                   padding: 6,
                   background: "var(--brand-faint, var(--line))",
@@ -401,10 +408,11 @@ export function FilterPanel({
                       }}
                       onClick={() => setActiveKey(c.key)}
                     >
-                      <span>{c.label}</span>
+                      <span style={{ minWidth: 0, flex: smallScreen ? undefined : 1, overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }} title={c.label}>{c.label}</span>
                       {count > 0 && (
                         <span
                           style={{
+                            flexShrink: 0,
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -414,8 +422,8 @@ export function FilterPanel({
                             borderRadius: 99,
                             fontSize: 10.5,
                             fontWeight: 700,
-                            background: c.key === activeKey ? "rgba(255,255,255,.25)" : "var(--brand-deep)",
-                            color: "#fff",
+                            background: c.key === activeKey ? "#fff" : "var(--brand-deep)",
+                            color: c.key === activeKey ? "var(--brand-deep)" : "#fff",
                           }}
                         >
                           {count}
@@ -433,6 +441,7 @@ export function FilterPanel({
                   </div>
                 ) : activeCategory ? (
                   <CategoryOptionList
+                    key={activeCategory.key}
                     category={activeCategory}
                     selected={categoryValues(value, activeCategory.key)}
                     onToggle={(v) => toggle(activeCategory, v)}

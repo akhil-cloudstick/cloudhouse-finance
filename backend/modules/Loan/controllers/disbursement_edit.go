@@ -57,7 +57,7 @@ func computeDisbursementFigures(l *models.Loan, in *EditDisbursementInput, curre
 	if in.SanctionedAmount != nil {
 		f.Sanctioned = common.RoundMoney(*in.SanctionedAmount)
 		if in.ServiceCharge == nil && l.ServiceChargeType == commonModels.ServiceChargeTypePercent {
-			f.ServiceCharge = common.RoundMoney(computeServiceChargeAmount(l.ServiceChargeType, l.ServiceChargeValue, f.Sanctioned))
+			f.ServiceCharge = common.RoundMoney(chargeOnLoanPrincipal(l.ServiceChargeMode, l.ServiceChargeType, l.ServiceChargeValue, f.Sanctioned))
 		}
 	}
 	if in.ServiceCharge != nil {
@@ -82,7 +82,7 @@ func checkEligible(l *models.Loan, f disbursementFigures) error {
 	if l.ServiceChargeMode == commonModels.ServiceChargeModeAddedToPrincipal {
 		capped = common.RoundMoney(f.Sanctioned - f.ServiceCharge)
 	}
-	if capped > common.RoundMoney(l.EligibleLoanAmount)+0.01 {
+	if l.SchemeLTVPercent > 0 && capped > common.RoundMoney(l.EligibleLoanAmount)+0.01 {
 		return common.NewBadRequest(fmt.Sprintf("amount ₹%.2f cannot exceed the eligible loan amount ₹%.2f (based on scheme LTV)", capped, l.EligibleLoanAmount))
 	}
 	return nil

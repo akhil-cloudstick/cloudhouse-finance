@@ -1,7 +1,8 @@
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import React, { useMemo, useState } from "react";
 import { View } from "react-native";
-import { ExportMenu, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfDate, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { ExportMenu, FlatHeader, GroupedFilter, Screen, SearchFilterRow,ServerFlatList, emptyGroupedFilter, gfDate, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listCashMovementsPage } from "@/modules/cash/services/cashService";
 import { isUserCancel, userMessage } from "@/common/services/apiErrors";
@@ -34,7 +35,8 @@ const SECTIONS: GFSection[] = [
 ];
 
 export default function LedgerStatementScreen() {
-  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  // Kept while moving around Reports (a party ledger and back), like web.
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("reports:ledger-export:filters", emptyGroupedFilter());
   // No Branch section for a one-branch business or a branch-confined role (same rule as web).
   const showBranch = useShowBranchFilter();
   // Customer narrows to the selected branches (a customer has one home branch).
@@ -73,6 +75,8 @@ export default function LedgerStatementScreen() {
 
   const list = useServerList<CashMovement, MovementFilters>({
     key: ["cash-movements", "statement"],
+    persistKey: "reports:ledger-export",
+    keepSearch: true,
     fetchPage: (p) => listCashMovementsPage(p),
     filters,
   });
@@ -106,12 +110,17 @@ export default function LedgerStatementScreen() {
         emptyText={list.search || filterCount ? "No entries match your filters." : "No ledger entries yet."}
         header={
           <View style={{ paddingTop: 12 }}>
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by purpose or source" style={{ paddingBottom: 8 }} />
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-              <GroupedFilter title="Filter Statement" sections={sections} value={fv} onChange={setFv} />
-              <View style={{ flex: 1 }} />
-              {canExport ? <ExportMenu onExcel={() => onExport("xlsx")} onPdf={() => onExport("pdf")} /> : null}
-            </View>
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search by purpose or source"
+              filter={
+                <>
+                  <GroupedFilter title="Filter Statement" sections={sections} value={fv} onChange={setFv} />
+                  {canExport ? <ExportMenu onExcel={() => onExport("xlsx")} onPdf={() => onExport("pdf")} /> : null}
+                </>
+              }
+            />
           </View>
         }
         renderItem={(m, i) => <MovementRow m={m} balance={balances[i] ?? 0} categoryIds={categoryIds} defaultOpen={i === 0} />}

@@ -39,6 +39,8 @@ type LedgerRow struct {
 	CustomerID     uint      `json:"customer_id"`
 	CustomerName   string    `json:"customer_name"`
 	ReceiptImage   string    `json:"receipt_image,omitempty"`
+	// Ref is the unique row identity ("m:12", "e:7", "lp:42"): carried through ledger links so the exact entry opens.
+	Ref string `json:"ref,omitempty"`
 	// EntryID is the cash movement behind a row; the info popup opens it. Editable is true only for a
 	// cash-in, debit or self transfer a person keyed in (it alone offers Edit).
 	EntryID  uint `json:"entry_id,omitempty"`
@@ -686,6 +688,7 @@ func toLedgerRow(r ledgerSourceRow) LedgerRow {
 		CustomerName:   r.CustomerName,
 		Memo:           r.Memo,
 		Split:          r.Split,
+		Ref:            ledgerRef(r),
 	}
 	switch r.Kind {
 	case "loan_payment", "loan_discount":
@@ -1268,7 +1271,12 @@ func expenseLedgerByCategory(ctx context.Context, categoryName string, branchID 
 		WithContext(ctx).Table("expenses e").
 		Select(`e.id, e.occurred_on, e.category, e.payee, e.mode, e.amount, e.remarks`).
 		Where("e.category ILIKE ?", categoryName)
-	q = applyBranchScope(q, "e.branch_id", branchID, nil)
+	if branchID != nil && strings.EqualFold(categoryName, bankPledgeReleaseCategory) {
+		// the release expense is booked under Head Office: match it by the pledged loan's branch too
+		q = q.Where("(e.branch_id = ? OR e.id IN (SELECT bp.release_expense_id FROM bank_pledge_records bp JOIN loans lo ON lo.id = bp.loan_id WHERE lo.branch_id = ? AND bp.release_expense_id IS NOT NULL))", *branchID, *branchID)
+	} else {
+		q = applyBranchScope(q, "e.branch_id", branchID, nil)
+	}
 	if !fromDate.IsZero() {
 		q = q.Where("e.occurred_on >= ?", fromDate)
 	}
@@ -1461,6 +1469,7 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 	for i := range merged {
 		out[i] = merged[i].row
 		meta[i] = ledgerSourceRow{Kind: merged[i].kind, ID: merged[i].id}
+		out[i].Ref = ledgerRef(meta[i])
 	}
 	if err := attachEntryMeta(ctx, meta, out); err != nil {
 		return nil, err
@@ -1473,6 +1482,29 @@ func listLedgerByCashInCategory(ctx context.Context, name string, branchID *uint
 		return cashInLedgerByCategory(ctx, name, branchID, from, to)
 	}
 	return paginateLedgerWindowed(ctx, fetch, nil, fromDate, toDate, limit, offset)
+}
+
+// listLedgerByCommonCategory is the party ledger of a category used for both
+// expenses and Credit In: its expenses plus its credit-in cash movements.
+func listLedgerByCommonCategory(ctx context.Context, name string, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
+		return mergeCategoryLedgerSources(ctx, name, branchID, from, to)
+	}
+	return paginateLedgerWindowed(ctx, fetch, nil, fromDate, toDate, limit, offset)
+}
+
+func mergeCategoryLedgerSources(ctx context.Context, name string, branchID *uint, from, to time.Time) ([]ledgerSourceRow, error) {
+	exp, err := expenseLedgerByCategory(ctx, name, branchID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	in, err := cashInLedgerByCategory(ctx, name, branchID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	out := append(exp, in...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
+	return out, nil
 }
 
 func cashInLedgerByCategory(ctx context.Context, name string, branchID *uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {

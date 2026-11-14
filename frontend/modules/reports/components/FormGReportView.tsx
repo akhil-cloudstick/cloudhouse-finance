@@ -1,5 +1,6 @@
 "use client";
 
+import { TruncText } from "@/common/components/ui/TruncText";
 import { TableCols } from "@/common/components/ui/TableCols";
 import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { BackLink } from "@/common/components/ui/BackLink";
@@ -293,7 +294,7 @@ function LoanTable({ title, rows }: LoanTableProps) {
                 <td>{r.label}</td>
                 <td className="num">{r.persons}</td>
                 <td className="num">{fmt(r.amount)}</td>
-                <td>{r.remarks || "—"}</td>
+                <td><TruncText text={r.remarks || "—"} /></td>
               </tr>
             ))}
           </tbody>

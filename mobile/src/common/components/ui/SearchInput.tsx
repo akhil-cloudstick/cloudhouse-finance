@@ -22,6 +22,7 @@ export function SearchInput({
   const [focused, setFocused] = useState(false);
   return (
     <View style={[s.searchWrap, style]}>
+      <View style={{ position: "relative", justifyContent: "center" }}>
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -40,7 +41,7 @@ export function SearchInput({
       />
       {value ? (
         <Pressable
-          style={{ position: "absolute", right: 28, top: 0, bottom: 10, width: 28, alignItems: "center", justifyContent: "center" }}
+          style={{ position: "absolute", right: 8, top: 0, bottom: 0, width: 28, alignItems: "center", justifyContent: "center" }}
           hitSlop={8}
           onPress={() => onChangeText("")}
           accessibilityLabel="Clear search"
@@ -48,6 +49,7 @@ export function SearchInput({
           <PIcon name="close" color={C.muted} size={14} />
         </Pressable>
       ) : null}
+      </View>
     </View>
   );
 }

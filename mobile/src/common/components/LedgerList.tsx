@@ -3,7 +3,7 @@ import { MOVEMENT_TYPE_OPTIONS } from "@/common/components/movementLedger";
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { AccRow, C, GroupedFilter, PillButton, ServerFlatList, Txt, emptyGroupedFilter, gfDate, gfFirst, gfValues, openPage, toast, type AccDetail, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { AccRow, C, GroupedFilter, PillButton, SearchInput, ServerFlatList, Txt, emptyGroupedFilter, gfDate, gfFirst, gfValues, openPage, toast, type AccDetail, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listBanksPage } from "@/modules/banks/services/bankService";
@@ -263,8 +263,8 @@ export function useLedgerList({ kind, ledgerRef, onCategoryName, focus, enabled 
     key: ["ledger", kind, ledgerRef, fromDate, toDate, modeCsv, typeCsv, branchCsv, modeBankId, loanCsv],
     fetchPage: (p) =>
       (kind === "mode"
-        ? getModeLedger(ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate, bankId: modeBankId, branchIds: branchCsv, types: typeCsv })
-        : getLedger(kind, ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate, modes: modeCsv, loanNumbers: loanCsv })
+        ? getModeLedger(ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate, bankId: modeBankId, branchIds: branchCsv, types: typeCsv, search: p.q })
+        : getLedger(kind, ledgerRef, { limit: p.limit, offset: p.offset, fromDate, toDate, modes: modeCsv, loanNumbers: loanCsv, search: kind === "category" ? undefined : p.q })
       ).then((r) => {
         if (r.categoryName) onCategoryName?.(r.categoryName);
         setLoan(kind === "category" ? r.loan : undefined);
@@ -310,6 +310,8 @@ export function useLedgerList({ kind, ledgerRef, onCategoryName, focus, enabled 
 
   const controls = (
     <>
+          {/* Search by date, ref no, bank, amount… (web party ledger's search box; not on a category ledger). */}
+          {kind !== "category" ? <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search date, ref no, bank, amount…" style={{ paddingTop: 12 }} /> : null}
           {/* paddingBottom keeps the same gap above the first row whether or not the totals card shows. */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
             <GroupedFilter title="Filter ledger" sections={sections} value={fv} onChange={setFv} />

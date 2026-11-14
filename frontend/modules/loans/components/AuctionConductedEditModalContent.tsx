@@ -302,7 +302,6 @@ export function AuctionConductedEditModalContent({ auction, loanId, minDate, onS
       </div>
       <div className="ft" style={{ alignItems: "center" }}>
         {err && <div className="err" style={{ marginRight: "auto", fontSize: 12.5 }}>{err}</div>}
-        <button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
         <button className="btn" onClick={submit} disabled={saving || !cur || !!loadErr}>
           <Icon name="check" /> {saving ? "Working…" : preview ? "Confirm" : "Preview the change"}
         </button>

@@ -91,21 +91,9 @@ export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleMod
         {/* .notice is display:flex, so all text must sit inside ONE child
           * element — otherwise each <b> becomes its own flex item and the
           * amounts get pulled out into separate columns mid-sentence. */}
-        {sale > 0 && (
-          <div className="notice" style={{ fontSize: 12.5 }}>
-            <Icon name="shield" />
-            <span>
-              {preview >= 0
-                ? (preview > 0.01 ? <>Amount payable <b>{fmt(preview)}</b></> : <>Loan will be closed</>)
-                : <>Balance owing <b>{fmt(Math.abs(preview))}</b></>}
-            </span>
-          </div>
-        )}
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Sale"}</button>
+      <div className="ft">        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Sale"}</button>
       </div>
     </>
   );

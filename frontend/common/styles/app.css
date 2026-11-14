@@ -133,9 +133,14 @@ html {
 /* Theme-tinted scrollbars everywhere (modals, tables, page) instead of the
  * browser's default fat gray bar. Elements with their own rule (.no-scrollbar,
  * .newloan-root …) keep it, as those set scrollbar-width: none explicitly. */
+:root {
+  /* One scrollbar colour for the whole app; every scrollbar rule uses this. */
+  --scroll-thumb: var(--brand-light);
+}
+
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--brand-light) transparent
+  scrollbar-color: var(--scroll-thumb) transparent
 }
 
 ::-webkit-scrollbar {
@@ -148,7 +153,7 @@ html {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--brand-light);
+  background: var(--scroll-thumb);
   border-radius: 8px
 }
 
@@ -925,7 +930,7 @@ h3,
  * Select, GlobalSearch, DatePicker). */
 .gs-results {
   scrollbar-width: thin;
-  scrollbar-color: var(--brand-light) transparent
+  scrollbar-color: var(--scroll-thumb) transparent
 }
 
 .gs-results::-webkit-scrollbar {
@@ -937,7 +942,7 @@ h3,
 }
 
 .gs-results::-webkit-scrollbar-thumb {
-  background: var(--brand-light);
+  background: var(--scroll-thumb);
   border-radius: 6px
 }
 
@@ -1280,6 +1285,12 @@ button.fi-trigger {
 .report-filter-row .dp.dp-date {
   width: 150px;
   flex: 0 0 150px
+}
+
+/* Any date field in a modal form fills its grid cell, level with the inputs and selects beside it. */
+.modal .frow .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
 }
 
 /* NewLoan.tsx's Loan Date shares a `.frow.c2` row with Loan No, and every
@@ -1979,6 +1990,11 @@ button.fi-trigger {
   min-width: 0;
   height: 100%;
   overflow-y: auto;
+  scrollbar-width: none; /* hide the bar, the pane still scrolls */
+}
+
+.set-pane::-webkit-scrollbar {
+  display: none;
 }
 
 .set-sub {
@@ -2017,6 +2033,12 @@ button.fi-trigger {
   align-items: center;
   margin-top: 6px;
 }
+
+/* Link Mobile: QR and Code views share one layout, so switching never moves the text or buttons. */
+.set-link-fixed { align-items: start; }
+/* Fixed (not min) heights: the QR text wraps to more lines than the code text, and a modal width change re-wraps both. */
+.set-link-fixed .set-steps { height: 184px; overflow: hidden; }
+.set-link-fixed .set-meta { height: 32px; min-height: 32px; }
 
 .set-visual {
   display: flex;
@@ -3258,7 +3280,7 @@ button.fi-trigger {
  * widths fit without scrolling at all. */
 .cust-360 .tbl-wrap {
   scrollbar-width: thin;
-  scrollbar-color: var(--brand-pale) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
   -ms-overflow-style: auto;
 }
 .cust-360 .tbl-wrap::-webkit-scrollbar {
@@ -3267,7 +3289,7 @@ button.fi-trigger {
   width: 8px;
 }
 .cust-360 .tbl-wrap::-webkit-scrollbar-thumb {
-  background: var(--brand-pale);
+  background: var(--scroll-thumb);
   border-radius: 4px;
 }
 
@@ -3958,6 +3980,19 @@ textarea.inp {
 select.inp {
   height: 38px;
   box-sizing: border-box;
+}
+
+/* Placeholders are lighter than field headings (label.f uses --muted). */
+::placeholder {
+  color: color-mix(in oklab, var(--muted) 55%, #fff);
+  opacity: 1;
+}
+
+/* Textareas grow vertically only (JS auto-grow up to 4 lines): never resized by hand. */
+textarea,
+textarea.inp {
+  resize: none;
+  max-width: 100%;
 }
 
 .inp:focus {
@@ -4907,6 +4942,15 @@ table.tbl td {
   width: 150px;
 }
 
+/* Charge method dropdown: fixed width whatever the selected label, flush right with the Amount field. */
+.charge-method-select,
+.charge-method-select .dp,
+.charge-method-select .dp-trigger {
+  width: 170px;
+  max-width: 170px;
+  box-sizing: border-box;
+}
+
 .loans-date-sep {
   font-size: 12.5px;
   color: var(--muted);
@@ -5676,6 +5720,12 @@ table.tbl td {
   }
 }
 
+/* Record Payment modal: its content is a little taller than the 640px standard cap, which showed a
+ * needless scrollbar; allow a taller cap (still bounded by the screen, so short screens still scroll). */
+.modal:has(> .bd-scroll.pay-record-modal) {
+  max-height: min(740px, calc(100dvh - var(--titlebar-h) - 32px));
+}
+
 /* Neither bar may absorb the shrink */
 .modal:has(> .bd-scroll) > .hd,
 .modal:has(> .bd-scroll) > .ft {
@@ -5690,10 +5740,13 @@ table.tbl td {
   overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
+  /* Space between the inputs and the scrollbar. */
+  padding-right: 30px;
   /* Reserve the scrollbar's width always: typing can add/remove a line (error or
    * hint text), flipping the scrollbar on/off, which narrowed the content, re-wrapped
-   * the fields and made the inputs visibly jitter. */
+   * the fields and made the inputs visibly jitter. The track is transparent, so
+   * nothing is drawn when the content fits. */
   scrollbar-gutter: stable;
 }
 
@@ -7293,7 +7346,7 @@ table.tbl td {
     overflow-x: hidden;
     overscroll-behavior: contain;
     scrollbar-width: thin;
-    scrollbar-color: var(--line) transparent;
+    scrollbar-color: var(--scroll-thumb) transparent;
   }
   .modal .ft {
     padding: 7px 16px;
@@ -10504,7 +10557,7 @@ table.tbl.lockers-tbl th {
 
 /* Loan detail "Additional Information": about four lines, then scrolls with no visible scrollbar */
 .addl-info {
-  max-height: 6em;
+  max-height: 4.5em;
   line-height: 1.5;
   overflow-y: auto;
   overflow-wrap: anywhere;

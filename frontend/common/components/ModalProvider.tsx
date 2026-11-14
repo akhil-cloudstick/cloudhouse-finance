@@ -2,6 +2,7 @@
 
 import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { makeEnterToSubmitHandler } from "@/common/utils/enterToSubmit";
+import { useToast } from "@/common/components/ToastProvider";
 
 type ModalContextValue = {
   openModal: (content: React.ReactNode, wide?: boolean) => void;
@@ -156,6 +157,41 @@ export function ModalProvider({ children }: ModalProviderProps) {
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
+
+  // Validation / error lines inside a modal sit under its fields, often below the fold. Mirror each one
+  // that appears (or changes) after the modal has opened into a toast so it is seen without scrolling.
+  const toast = useToast();
+  const openedAt = useRef(0);
+  useEffect(() => { if (open) openedAt.current = Date.now(); }, [open, content]);
+  useEffect(() => {
+    const box = document.getElementById("modalBox");
+    if (!box) return;
+    const SEL = "p, div, span";
+    const isErr = (el: HTMLElement) => el.matches(".sa-error, .err, .pay-r-warn, [style*='var(--red)']") && !el.querySelector("button, input, select, textarea");
+    let last = "";
+    let lastAt = 0;
+    const obs = new MutationObserver((muts) => {
+      if (Date.now() - openedAt.current < 400) return;
+      for (const m of muts) {
+        const el = (m.target.nodeType === 3 ? m.target.parentElement : m.target) as HTMLElement | null;
+        const cands: HTMLElement[] = [];
+        m.addedNodes.forEach((n) => { if (n.nodeType === 1) cands.push(n as HTMLElement); else if (n.parentElement) cands.push(n.parentElement); });
+        if (el) cands.push(el);
+        for (const c of cands) {
+          const hit = c.matches?.(SEL) && isErr(c) ? c : c.closest?.(SEL) && isErr(c.closest(SEL) as HTMLElement) ? (c.closest(SEL) as HTMLElement) : null;
+          const text = hit?.textContent?.trim();
+          if (!text || text.length > 300) continue;
+          const now = Date.now();
+          if (text === last && now - lastAt < 2500) continue;
+          last = text; lastAt = now;
+          toast(text);
+          return;
+        }
+      }
+    });
+    obs.observe(box, { childList: true, subtree: true, characterData: true });
+    return () => obs.disconnect();
+  }, [toast]);
   const onModalKeyDown = useMemo(() => makeEnterToSubmitHandler(".ft button.btn:not(.ghost):not(.plain):not(:disabled)"), []);
 
   return (

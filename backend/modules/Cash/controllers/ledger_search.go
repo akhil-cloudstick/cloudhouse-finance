@@ -16,6 +16,7 @@ func ledgerRowMatches(r ledgerSourceRow, needle string) bool {
 		r.Reference,
 		r.LoanNumber,
 		r.Description,
+		r.Type,
 		r.Method,
 		r.BankName,
 		r.CustomerName,

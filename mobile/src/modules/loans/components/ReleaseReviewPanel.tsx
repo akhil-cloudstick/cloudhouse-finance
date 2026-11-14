@@ -35,9 +35,9 @@ import {
 import { inr, todayISO } from "@/common/utils/format";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useCanOpen } from "@/common/config/routePermissions";
-import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest } from "@/modules/loans/services/loanService";
+import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, editReleaseRecord, deleteReleaseRecord } from "@/modules/loans/services/loanService";
 import { isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
-import { listPackets } from "@/modules/packets/services/packetService";
+import { listPackets, movePacket } from "@/modules/packets/services/packetService";
 import { printReleaseAgreementPdf, printPartialReleaseReceiptPdf, RELEASE_AGREEMENT_LANGS, DOC_LANG_LABELS, type DocLang } from "@/modules/loans/utils/loanPrint";
 import { LoanRequest, Loan } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
@@ -68,6 +68,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const { can, employee } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
   const canOpen = useCanOpen();
   // The "Go to …" shortcuts below only when the user may open where they lead.
   const canGoBankPledge = canOpen("/loans") && can("Bank_Pledge_Management", "can_view_bank_pledge_module");
@@ -124,8 +126,17 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   });
   const packetRecord = packet.data?.[0];
   const packetStatus = packetRecord?.status;
-  const bankPledged = loan.bankPledgeStatus === "Bank Pledged" || !!loan.bankPledges?.some((p) => p.status === "Active");
-  const inLocker = packetStatus === "Locker Stored";
+  // Only the ornaments of THIS request count; a pledge with no ornament list covers the whole loan.
+  const releasingIds = request.isPartial
+    ? (request.ornamentSelections ?? []).map((x) => x.ornamentId)
+    : (loan.ornaments ?? []).filter((o) => !o.releasedAt).map((o) => o.id);
+  const bankPledged = !!loan.bankPledges?.some(
+    (p) => p.status === "Active" && (!p.ornamentIds || p.ornamentIds.length === 0 || p.ornamentIds.some((id) => releasingIds.includes(id))),
+  );
+  const inLocker = !bankPledged && packetStatus === "Locker Stored";
+  // A locker packet is checked out automatically when the customer is marked as having seen the gold.
+  const canMovePackets = can("Packet_Management", "can_update_packet");
+  const packetAutoReleasable = inLocker && canMovePackets;
   const goldStillHeld = bankPledged || inLocker;
   const goldHeldReason = bankPledged ? "pledged to a bank" : "checked into a locker";
 
@@ -220,6 +231,21 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
 
   // Reject goes through a themed confirm (with the reason) first.
   const [confirmReject, setConfirmReject] = useState(false);
+  // The release record's own date (edit) and the record itself (delete) — shown once a payment is recorded or the request is decided.
+  const [recordDate, setRecordDate] = useState((request.requestedAt || todayISO()).slice(0, 10));
+  useEffect(() => { setRecordDate((request.requestedAt || todayISO()).slice(0, 10)); }, [request.id, request.requestedAt]);
+  const [confirmDeleteRecord, setConfirmDeleteRecord] = useState(false);
+  const recordEditable = !!request.requestedAt && (request.status !== "Pending" || !!request.paymentRecorded);
+  const saveRecordDate = useMutation({
+    mutationFn: () => editReleaseRecord(request.id, { requestedAt: recordDate }),
+    onSuccess: () => { toast.success("Release date updated"); onSaved(); },
+    onError: reportError,
+  });
+  const removeRecord = useMutation({
+    mutationFn: () => deleteReleaseRecord(request.id),
+    onSuccess: () => { setConfirmDeleteRecord(false); toast.success("Release record deleted"); onSaved(); },
+    onError: (err) => { setConfirmDeleteRecord(false); reportError(err); },
+  });
   const decide = useMutation({
     mutationFn: ({ action, note }: { action: "Approved" | "Rejected"; note?: string }) =>
       approveReleaseRequest(request.id, {
@@ -240,7 +266,13 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     },
   });
 
-  const sawGoldDisabled = saveVerification.isPending || !canDecide || !canVerifyChecklist || !isPending || !!request.locked || goldStillHeld;
+  const releasePacket = useMutation({
+    mutationFn: (id: number) => movePacket(id, { toStatus: "Released", employeeId: 1, remarks: `Released with release request on ${loan.loanNumber}` }),
+    onSuccess: () => { packet.refetch(); onSaved(); },
+    onError: reportError,
+  });
+
+  const sawGoldDisabled = saveVerification.isPending || releasePacket.isPending || !canDecide || !canVerifyChecklist || !isPending || !!request.locked || (goldStillHeld && !packetAutoReleasable);
 
   return (
     <View>
@@ -325,6 +357,10 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
           onPress={() => {
             if (sawGoldDisabled) return;
             const next = !sawGold;
+            if (next && packetAutoReleasable && packetRecord) {
+              releasePacket.mutate(packetRecord.id, { onSuccess: () => { setSawGold(true); saveVerification.mutate({ customerSawGold: true }); } });
+              return;
+            }
             setSawGold(next);
             saveVerification.mutate({ customerSawGold: next });
           }}
@@ -332,7 +368,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
           sub="Required before this request can be approved"
         />
       </View>
-      {goldStillHeld && isPending ? (
+      {goldStillHeld && !packetAutoReleasable && isPending ? (
         <View style={{ marginBottom: 6 }}>
           <WarningBanner>
             Release is blocked — this loan&apos;s gold is still {goldHeldReason}. {bankPledged ? "Release the bank pledge first." : "Check the packet out of the locker first."}
@@ -350,6 +386,17 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
               style={{ marginBottom: 14 }}
             />
           )}
+        </View>
+      ) : null}
+
+      {recordEditable && (canEditLedger || canDeleteLedger) ? (
+        <View style={{ marginBottom: 10 }}>
+          <DateField label="Release date" value={recordDate} onChange={setRecordDate} min={loan.openedDate?.slice(0, 10) || undefined} max={todayISO()} />
+          <BtnRow2>
+            {canDeleteLedger ? <PrimaryButton label="Delete Record" variant="outline" onPress={() => setConfirmDeleteRecord(true)} disabled={removeRecord.isPending} /> : null}
+            {canEditLedger ? <PrimaryButton label="Save Date" onPress={() => saveRecordDate.mutate()} loading={saveRecordDate.isPending} disabled={recordDate === (request.requestedAt || "").slice(0, 10)} /> : null}
+          </BtnRow2>
+          <ConfirmSheet visible={confirmDeleteRecord} onClose={() => setConfirmDeleteRecord(false)} title="Delete Release Record" danger message="Delete this release record? The money it took is edited as ordinary loan payments and is not removed here." confirmLabel="Delete Record" loading={removeRecord.isPending} onConfirm={() => removeRecord.mutate()} />
         </View>
       ) : null}
 
@@ -410,7 +457,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
 
       {!isPending ? null : !canApprove ? (
         <ReviewWarning>
-          {goldStillHeld
+          {goldStillHeld && !packetAutoReleasable
             ? `Blocked until the gold is no longer ${goldHeldReason}.`
             : !request.customerSawGold && !paymentConditionMet
               ? "Confirm the customer has seen the gold and record the payment before approving."

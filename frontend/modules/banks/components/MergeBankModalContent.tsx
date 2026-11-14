@@ -64,9 +64,7 @@ export function MergeBankModalContent({ source, banks, onSaved }: MergeBankModal
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn danger" onClick={save} disabled={saving || !target}>{saving ? "Merging…" : "Merge & Delete"}</button>
+      <div className="ft">        <button className="btn danger" onClick={save} disabled={saving || !target}>{saving ? "Merging…" : "Merge & Delete"}</button>
       </div>
     </>
   );

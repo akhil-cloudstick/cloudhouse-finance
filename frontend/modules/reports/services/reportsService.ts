@@ -20,6 +20,9 @@ function buildQuery(filters: ReportFilters): string {
     ["plan_id", filters.planId], ["purity", filters.purity], ["payment_type", filters.paymentType],
     ["collection_mode", filters.collectionMode], ["expense_category_id", filters.expenseCategoryId],
     ["frequency", filters.frequency], ["set_by", filters.setBy],
+    ["ornament_type", filters.ornamentType], ["locker_id", filters.lockerId], ["settlement", filters.settlement],
+    ["kyc_status", filters.kycStatus], ["pan_status", filters.panStatus], ["aadhaar_status", filters.aadhaarStatus],
+    ["role", filters.role], ["channel", filters.channel],
   ];
   for (const [k, v] of extra) if (v) qs.set(k, v);
   return qs.toString();

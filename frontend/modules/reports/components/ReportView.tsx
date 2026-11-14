@@ -23,6 +23,8 @@ export type ReportColumn<Row> = {
   key: string;
   label: string;
   numeric?: boolean;
+  // Optional column width (a % number or any CSS width); the rest share what is left.
+  width?: number | string;
   render: (row: Row) => React.ReactNode;
 };
 
@@ -252,7 +254,7 @@ export function ReportView({ config, onBack }: ReportViewProps) {
         </div>
         <div className="tbl-wrap">
           <table className="tbl tbl-cards tbl-center">
-            <TableCols widths={columns.map((c) => (c.numeric ? 12 : null))} />
+            <TableCols widths={columns.map((c) => c.width ?? (c.numeric ? 12 : null))} />
             <thead>
               <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
             </thead>

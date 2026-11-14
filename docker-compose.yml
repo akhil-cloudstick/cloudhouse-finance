@@ -79,6 +79,8 @@ services:
       DB_SSLMODE: disable
       FRONTEND_ORIGIN: "https://superadmin.cloudhousefinance.com,https://*.cloudhousefinance.com,http://wails.localhost,http://wails.localhost:34115,http://localhost:3000"
       BASE_DOMAIN: cloudhousefinance.com
+      # Hosts whose "/" shows the public landing page instead of the login redirect.
+      LANDING_HOSTS: "cloudhousefinance.com,www.cloudhousefinance.com"
       JWT_SECRET: "aFTl+TbrYxhx3bI+BzJdvl4NduwE7q7M9ko4CT5l0yg="
       JWT_EXPIRY: 3d
       SETTINGS_ENCRYPTION_KEY: "6dUfHyEmi0/WvCfRhRUIEq7RZw95MgFNPhTLQDIRKBI="

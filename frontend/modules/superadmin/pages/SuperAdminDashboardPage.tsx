@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { TruncText } from "@/common/components/ui/TruncText";
 import { useRouter } from "next/navigation";
 import "@/modules/superadmin/styles/superadmin.css";
 import { listBusinesses, listTiers, listAuditLog, getCatalogue, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
@@ -562,7 +563,7 @@ export default function SuperAdminDashboardPage() {
                       <td>{e.action}</td>
                       <td>{e.tenantName || "—"}</td>
                       <td>{e.detail}</td>
-                      <td>{e.reason}</td>
+                      <td><TruncText text={e.reason} /></td>
                     </tr>
                   ))}
                   {(auditLog ?? []).length === 0 && (

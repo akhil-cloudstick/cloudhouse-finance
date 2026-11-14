@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { dmy } from "@/common/utils/format";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
@@ -65,14 +65,14 @@ export default function CustomersScreen() {
         emptyText={list.search ? "No customers match your search." : "No customers yet."}
         header={
           <>
-            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-              <GroupedFilter title="Filter customers" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+            <View style={{ paddingTop: 12 }}>
+              <SearchFilterRow
+                value={list.search}
+                onChangeText={list.setSearch}
+                placeholder="Search this list by customer name, ID, or phone"
+                filter={<GroupedFilter title="Filter customers" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
+              />
             </View>
-            <SearchInput
-              value={list.search}
-              onChangeText={list.setSearch}
-              placeholder="Search this list by customer name, ID, or phone"
-            />
           </>
         }
         renderItem={(c, i) => (
@@ -80,10 +80,12 @@ export default function CustomersScreen() {
             defaultOpen={i === 0}
             id={c.code}
             name={c.name}
-            sub={c.phone || undefined}
+            sub={[c.phone, c.address].filter(Boolean).join(" · ") || undefined}
             status={c.kycStatus || undefined}
             details={[
               { k: "Phone", v: c.phone || "—" },
+              { k: "Address", v: c.address || "—" },
+              { k: "Loans", v: String(c.loanCount ?? 0) },
               { k: "Branch", v: c.branch?.name || "—" },
               { k: "KYC status", v: c.kycStatus || "—" },
               { k: "PAN", v: c.panStatus || "—" },

@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./secureStorage";
 
 /* The business this app is signed in to.
  *

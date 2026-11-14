@@ -35,6 +35,8 @@ type AsyncSelectProps<T> = {
   // same allowCreate convention as the web's SearchableSelect.tsx. Resolves
   // to the created item, which is then selected exactly like a picked row.
   onCreateNew?: (q: string) => Promise<T>;
+  // Opt-in text for the empty list in place of "No matches" (read on every render).
+  emptyText?: () => string | undefined;
 };
 
 /** Searchable dropdown backed by a server `q` query — works like the web's:
@@ -54,6 +56,7 @@ export function AsyncSelect<T>({
   onClear,
   minChars = 0,
   onCreateNew,
+  emptyText,
 }: AsyncSelectProps<T>) {
   const { ref, measure } = useAnchor();
   const input = useRef<TextInputInstance>(null);
@@ -142,7 +145,7 @@ export function AsyncSelect<T>({
             <Spinner size={20} />
           </View>
         ) : items.length === 0 && !showCreateRow ? (
-          <Txt style={[s.ddItemTxt, { padding: 10, color: C.muted }]}>{dq.trim().length < minChars ? "Type to search" : "No matches"}</Txt>
+          <Txt style={[s.ddItemTxt, { padding: 10, color: C.muted }]}>{dq.trim().length < minChars ? "Type to search" : emptyText?.() || "No matches"}</Txt>
         ) : (
           items.map((it) => {
             const r = renderItem(it);

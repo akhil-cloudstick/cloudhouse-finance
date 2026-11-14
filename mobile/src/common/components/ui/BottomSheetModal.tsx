@@ -42,6 +42,8 @@ type BottomSheetModalProps = {
   onClose: () => void;
   children: React.ReactNode;
   maxHeightPct?: number;
+  /** Fixed height (= maxHeightPct) instead of sizing to content, so the sheet never resizes with its data. */
+  fixedHeight?: boolean;
   dragToClose?: boolean;
   /** Prototype sheet styling (.modal-card.sheet-bottom): white card, 24
    * radius, no side padding — the content lays out its own head/body. */
@@ -55,6 +57,7 @@ export function BottomSheetModal({
   onClose,
   children,
   maxHeightPct = 88,
+  fixedHeight = false,
   dragToClose = true,
   bare = false,
 }: BottomSheetModalProps) {
@@ -265,7 +268,7 @@ export function BottomSheetModal({
     const ios = Platform.OS === "ios";
     const animate = (e: KeyboardEvent) => {
       if (ios && e.duration) LayoutAnimation.configureNext({ duration: e.duration, update: { type: LayoutAnimation.Types.keyboard } });
-      else if (!ios) LayoutAnimation.configureNext({ duration: 140, update: { type: LayoutAnimation.Types.easeOut } });
+      else if (!ios) LayoutAnimation.configureNext({ duration: 220, update: { type: LayoutAnimation.Types.easeInEaseOut } });
     };
     let raf = 0;
     const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", (e) => {
@@ -277,16 +280,14 @@ export function BottomSheetModal({
       // Let a window resize (if this device does one) lay out first, then measure.
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        raf = requestAnimationFrame(() => {
-          const finish = (l: number) => {
-            animate(e);
-            setAndroidLift(l);
-            setKeyboardHeight(e.endCoordinates.height);
-          };
-          const node = overlayRef.current;
-          if (!node) return finish(0);
-          node.measureInWindow((_x, y, _w, h) => finish(Math.max(0, Math.round(y + h - e.endCoordinates.screenY))));
-        });
+        const finish = (l: number) => {
+          animate(e);
+          setAndroidLift(l);
+          setKeyboardHeight(e.endCoordinates.height);
+        };
+        const node = overlayRef.current;
+        if (!node) return finish(0);
+        node.measureInWindow((_x, _y, _w, h) => finish(Math.max(0, Math.round(_y + h - e.endCoordinates.screenY))));
       });
     });
     const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", (e) => {
@@ -342,8 +343,9 @@ export function BottomSheetModal({
                   maxHeight: keyboardHeight
                     ? Math.min((fullH.current * maxHeightPct) / 100 || Infinity, availH - lift - insets.top - 8)
                     : `${maxHeightPct}%`,
+                  ...(fixedHeight && !keyboardHeight ? { height: `${maxHeightPct}%` } : null),
                   marginBottom: lift,
-                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? (Platform.OS === "ios" ? 8 : 14) : 14 + Math.max(insets.bottom, 10),
+                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? (Platform.OS === "ios" ? 0 : 14) : 14 + Math.max(insets.bottom, 10),
                   transform: [{ translateY }],
                 },
               ]}
@@ -359,7 +361,7 @@ export function BottomSheetModal({
       </View>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, visible, moving, maxHeightPct, keyboardHeight, lift, androidLift, availH, insets.bottom, insets.top, win.height, children, dragGesture, dragToClose, scrollCtx, bare]);
+  }, [mounted, visible, moving, maxHeightPct, keyboardHeight, lift, androidLift, availH, insets.bottom, insets.top, win.height, children, dragGesture, dragToClose, scrollCtx, bare, fixedHeight]);
 
   useEffect(() => () => sheetStore.remove(id), [id]);
 

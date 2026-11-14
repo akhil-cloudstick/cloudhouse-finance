@@ -71,6 +71,11 @@ export function getMovementEntry(id: number) {
 }
 
 // The Expenses list's Edit form data for a pending or approved expense — `id` is the expense id.
+// Deletes a cash-in, debit, self transfer or gold sale — every payment line of it (web deleteMovementEntry).
+export function deleteMovementEntry(id: number) {
+  return apiRequest<unknown>(`/cash-movements/${id}/entry`, { method: "DELETE" });
+}
+
 export function getExpenseEntry(id: number) {
   return apiRequest<EntryInfo>(`/expenses/${id}/entry`);
 }
@@ -124,9 +129,9 @@ export function createCashSource(name: string) {
 
 export const EXPENSE_CATEGORIES_PAGE_SIZE = 5;
 
-export function listExpenseCategoriesPage(q: string, page: number, pageSize: number = EXPENSE_CATEGORIES_PAGE_SIZE) {
+export function listExpenseCategoriesPage(q: string, page: number, pageSize: number = EXPENSE_CATEGORIES_PAGE_SIZE, selectable = false) {
   return apiRequest<{ items: ExpenseCategory[]; hasMore: boolean }>("/expense-categories", {
-    params: { q: q || undefined, limit: pageSize, offset: page * pageSize },
+    params: { q: q || undefined, limit: pageSize, offset: page * pageSize, selectable: selectable ? 1 : undefined },
   });
 }
 
@@ -192,8 +197,18 @@ export function listExpenses() {
 // Page-scoped variant: passing `limit` flips the backend (cash/handler.go's
 // ExpenseHandler.List) into the {items, hasMore} envelope — used by the
 // paginated mobile Expenses table (10/page, one API call per page).
-export function listExpensesPage(params: { limit: number; offset: number; q?: string; status?: string }) {
-  return apiRequest<{ items: Expense[]; hasMore: boolean; total?: number; totalAmount?: number }>("/expenses", { params });
+export type ExpenseFilters = { category?: string[]; mode?: string[]; status?: string[]; from?: string; to?: string };
+// category / mode / status repeat as query keys (the backend reads them as arrays, not comma lists), so the
+// query string is built here rather than through `params`.
+export function listExpensesPage(params: { limit: number; offset: number; q?: string } & ExpenseFilters) {
+  const { category, mode, status, from, to, ...rest } = params;
+  const qs: string[] = Object.entries(rest)
+    .filter(([, v]) => v !== undefined && v !== "")
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
+  for (const [k, vs] of [["category", category], ["mode", mode], ["status", status]] as const) vs?.forEach((v) => qs.push(`${k}=${encodeURIComponent(v)}`));
+  if (from) qs.push(`from=${encodeURIComponent(from)}`);
+  if (to) qs.push(`to=${encodeURIComponent(to)}`);
+  return apiRequest<{ items: Expense[]; hasMore: boolean; total?: number; totalAmount?: number }>(`/expenses?${qs.join("&")}`);
 }
 
 export function createExpense(input: {
@@ -252,6 +267,9 @@ export function createGoldSale(input: {
   mode?: string;
   // bankId is required when mode is UPI or Bank Transfer.
   bankId?: number;
+  // How the cost to acquire was paid; costBankId is required when costMode is UPI or Bank Transfer.
+  costMode?: string;
+  costBankId?: number;
   soldOn?: string;
   remarks?: string;
   receiptImage?: string;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { autoGrowTextarea } from "@/common/components/ui/NoteField";
 import { recordPayment, PAYMENT_MODE_LABELS, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business, type PaymentMode } from "@/modules/superadmin/types/superadmin-types";
 import { Select } from "@/modules/superadmin/components/Select";
@@ -131,7 +132,7 @@ export function RecordPaymentModal({
           </div>
           <div className="sa-field">
             <label>Note (optional)</label>
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+            <textarea value={note} onChange={(e) => { setNote(e.target.value); autoGrowTextarea(e.target); }} rows={2} />
           </div>
           {error && <p className="sa-error">{error}</p>}
         </div>

@@ -36,9 +36,7 @@ function CascadeOffModalContent({ row, dependents, onConfirm }: CascadeOffModalC
         </ul>
       </div>
       <div className="ft" style={{ display: "flex", gap: 8 }}>
-        <div className="sp" />
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={() => { onConfirm(); closeModal(); }}>Turn off {dependents.length + 1}</button>
+        <div className="sp" />        <button className="btn" onClick={() => { onConfirm(); closeModal(); }}>Turn off {dependents.length + 1}</button>
       </div>
     </>
   );
@@ -115,9 +113,7 @@ function EditRoleModalContent({
         {canDelete && (
           <button className="btn ghost" style={{ color: "var(--red)" }} onClick={onDelete} disabled={busy}>Delete role</button>
         )}
-        <div className="sp" />
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        {canUpdate && (
+        <div className="sp" />        {canUpdate && (
           <button className="btn" onClick={onSave} disabled={busy || !name.trim()}><Icon name="check" /> Save</button>
         )}
       </div>

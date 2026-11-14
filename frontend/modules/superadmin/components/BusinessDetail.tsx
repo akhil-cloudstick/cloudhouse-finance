@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TruncText } from "@/common/components/ui/TruncText";
 import { DesktopReleaseModal } from "@/modules/superadmin/components/DesktopReleaseModal";
 import { DesktopReleaseHistory } from "@/modules/superadmin/components/DesktopReleaseHistory";
 import { createPortal } from "react-dom";
@@ -310,7 +311,7 @@ export function BusinessDetail({
                       {p.periodFrom || p.periodTo ? `${formatDate(p.periodFrom)} – ${formatDate(p.periodTo)}` : "—"}
                     </td>
                     <td>{p.planName || "—"}</td>
-                    <td>{p.note || "—"}</td>
+                    <td><TruncText text={p.note} /></td>
                     <td>{p.recordedByName}</td>
                     <td>
                       <button className="sa-btn danger" onClick={() => setRemoving(p)}>

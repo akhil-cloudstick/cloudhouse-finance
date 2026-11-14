@@ -195,9 +195,13 @@ func listGoldRates(ctx context.Context, limit, offset int) ([]commonModels.GoldR
 }
 
 // findGoldRateDays pages over calendar days (not rows), optionally narrowed to a from / to range of days, newest day first.
-func findGoldRateDays(ctx context.Context, from, to, search string, limit, offset int) ([]GoldRateDay, int64, error) {
+func findGoldRateDays(ctx context.Context, from, to, search string, setBy []string, limit, offset int) ([]GoldRateDay, int64, error) {
 	base := func() *gorm.DB {
 		q := config.DB.WithContext(ctx).Model(&commonModels.GoldRate{})
+		// Only days on which one of the chosen people set a rate.
+		if len(setBy) > 0 {
+			q = q.Where("LOWER(TRIM(set_by)) IN ?", setBy)
+		}
 		if from != "" {
 			q = q.Where("CAST(date AS DATE) >= ?", from)
 		}
@@ -299,7 +303,13 @@ func ListGoldRates(c echo.Context) error {
 				return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid date: expected YYYY-MM-DD"})
 			}
 		}
-		rec, total, err := findGoldRateDays(ctx, from, to, strings.TrimSpace(c.QueryParam("search")), limit, offset)
+		var setBy []string
+		for _, n := range strings.Split(c.QueryParam("set_by"), ",") {
+			if n = strings.ToLower(strings.TrimSpace(n)); n != "" {
+				setBy = append(setBy, n)
+			}
+		}
+		rec, total, err := findGoldRateDays(ctx, from, to, strings.TrimSpace(c.QueryParam("search")), setBy, limit, offset)
 		if err != nil {
 			return FailErr(c, err)
 		}

@@ -94,3 +94,54 @@ export function resolveAuctionDecision(
 export function listPendingAuctionDecisions() {
   return apiRequest<AuctionDecisionRequest[] | null>("/loans/auctions/decisions/pending");
 }
+
+/* Editing a concluded auction's sale. A dry run (nothing saved) answers with the effect on the loan and the
+ * `dependents` — entries booked from the sale that the change leaves stale. Keys are spelled snake_case out and
+ * camelCase in, as the web client does, since the contract adapter only renames the keys it knows. */
+export type AuctionSaleCurrent = { saleAmount: number; auctionExpenses: number; saleDate: string; cashAmount: number; upiAmount: number; bankTransferAmount: number; bankId?: number | null };
+export type AuctionDependent = { kind: string; id: number; description: string; current: string; suggested: string; required: boolean };
+export type AuctionEditPreview = {
+  before: { principal: number; interest: number; penalInterest: number; total: number; status: string };
+  after: { principal: number; interest: number; penalInterest: number; total: number; status: string };
+  dependents: AuctionDependent[];
+};
+export type EditAuctionSaleInput = { saleAmount: number; auctionExpenses: number; saleDate: string; cashAmount: number; upiAmount: number; bankTransferAmount: number; bankId?: number; applyDependents: { kind: string; id: number }[] };
+
+const toSnake = (v: unknown): unknown => (Array.isArray(v) ? v.map(toSnake) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase()), toSnake(x)])) : v);
+const toCamel = <T>(v: unknown): T => (Array.isArray(v) ? v.map((x) => toCamel(x)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase()), toCamel(x)])) : v) as T;
+
+export function getAuctionSaleCurrent(loanId: number) {
+  return apiRequest<unknown>(`/loans/${loanId}/auction/sale`).then((r) => toCamel<AuctionSaleCurrent>(r));
+}
+
+export function editAuctionSale(loanId: number, input: EditAuctionSaleInput, dryRun: boolean) {
+  return apiRequest<unknown>(`/loans/${loanId}/auction/sale${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: toSnake(input) as Record<string, unknown> }).then((r) => toCamel<AuctionEditPreview>(r));
+}
+
+/* Surplus settlement and write-off edits / deletes, and the sale delete — the same endpoints web's
+ * services/loanService.ts calls (PATCH/DELETE /loans/:id/auction/{sale,surplus,write-off}). Every call can be a dry run. */
+export type AppliedAuctionDependent = { kind: string; id: number };
+const dryQs = (dryRun: boolean) => (dryRun ? "?dry_run=true" : "");
+const callEdit = (path: string, method: "PATCH" | "DELETE", body?: unknown) =>
+  apiRequest<unknown>(path, { method, ...(body === undefined ? {} : { body: toSnake(body) as Record<string, unknown> }) }).then((r) => toCamel<AuctionEditPreview>(r));
+
+export function deleteAuctionSale(loanId: number, applyDependents: AppliedAuctionDependent[] = [], dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/sale${dryQs(dryRun)}`, "DELETE", { applyDependents });
+}
+export function editAuctionSurplus(loanId: number, input: { disposition?: string; mode?: string; bankId?: number; settledOn?: string }, dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/surplus${dryQs(dryRun)}`, "PATCH", input);
+}
+export function deleteAuctionSurplus(loanId: number, dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/surplus${dryQs(dryRun)}`, "DELETE");
+}
+export function editAuctionWriteOff(loanId: number, paidOn: string, dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/write-off${dryQs(dryRun)}`, "PATCH", { paidOn });
+}
+export function deleteAuctionWriteOff(loanId: number, applyDependents: AppliedAuctionDependent[] = [], dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/write-off${dryQs(dryRun)}`, "DELETE", { applyDependents });
+}
+
+// Every case ever opened against a loan (web's getAuctionHistory) — the editors read the sale case from it.
+export function getAuctionHistory(loanId: number) {
+  return apiRequest<AuctionRecord[] | null>(`/loans/${loanId}/auction/history`).then((r) => r ?? []);
+}

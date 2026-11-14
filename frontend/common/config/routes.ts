@@ -22,6 +22,7 @@ export const APP_ROUTES = [
   "loans",
   "loan",
   "newloan",
+  "editloan",
   "schemes",
   "goldrates",
   "requests",
@@ -51,6 +52,7 @@ export const APP_ROUTES = [
   "roles-permissions",
   "billing",
   "settings",
+  "support",
 ] as const;
 
 export type AppRoute = (typeof APP_ROUTES)[number];

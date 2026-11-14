@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from "react-native";
+import { Icon } from "@/common/components/ui/Icon";
 import { C, Field, Sheet, SheetListItem, Txt } from "@/common/components/ui";
 import { fromCamera, fromFiles, fromLibrary, fromLibraryMany, PermissionError } from "@/common/components/ui/DocumentField";
 import { uploadFile } from "@/common/services/uploadService";
@@ -81,7 +82,7 @@ export function UploadField({
     }
   }
 
-  const isImage = !!value && !/\.pdf$/i.test(value);
+  const isImage = !!value && !/\.(pdf|docx?|xlsx?|txt|csv)(\?|$)/i.test(value);
   // /uploads/* is only served to a signed-in caller — send the session token.
   const thumbSource = useUploadSource(value || "");
   const localThumb = value && localUri && localUri.url === value ? { uri: localUri.uri } : null;
@@ -105,7 +106,11 @@ export function UploadField({
               ) : (
                 <UploadImage path={value} title={label} style={s.thumb} />
               )
-            ) : null}
+            ) : (
+              <Pressable onPress={() => setViewing(true)} hitSlop={6} style={[s.thumb, { alignItems: "center", justifyContent: "center" }]}>
+                <Icon name="doc" size={22} color={C.brandDeep} />
+              </Pressable>
+            )}
             <Txt style={s.doneTxt} numberOfLines={1}>
               {name ?? "Attached"}
               {canUpload ? " · Tap to replace" : ""}

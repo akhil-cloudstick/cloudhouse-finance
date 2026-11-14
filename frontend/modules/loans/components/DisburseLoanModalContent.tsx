@@ -97,9 +97,7 @@ export function DisburseLoanModalContent({
         )}
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving || !balanced || insufficient} onClick={save}>{saving ? (isVerify ? "Verifying…" : "Approving…") : `${actionLabel} ${fmt(payout)}`}</button>
+      <div className="ft">        <button className="btn" disabled={saving || !balanced || insufficient} onClick={save}>{saving ? (isVerify ? "Verifying…" : "Approving…") : `${actionLabel} ${fmt(payout)}`}</button>
       </div>
     </>
   );

@@ -217,7 +217,40 @@ func findPackets(ctx context.Context, f Filter) ([]models.Packet, int64, error) 
 	}
 	var packets []models.Packet
 	err := q.Order("packets.id desc").Find(&packets).Error
+	if err == nil {
+		attachLockerCodes(ctx, packets)
+	}
 	return packets, total, err
+}
+
+// attachLockerCodes fills each packet's LockerCode with one query, independent of any locker filter or permission.
+func attachLockerCodes(ctx context.Context, packets []models.Packet) {
+	ids := make([]uint, 0, len(packets))
+	for _, p := range packets {
+		if p.CurrentLockerID != nil {
+			ids = append(ids, *p.CurrentLockerID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	var rows []struct {
+		ID   uint
+		Code string
+	}
+	if err := config.DB.WithContext(ctx).Table("lockers").Select("id, code").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		log.Printf("packets: could not load locker codes: %v", err)
+		return
+	}
+	codes := make(map[uint]string, len(rows))
+	for _, r := range rows {
+		codes[r.ID] = r.Code
+	}
+	for i := range packets {
+		if packets[i].CurrentLockerID != nil {
+			packets[i].LockerCode = codes[*packets[i].CurrentLockerID]
+		}
+	}
 }
 
 func persistPacket(ctx context.Context, p *models.Packet) error {

@@ -17,7 +17,7 @@ const MORE_ROWS: MoreRow[] = [
   { key: "investments", route: "investments", title: "Investments", sub: "Deposits, plans & payouts", icon: "coin" },
   { key: "loan-risk", route: "loan-risk", title: "Loan Risk", sub: "Risk assessment across active loans", icon: "chart" },
   { key: "gold-rates", title: "Gold Rates", sub: "Set today's rate & view history", icon: "coin", perms: [["Gold_Rate_Management", "can_view_gold_rate_module"]], action: "gold" },
-  { key: "requests", route: "requests", title: "Releases", sub: "Loan extensions & gold release", icon: "edit" },
+  { key: "requests", route: "requests", title: "Extension & Release", sub: "Loan extensions & gold release", icon: "edit" },
   { key: "packets", route: "packets", title: "Packets & Lockers", sub: "Ornament custody tracking", icon: "doc" },
   { key: "banks", route: "banks", title: "Bank Pledges", sub: "Loans pledged to a bank", icon: "card" },
   { key: "auctions", route: "auctions", title: "Auctions", sub: "Active cases & auction history", icon: "gavel" },
@@ -28,6 +28,7 @@ const MORE_ROWS: MoreRow[] = [
   { key: "branches", route: "branches", title: "Branches", sub: "Branch details & lockers", icon: "home" },
   { key: "bank-management", route: "bank-management", title: "Bank Management", sub: "Banks & net balance", icon: "coin" },
   { key: "roles", route: "roles", title: "Roles & Permissions", sub: "What each role can do", icon: "shield" },
+  { key: "support", route: "support", title: "Support", sub: "Contact our support team", icon: "headset" },
   // Shown only with EXPO_PUBLIC_ENABLE_PLAN_UPGRADE on (filtered below).
   { key: "billing", route: "billing", title: "Billing & Plan", sub: "Your plan, branch limit & upgrades", icon: "card" },
 ];

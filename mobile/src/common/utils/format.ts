@@ -46,3 +46,11 @@ export const addDaysISO = (iso: string, days: number) => {
   const d = new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10) + days);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+
+// "14-08-2026 16:05" — local date + time (web fmtDateTime). "—" when empty/invalid.
+export const dmyTime = (v?: string | null) => {
+  const d = v ? new Date(v) : null;
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};

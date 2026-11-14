@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -20,6 +21,7 @@ import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { FileInput } from "@/common/components/ui/FileInput";
 import { useLoanBalance } from "@/modules/cash/hooks/use-loan-balance";
+import { isLoanSource } from "@/modules/cash/services/cashSourceService";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
@@ -55,16 +57,13 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
   // drawn and not yet repaid. Blocks the button (the backend refuses it too).
   const loanBal = useLoanBalance(catRec);
   const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) : 0;
-  const loanExceeded = !!loanBal && (+amt || 0) > owed + 0.005;
-  const loanWarning = loanExceeded
-    ? `Repayment exceeds what has been paid on ${cat} — only ${fmt(owed)} is outstanding.`
-    : "";
+  const loanWarning = (_amount: number) => `Repayment exceeds what has been paid on ${cat} — only ${fmt(owed)} is outstanding.`;
   // The payment breakdown — each line is the mode, its amount and, for UPI /
   // Bank Transfer, the branch account the expense is paid from (see
   // backend/internal/cash/service.go's ExpenseService.Record).
   const [payRows, setPayRows] = useState<PaymentRow[]>(() =>
     edit
-      ? edit.lines.map((l) => newPaymentRow({ mode: l.mode, amount: String(l.amount), bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName || "", auto: false }))
+      ? edit.lines.map((l) => newPaymentRow({ mode: l.mode, amount: String(l.amount), bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName || "", auto: edit.lines.length === 1 }))
       : [newPaymentRow({ mode: "Cash" })]
   );
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
@@ -108,6 +107,8 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
     if (!cat.trim()) errors["category"] ??= "Please select a category.";
     const amount = +amt;
     if (!(amount > 0)) errors["amount"] ??= "Please enter a valid amount.";
+    // Checked here, against the category chosen now, so a loan message never lingers from an earlier pick.
+    if (loanBal && isLoanSource(cat) && amount > owed + 0.005) errors["amount"] ??= loanWarning(amount);
     if (!date) errors["date"] ??= "Please select the date.";
     const issue = paymentRowIssue(payRows, amount);
     if (issue) { setErr(""); setFe({}); setPayIssue(issue); return; }
@@ -149,7 +150,7 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
   return (
     <>
       <div className="hd"><h3>{edit ? "Edit Expense" : "Record Expense"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll entry-form">
+      <div className="bd bd-scroll entry-form no-scrollbar">
         {tabs}
         {/* Same order as the Credit form: Category → Amount → Date → Mode (payment breakdown) → Branch → Bill → Remarks. */}
         <div className="frow"><div className={fe.category ? "has-err" : undefined}><label className="f">Category *</label>
@@ -192,15 +193,13 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
         <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
           <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
         <div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
-          <textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => { setRemarks(e.target.value); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
+          <NoteField placeholder="Optional notes" value={remarks} onChange={(v) => { setRemarks(v); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
       </div>
       {/* Outside the scrolling body so a blocked save is never hidden below the fold. */}
-      {(loanWarning || err) && (
-        <div style={{ padding: "8px 22px 0", color: "var(--red)", fontSize: 12.5 }}>{loanWarning || err}</div>
+      {err && (
+        <div style={{ padding: "8px 22px 0", color: "var(--red)", fontSize: 12.5 }}>{err}</div>
       )}
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Expense"}</button>
+      <div className="ft">        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Expense"}</button>
       </div>
     </>
   );

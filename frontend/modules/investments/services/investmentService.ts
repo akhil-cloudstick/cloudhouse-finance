@@ -72,8 +72,10 @@ export function listInvestmentsPage(params: {
   return apiFetch<{ items: BackendInvestment[]; hasMore: boolean; total: number }>(`/investments?${query}`);
 }
 
-export function getInvestment(id: number): Promise<BackendInvestment> {
-  return apiFetch<BackendInvestment>(`/investments/${id}`);
+export async function getInvestment(id: number): Promise<BackendInvestment> {
+  const inv = await apiFetch<BackendInvestment & { settlement_interest?: number; principal_returned?: number }>(`/investments/${id}`);
+  // the contract adapter has no rename for these two, so they can arrive snake_case: read either
+  return { ...inv, settlementInterest: inv.settlementInterest ?? inv.settlement_interest ?? 0, principalReturned: inv.principalReturned ?? inv.principal_returned ?? 0 };
 }
 
 /* Resolves "INV-00003" to its numeric id — lets a ledger reference link to

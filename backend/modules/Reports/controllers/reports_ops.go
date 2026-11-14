@@ -137,6 +137,15 @@ func kycReport(ctx context.Context, f models.Filter) ([]models.KYCRow, models.KY
 	if len(f.CustomerIDs) > 0 {
 		q = q.Where("c.id IN ?", f.CustomerIDs)
 	}
+	if len(f.KYCStatuses) > 0 {
+		q = q.Where("LOWER(TRIM(c.kyc_status)) IN ?", lowerTrimmed(f.KYCStatuses))
+	}
+	if len(f.PANStatuses) > 0 {
+		q = q.Where("LOWER(TRIM(c.pan_status)) IN ?", lowerTrimmed(f.PANStatuses))
+	}
+	if len(f.AadhaarStatuses) > 0 {
+		q = q.Where("LOWER(TRIM(c.aadhaar_status)) IN ?", lowerTrimmed(f.AadhaarStatuses))
+	}
 	var rows []models.KYCRow
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.KYCTotals{}, err
@@ -169,6 +178,9 @@ func employeePerformance(ctx context.Context, f models.Filter) ([]models.Employe
 		Where("e.deleted_at IS NULL")
 	if len(f.BranchIDs) > 0 {
 		eq = eq.Where("e.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.Roles) > 0 {
+		eq = eq.Where("LOWER(TRIM(e.role)) IN ?", lowerTrimmed(f.Roles))
 	}
 	var emps []empRow
 	if err := eq.Scan(&emps).Error; err != nil {
@@ -264,6 +276,26 @@ func communicationHistory(ctx context.Context, f models.Filter, triggerType stri
 		}
 		logs = kept
 	}
+	if len(f.Channels) > 0 || len(f.Statuses) > 0 {
+		channels, statuses := map[string]bool{}, map[string]bool{}
+		for _, v := range lowerTrimmed(f.Channels) {
+			channels[v] = true
+		}
+		for _, v := range lowerTrimmed(f.Statuses) {
+			statuses[v] = true
+		}
+		kept := logs[:0]
+		for _, l := range logs {
+			if len(channels) > 0 && !channels[strings.ToLower(strings.TrimSpace(l.Channel))] {
+				continue
+			}
+			if len(statuses) > 0 && !statuses[strings.ToLower(strings.TrimSpace(l.Status))] {
+				continue
+			}
+			kept = append(kept, l)
+		}
+		logs = kept
+	}
 	rows := make([]models.CommunicationHistoryRow, 0, len(logs))
 	var totals models.CommunicationHistoryTotals
 	for _, l := range logs {
@@ -291,6 +323,15 @@ func lowerModes(modes []string) []string {
 	out := make([]string, 0, len(modes))
 	for _, m := range modes {
 		out = append(out, strings.ReplaceAll(strings.ToLower(strings.TrimSpace(m)), " ", "_"))
+	}
+	return out
+}
+
+// lowerTrimmed lower-cases and trims each value, for case-insensitive IN filters.
+func lowerTrimmed(vals []string) []string {
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, strings.ToLower(strings.TrimSpace(v)))
 	}
 	return out
 }

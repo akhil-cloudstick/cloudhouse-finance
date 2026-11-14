@@ -166,3 +166,25 @@ func TestPaginateLedgerWindowedCacheMatches(t *testing.T) {
 		t.Fatalf("stale cache after fingerprint change: got %+v want %+v", gotTotals, wantTotals)
 	}
 }
+
+func TestFocusMatchesByUniqueRef(t *testing.T) {
+	d := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	rows := []ledgerSourceRow{
+		{Kind: "cash_movement", ID: 5, Date: d, Amount: 1000},
+		{Kind: "expense", ID: 5, Date: d, Amount: 1000},
+		{Kind: "cash_movement", ID: 6, Date: d, Amount: 1000},
+		{Kind: "gold_sale", ID: 5, Date: d, Amount: 1000},
+	}
+	for ref, want := range map[string]int{"m:5": 0, "e:5": 1, "m:6": 2, "g:5": 3} {
+		ex, fb := focusMatches(rows, ledgerFocus{date: "2026-10-02", amount: 1000, ref: ref})
+		if ex != want || fb != want {
+			t.Fatalf("ref %s: got %d/%d want %d", ref, ex, fb, want)
+		}
+	}
+	if ex, fb := focusMatches(rows, ledgerFocus{amount: 1000, ref: "m:99"}); ex != -1 || fb != -1 {
+		t.Fatalf("unknown ref must match nothing, got %d/%d", ex, fb)
+	}
+	if got := toLedgerRow(rows[1]).Ref; got != "e:5" {
+		t.Fatalf("row ref %q", got)
+	}
+}

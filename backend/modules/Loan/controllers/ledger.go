@@ -257,8 +257,9 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 			if !at.Before(p.PaidOn) {
 				at = p.PaidOn.Add(-time.Millisecond)
 			}
-		} else if now := time.Now(); at.After(now) {
-			// interest charged ahead (the first month of a new loan): shown from when it was charged, not skipped
+		} else if now := time.Now(); !accruing && at.After(now) {
+			// interest charged ahead (the first month of a new loan): shown from when it was charged, not skipped.
+			// A projected row keeps its own date: it is interest for that date, never moved to today.
 			at = now
 			if !a.CreatedAt.IsZero() && a.CreatedAt.Before(now) {
 				at = a.CreatedAt
