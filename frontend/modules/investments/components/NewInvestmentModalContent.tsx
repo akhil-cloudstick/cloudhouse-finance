@@ -171,10 +171,18 @@ export function NewInvestmentModalContent({ onSaved, investment }: NewInvestment
         </div>}
 
         {plan && principalNum > 0 && (
-          <div className="notice" style={{ marginTop: 4 }}>
-            <div>Interest: <strong>{plan.interestRateType} @ {plan.interestRatePercent}% p.a.</strong>, paid <strong>{plan.payoutFrequency}</strong></div>
-            <div>Tenure: <strong>{plan.tenureMonths} months</strong></div>
-            <div>Principal deposited: <strong>{fmt(principalNum)}</strong></div>
+          <div style={{ marginTop: 6, border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 16px" }}>
+            {[
+              { k: "Interest", v: `${plan.interestRatePercent}% p.a. · ${plan.interestRateType}` },
+              { k: "Payout", v: plan.payoutFrequency },
+              { k: "Tenure", v: `${plan.tenureMonths} months` },
+              { k: "Principal", v: fmt(principalNum), strong: true },
+            ].map((x) => (
+              <div key={x.k}>
+                <div style={{ fontSize: 10.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--muted)" }}>{x.k}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2, color: x.strong ? "var(--brand-deep)" : "var(--ink)" }}>{x.v}</div>
+              </div>
+            ))}
           </div>
         )}
 

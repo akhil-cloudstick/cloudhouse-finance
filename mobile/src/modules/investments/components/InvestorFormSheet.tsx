@@ -100,7 +100,7 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
       <Field label="Aadhaar *"><Input value={aadhaar} onChangeText={(t) => setAadhaar(digits(t))} keyboardType="number-pad" maxLength={12} placeholder={editing ? "Leave blank to keep on file" : "12-digit Aadhaar"} /></Field>
       <Field label="Bank account holder *"><Input value={bankName} onChangeText={setBankName} /></Field>
       <Field label="Bank account number *"><Input value={bankNo} onChangeText={setBankNo} keyboardType="number-pad" /></Field>
-      <Field label="Bank IFSC *"><Input value={ifsc} onChangeText={(t) => setIfsc(t.toUpperCase())} autoCapitalize="characters" /></Field>
+      <Field label="Bank IFSC *"><Input value={ifsc} onChangeText={(t) => setIfsc(t.toUpperCase())} autoCapitalize="characters" maxLength={11} placeholder="e.g. SBIN0001234" /></Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
         label={editing ? "Save Changes" : "Create Investor"}

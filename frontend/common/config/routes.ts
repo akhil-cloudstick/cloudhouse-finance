@@ -22,6 +22,7 @@ export const APP_ROUTES = [
   "loans",
   "loan",
   "newloan",
+  "editloan",
   "schemes",
   "goldrates",
   "requests",

@@ -24,7 +24,8 @@ export function AdditionalInfoView({ text }: { text?: string | null }) {
   const t = (text || "").trim();
   if (!t) return null;
   return (
-    <button type="button" className="btn sm ghost" title="View" aria-label="View additional information"
+    <button type="button" title="View" aria-label="View additional information"
+      style={{ border: 0, background: "none", padding: 0, cursor: "pointer", color: "var(--nav)", display: "inline-flex", alignItems: "center", fontSize: 14 }}
       onClick={() => openModal(<AdditionalInfoModalContent text={t} />)}>
       <Icon name="eye" />
     </button>

@@ -480,12 +480,17 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
         ["Loan", r.loanNumber], ["Customer", r.customerName], ["Auction date", fmtDate(r.auctionDate)],
         ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"], ["Net proceeds", fmt(r.saleAmount - (r.auctionExpenses || 0))],
         // Due at sale time, stored when the sale was recorded; older cases show a dash.
-        ["Amount due at auction", r.dueTotal == null ? "—" : fmt(r.dueTotal)],
-        ["Due principal", r.duePrincipal == null ? "—" : fmt(r.duePrincipal)], ["Due interest", r.dueInterest == null ? "—" : fmt(r.dueInterest)], ["Due penal interest", r.duePenal == null ? "—" : fmt(r.duePenal)],
-        [r.surplusShortfall >= 0 ? "Surplus" : "Shortfall", fmt(Math.abs(r.surplusShortfall))], ["Outcome", AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]],
+        // Falls back to net proceeds less the surplus (plus the shortfall) for cases that stored no due figure.
+        ["Amount due at auction", fmt(r.dueTotal ?? (r.saleAmount - (r.auctionExpenses || 0) - r.surplusShortfall))],
+        [r.surplusShortfall >= 0 ? "Surplus" : "Shortfall", fmt(Math.abs(r.surplusShortfall))],
+        ...(r.surplusDisposition === "RefundedToCustomer" ? [["Refund to customer", fmt(r.surplusPayableAmount || Math.max(0, r.surplusShortfall))] as [string, string]] : []),
+        ["Outcome", AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]],
         // The remarks recorded on this auction: each decision (keep / pursue / write-off) and the settlement.
         ...r.decisionRequests.filter((d) => d.decisionRemarks).map((d, i, all) => [all.length > 1 ? `Decision remarks ${i + 1}` : "Decision remarks", d.decisionRemarks] as [string, string]),
-        ...(r.surplusRemarks ? [["Settlement remarks", r.surplusRemarks] as [string, string]] : []),
+        ...(r.surplusDisposition === "RecordedAsIncome" ? [["Surplus settlement", "Kept as company income"] as [string, string]] : []),
+        ...(r.surplusDisposition === "RecordedAsIncome"
+          ? [["Reason for keeping surplus", r.surplusRemarks || "—"] as [string, string]]
+          : r.surplusRemarks ? [["Settlement remarks", r.surplusRemarks] as [string, string]] : []),
       ]}
       description={<>Auction sale of {fmt(r.saleAmount)} less {fmt(r.auctionExpenses)} expenses.{r.surplusDisposition ? <><br />Surplus {r.surplusDisposition === "RefundedToCustomer" ? "refunded to the customer" : "kept as income"}.</> : null}</>}
       actions={actions}
@@ -623,20 +628,20 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
              * stop the card spilling over the next one (see app.css). */}
             <div className="tbl-wrap auction-history-tbl-wrap" style={{ maxHeight: 251 }}>
               <table className="tbl tbl-center tbl-cards">
-                <TableCols widths={[9, 9, 9, 10, 9, 10, 11, 12, 10, 6]} />
+                <TableCols widths={[11, 11, 11, 12, 11, 12, 14, 12, 6]} />
                 <thead>
                   <tr>
                     <th>Loan</th><th>Auction Date</th><th>Reference</th>
                     <th className="num">Sale Amount</th><th className="num">Expenses</th>
                     <th className="num">Net Proceeds</th>
-                    <th className="num">Surplus / Shortfall</th><th>Surplus Disposition</th><th>Outcome</th><th></th>
+                    <th className="num">Surplus / Shortfall</th><th>Outcome</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {conductedLoading && !(cards && conducted.length > 0) ? (
-                    <tr><td colSpan={10} className="empty">Loading…</td></tr>
+                    <tr><td colSpan={9} className="empty">Loading…</td></tr>
                   ) : conducted.length === 0 ? (
-                    <tr><td colSpan={10} className="empty">No auctions have been conducted yet.</td></tr>
+                    <tr><td colSpan={9} className="empty">No auctions have been conducted yet.</td></tr>
                   ) : conducted.map((r) => (
                     <tr key={r.id}>
                       <td data-label="Loan">{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
@@ -648,7 +653,6 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
                       <td className="num" data-label="Surplus / Shortfall" style={{ color: r.surplusShortfall >= 0 ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
                         {r.surplusShortfall >= 0 ? "+" : "−"}{fmt(Math.abs(r.surplusShortfall))}
                       </td>
-                      <td data-label="Surplus Disposition">{r.surplusDisposition === "RefundedToCustomer" ? "Refunded to customer" : r.surplusDisposition === "RecordedAsIncome" ? "Kept as income" : "—"}</td>
                       <td data-label="Outcome"><span className="pill green">{AUCTION_OUTCOME_LABELS[r.finalSettlementStatus]}</span></td>
                       <td style={{ width: 40, minWidth: 40 }}>
                         <span className="ledger-info" style={{ right: "50%", transform: "translate(50%, -50%)" }}><button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }} onClick={() => viewConducted(r)}><Icon name="info" /></button></span>

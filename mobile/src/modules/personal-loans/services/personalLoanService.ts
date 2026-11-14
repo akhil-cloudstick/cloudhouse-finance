@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest, API_BASE_URL, apiUrl } from "@/common/services/httpClient";
-import type { Frequency, PersonalLoan, PersonalLoanInstallment, PersonalLoanPayment, CreatePersonalLoanInput, RenewInput, RenewalPreview, RenewResult, PersonalLoanApproval, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
+import type { Frequency, PersonalLoanHistory, PersonalLoan, PersonalLoanInstallment, PersonalLoanPayment, CreatePersonalLoanInput, RenewInput, RenewalPreview, RenewResult, PersonalLoanApproval, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 
 // Page-scoped list — mirrors mobile Loans' listLoansPage convention
 // (0-based `offset`, {items, hasMore} envelope) rather than the web's
@@ -9,6 +9,9 @@ export function listPersonalLoansPage(params: {
   frequency?: string;
   status?: string;
   customerId?: number;
+  /** Opened-date range (YYYY-MM-DD), like web. */
+  from?: string;
+  to?: string;
   limit: number;
   offset: number;
 }) {
@@ -26,9 +29,14 @@ export function getPersonalLoanSchedulePage(id: number, limit: number, offset: n
 }
 
 export function listPersonalLoanPaymentsPage(id: number, limit: number, offset: number) {
-  return apiRequest<{ items: PersonalLoanPayment[]; hasMore: boolean }>(`/personal-loans/${id}/payments`, {
+  return apiRequest<{ items: PersonalLoanPayment[]; hasMore: boolean; totalDebit?: number; totalCredit?: number }>(`/personal-loans/${id}/payments`, {
     params: { limit, offset },
   });
+}
+
+// Event history (created / penal applied / renewed) — web getPersonalLoanHistoryPage, GET /personal-loans/:id/history.
+export function getPersonalLoanHistoryPage(id: number, limit: number, offset: number) {
+  return apiRequest<{ items: PersonalLoanHistory[]; hasMore: boolean; total?: number }>(`/personal-loans/${id}/history`, { params: { limit, offset } });
 }
 
 export function createPersonalLoan(input: CreatePersonalLoanInput) {
@@ -113,4 +121,10 @@ export function editPersonalLoanDisbursement(
   dryRun = false
 ) {
   return apiRequest<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+}
+
+// All personal loans of one customer (GET /customers/:id/personal-loans) — web's listPersonalLoansForCustomer;
+// used by the customer delete-blockers list.
+export function listPersonalLoansForCustomer(customerId: number) {
+  return apiRequest<PersonalLoan[]>(`/customers/${customerId}/personal-loans`);
 }

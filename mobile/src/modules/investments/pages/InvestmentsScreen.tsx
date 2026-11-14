@@ -2,14 +2,13 @@ import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PICKER_MAX_PCT } from "@/common/components/ui/Sheet";
-import { AccRow, AsyncSelect, Buffering, C, Card, DateField, ChipMultiSelect, ChipToggle, FabMenu, Field, FieldGrid, FieldRow, FilterButton, FlatHeader, Input, PrimaryButton, Screen, SearchFilterRow, SearchInput,ServerFlatList, Sheet, SheetListItem, StatusChip, ThemeDropdown, Txt, toast } from "@/common/components/ui";
+import { AccRow, AsyncSelect, Buffering, C, Card, DateField, ChipToggle, FabMenu, Field, FieldGrid, FieldRow, FlatHeader, GroupedFilter, emptyGroupedFilter, gfValues, gfDate, type GFSection, type GroupedFilterValue, Input, PrimaryButton, Screen, SearchFilterRow, SearchInput,ServerFlatList, Sheet, SheetListItem, StatusChip, ThemeDropdown, Txt, toast } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listInvestorsPage } from "@/modules/investments/services/investorService";
 import { ActionGroup } from "@/common/components/ActionGroup";
-import { addCashToInvestment, createInvestment, editInvestment, createInvestmentPlan, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
+import { addCashToInvestment, createInvestment, editInvestment, createInvestmentPlan, listInvestmentPlans, listInvestmentPlansPage, deleteInvestmentPlan, listInvestmentsPage, markPayoutPaid, matureInvestment, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
 import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { dmy, inr, todayISO } from "@/common/utils/format";
@@ -27,7 +26,7 @@ const PAYMENT_MODES: PaymentMode[] = ["Cash", "UPI", "Bank Transfer", "Cheque"];
 const WITHDRAW_FROM = ["Interest", "Principal", "Both"] as const;
 
 // Comma-separated list of statuses (the server accepts one or several).
-type Filters = { status?: string };
+type Filters = { status?: string; customerIds?: string; plan_ids?: string; from?: string; to?: string };
 
 const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 const planLabel = (p: InvestmentPlan) => `${p.name} — ${p.interestRatePercent}% · ${p.engine === "Live" ? "Single payout" : p.payoutFrequency} · ${p.tenureMonths}mo`;
@@ -38,14 +37,40 @@ export default function InvestmentsScreen() {
   const canCreate = can("Investment_Management", "can_create_investment");
   const canUpdate = can("Investment_Management", "can_update_investment");
 
-  const [statuses, setStatuses] = usePersistedState<string[]>("investments:statuses", []);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [draft, setDraft] = useState<string[]>([]);
+  // Status, Investor, Plan and a start-date range — same filters as web.
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("investments:filters", emptyGroupedFilter());
+  const statuses = gfValues(fv, "status");
+  const investorIds = gfValues(fv, "investor");
+  const planIds = gfValues(fv, "plan");
+  const dates = gfDate(fv, "start");
+  const sections: GFSection[] = [
+    { kind: "static", key: "status", label: "Status", options: STATUS_FILTERS.map((s) => ({ value: s, label: s })) },
+    {
+      kind: "async",
+      key: "investor",
+      label: "Investor",
+      fetchPage: (p) => listInvestorsPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((c) => ({ value: String(c.id), label: c.code ? `${c.name} (${c.code})` : c.name })), hasMore: r.hasMore })),
+    },
+    {
+      kind: "async",
+      key: "plan",
+      label: "Plan",
+      fetchPage: (p) => listInvestmentPlansPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: (r.items ?? []).map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore })),
+    },
+    { kind: "date", key: "start", label: "Start date" },
+  ];
 
   const [plansOpen, setPlansOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const filters: Filters = { status: statuses.length ? statuses.join(",") : undefined };
+  const filters: Filters = {
+    status: statuses.length ? statuses.join(",") : undefined,
+    customerIds: investorIds.length ? investorIds.join(",") : undefined,
+    plan_ids: planIds.length ? planIds.join(",") : undefined,
+    from: dates.from || undefined,
+    to: dates.to || undefined,
+  };
+  const anyFilter = statuses.length + investorIds.length + planIds.length > 0 || !!dates.from || !!dates.to;
   const list = useServerList<Investment, Filters>({ key: ["investments", "list"], persistKey: "investments", filters, fetchPage: (p) => listInvestmentsPage(p) });
 
   return (
@@ -73,7 +98,7 @@ export default function InvestmentsScreen() {
         list={list}
         items={list.items}
         keyOf={(i) => String(i.id)}
-        emptyText={list.search || statuses.length > 0 ? "No investments match your search." : "No investments yet."}
+        emptyText={list.search || anyFilter ? "No investments match your search." : "No investments yet."}
         header={
           <View style={{ paddingTop: 12 }}>
             <ActionGroup actions={[{ key: "investors", label: "Investors", icon: "user", onPress: () => router.push("/investments/investors" as never) }]} style={{ marginHorizontal: 16, marginBottom: 10 }} />
@@ -82,13 +107,7 @@ export default function InvestmentsScreen() {
               onChangeText={list.setSearch}
               placeholder="Search by investment ID or investor name"
               filter={
-                <FilterButton
-                  count={statuses.length}
-                  onPress={() => {
-                    setDraft(statuses);
-                    setFilterOpen(true);
-                  }}
-                />
+                <GroupedFilter title="Filter Investments" sections={sections} value={fv} onChange={setFv} />
               }
             />
           </View>
@@ -109,19 +128,6 @@ export default function InvestmentsScreen() {
           />
         )}
       />
-
-      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Investments" maxHeightPct={PICKER_MAX_PCT}>
-        <Field label="Status">
-          <ChipMultiSelect options={STATUS_FILTERS} value={draft} onChange={setDraft} />
-        </Field>
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setStatuses(draft);
-            setFilterOpen(false);
-          }}
-        />
-      </Sheet>
 
       <PlansSheet visible={plansOpen} onClose={() => setPlansOpen(false)} />
       <CreateInvestmentSheet
@@ -240,7 +246,9 @@ type PlanFormSheetProps = { form: PlanForm | null; setForm: (f: PlanForm | null)
 function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => setError(null), [form?.id, form === null]);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const canDeletePlan = useAuth().can("Investment_Management", "can_delete_investment");
+  useEffect(() => { setError(null); setConfirmDel(false); }, [form?.id, form === null]);
 
   function validate(f: PlanForm): string | null {
     if (!f.name.trim()) return "Please enter a plan name.";
@@ -276,6 +284,18 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
       setForm(null);
     },
     onError: (err) => setError(errMsg(err, "Could not save the plan — try again.")),
+  });
+
+  const del = useMutation({
+    mutationFn: () => deleteInvestmentPlan(form!.id!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["investmentPlans"] });
+      setForm(null);
+    },
+    onError: (err) => {
+      setConfirmDel(false);
+      setError(errMsg(err, "Could not delete the plan — try again."));
+    },
   });
 
   const f = form;
@@ -321,6 +341,18 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
             <ChipToggle options={["Active", "Inactive"] as const} value={f.isActive ? "Active" : "Inactive"} onChange={(v) => setForm({ ...f, isActive: v === "Active" })} />
           </Field>
           {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+          {f.id && canDeletePlan ? (
+            <>
+              {confirmDel ? <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>Delete the plan {f.name}? A plan already used by an investment can&apos;t be deleted — mark it inactive instead.</Txt> : null}
+              <PrimaryButton
+                label={confirmDel ? "Tap again to delete plan" : "Delete Plan"}
+                variant="reject"
+                style={{ marginBottom: 10 }}
+                loading={del.isPending}
+                onPress={() => (confirmDel ? del.mutate() : setConfirmDel(true))}
+              />
+            </>
+          ) : null}
           <PrimaryButton
             label="Save Plan"
             loading={save.isPending}

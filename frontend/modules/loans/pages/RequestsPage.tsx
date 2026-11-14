@@ -254,7 +254,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                   </td>
                   <td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
                   <td data-label="Customer">{r.customerName}</td>
-                  <td data-label="Detail">{r.detail}</td>
+                  <td data-label="Detail"><span title={r.detail} style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.detail}</span></td>
                   <td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.requestedAt)}</td>
                   <td data-label="Status">
                     <StatusChip status={r.status} />

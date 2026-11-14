@@ -1,5 +1,6 @@
 "use client";
 
+import { clearAllPersistedFilters } from "@/common/hooks/use-persisted-state";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
@@ -146,6 +147,7 @@ export function Sidebar({ route, open, onNavigateSameRoute }: SidebarProps) {
                 const isOn =
                   route === r ||
                   (route === "loan" && r === "loans") ||
+                  (route === "editloan" && r === "loans") ||
                   (route === "customer" && r === "customers") ||
                   (route === "personalloan" && r === "personalloans") ||
                   (route === "investment" && r === "investments");
@@ -162,6 +164,8 @@ export function Sidebar({ route, open, onNavigateSameRoute }: SidebarProps) {
                     href={routeHref(r)}
                     className={isOn ? "on" : ""}
                     onClick={(e) => {
+                      // A sidebar click always opens the page fresh: remembered filters/search/page are for Back navigation only.
+                      clearAllPersistedFilters();
                       // Clicking the item for the page already open leaves
                       // the URL unchanged, so the router has nothing to
                       // react to — the page just silently stays exactly as

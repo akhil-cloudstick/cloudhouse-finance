@@ -284,8 +284,8 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
           <View style={{ backgroundColor: C.card, borderColor: C.line, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 12 }}>
             {rows.map(([k, v, strong]) => (
               <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
-                <Txt style={{ fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
-                <Txt style={{ fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
+                <Txt style={{ flex: 1, flexShrink: 1, paddingRight: 12, fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
+                <Txt style={{ flexShrink: 0, textAlign: "right", fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
               </View>
             ))}
           </View>
@@ -320,8 +320,8 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
           : [];
         const row = (k: string, v: string, strong?: boolean) => (
           <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
-            <Txt style={{ fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
-            <Txt style={{ fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
+            <Txt style={{ flex: 1, flexShrink: 1, paddingRight: 12, fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
+            <Txt style={{ flexShrink: 0, textAlign: "right", fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
           </View>
         );
         return (

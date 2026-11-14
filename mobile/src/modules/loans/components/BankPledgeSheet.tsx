@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { BtnRow2, C, CheckItem, FieldGrid, NoticeBanner, PrimaryButton, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
-import { recordBankPledge, releaseBankPledge, voidBankPledge } from "@/modules/bank-pledges/services/bankPledgeService";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AccGroup, AccRow, BtnRow2, C, CheckItem, FieldGrid, NoticeBanner, PrimaryButton, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
+import { getBankPledgeHistory, recordBankPledge, releaseBankPledge, voidBankPledge } from "@/modules/bank-pledges/services/bankPledgeService";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
@@ -10,6 +10,9 @@ import { ErrorText } from "@/common/components/ErrorText";
 import { BankPledgeForm, bankPledgeFormInit, cashInPayload } from "@/common/components/BankPledgeForm";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { fmtW, pledgeOrnaments, pledgeOverdue } from "@/modules/loans/utils/pledgeView";
+import { BankPledgeEditSheet } from "@/modules/loans/components/BankPledgeEditSheet";
+import type { BankPledgeRecord } from "@/modules/loans/types/loan-types";
 
 type BankPledgeSheetProps = {
   loan: Loan;
@@ -56,6 +59,12 @@ export function BankPledgeSheet({
   const { can } = useAuth();
   const canCreate = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdate = can("Bank_Pledge_Management", "can_update_bank_pledge");
+  // Correcting or erasing a pledge rewrites its ledger lines, so it takes the ledger edit/delete grants too (web).
+  const canEditPledge = canUpdate && can("Loan_Management", "can_edit_ledger_entry");
+  const canErasePledge = canUpdate && can("Loan_Management", "can_delete_ledger_entry");
+  const [editing, setEditing] = useState<{ pledge: BankPledgeRecord; mode: "edit" | "delete" } | null>(null);
+  const historyQ = useQuery({ queryKey: ["bankPledgeHistory", l.id], queryFn: () => getBankPledgeHistory(l.id), enabled: visible });
+  const history = historyQ.data ?? [];
 
   useEffect(() => {
     if (visible) setError(null);
@@ -133,12 +142,14 @@ export function BankPledgeSheet({
               style={{ marginBottom: 14 }}
               items={[
                 { k: "Bank", v: ap.bankName },
-                { k: "Gold", v: ap.ornamentIds?.length ? `${ap.ornamentIds.length} ornament${ap.ornamentIds.length > 1 ? "s" : ""}` : "Whole loan" },
+                { k: "Ornaments", v: pledgeOrnaments(ap, l) },
+                { k: "Gross weight", v: fmtW(ap.pledgedGrossWeight) },
+                { k: "Net weight", v: fmtW(ap.pledgedNetWeight) },
                 { k: "Pledged amount", v: inr(ap.pledgedAmount) },
                 { k: "Pledge date", v: dmy(ap.pledgeDate) },
                 { k: "Reference", v: ap.referenceNumber || "—" },
-                { k: "Bank interest", v: ap.bankInterestRate != null ? `${ap.bankInterestRate}% p.a.` : "—" },
-                { k: "Due date", v: dmy(ap.bankPledgeDueDate) },
+                { k: "Interest rate", v: ap.bankInterestRate ? `${ap.bankInterestRate}% p.m.` : "—" },
+                { k: "Due date", v: dmy(ap.bankPledgeDueDate) + (pledgeOverdue(ap) ? "  · Overdue" : ""), color: pledgeOverdue(ap) ? C.red : undefined },
                 { k: "Cash treatment", v: ap.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect" },
               ]}
             />
@@ -146,6 +157,12 @@ export function BankPledgeSheet({
               <BtnRow2 style={{ marginBottom: 12 }}>
                 <PrimaryButton label="Delete Entry" variant="reject" onPress={() => { setTargetId(ap.id); setVoidOpen(true); }} />
                 <PrimaryButton label="Release from Bank" onPress={() => { setTargetId(ap.id); setConfirmRelease(true); }} />
+              </BtnRow2>
+            ) : null}
+            {canEditPledge || canErasePledge ? (
+              <BtnRow2 style={{ marginBottom: 12 }}>
+                {canErasePledge ? <PrimaryButton label="Remove" variant="outline" onPress={() => setEditing({ pledge: ap, mode: "delete" })} /> : null}
+                {canEditPledge ? <PrimaryButton label="Edit" variant="outline" onPress={() => setEditing({ pledge: ap, mode: "edit" })} /> : null}
               </BtnRow2>
             ) : null}
           </View>
@@ -170,6 +187,42 @@ export function BankPledgeSheet({
             {l.bankPledgeStatus ? ` — ${l.bankPledgeStatus}` : ""}
           </Txt>
         )}
+        {history.filter((r) => r.status !== "Active").length > 0 ? (
+          <>
+            <Txt style={{ fontSize: 12, fontWeight: "700", color: C.muted, marginBottom: 6 }}>Pledge history</Txt>
+            <AccGroup>
+              {history
+                .filter((r) => r.status !== "Active")
+                .map((r) => (
+                  <AccRow
+                    key={r.id}
+                    id={dmy(r.pledgeDate)}
+                    name={r.bankName}
+                    amount={inr(r.pledgedAmount)}
+                    status={r.status === "Voided" ? "Deleted" : r.status}
+                    details={[
+                      { k: "Ornaments", v: pledgeOrnaments(r, l) },
+                      { k: "Gross weight", v: fmtW(r.pledgedGrossWeight) },
+                      { k: "Net weight", v: fmtW(r.pledgedNetWeight) },
+                      { k: "Interest rate", v: r.bankInterestRate ? `${r.bankInterestRate}% p.m.` : "—" },
+                      { k: "Pledged", v: dmy(r.pledgeDate) },
+                      { k: "Due date", v: dmy(r.bankPledgeDueDate) },
+                      { k: "Released", v: dmy(r.releaseDate) },
+                      ...(r.status === "Voided" && r.voidReason ? [{ k: "Delete reason", v: r.voidReason }] : []),
+                    ]}
+                    actions={
+                      r.status !== "Voided" && (canEditPledge || canErasePledge)
+                        ? [
+                            ...(canEditPledge ? [{ label: "Edit", onPress: () => setEditing({ pledge: r, mode: "edit" as const }) }] : []),
+                            ...(canErasePledge ? [{ label: "Remove", danger: true, onPress: () => setEditing({ pledge: r, mode: "delete" as const }) }] : []),
+                          ]
+                        : undefined
+                    }
+                  />
+                ))}
+            </AccGroup>
+          </>
+        ) : null}
       </Sheet>
 
       <Sheet visible={confirmRelease} onClose={() => setConfirmRelease(false)} title="Release from Bank?">
@@ -197,6 +250,7 @@ export function BankPledgeSheet({
         <ErrorText>{error}</ErrorText>
         <PrimaryButton label="Delete Entry" variant="danger" onPress={() => activePledge && voidIt.mutate(activePledge.id)} loading={voidIt.isPending} disabled={!voidReason.trim()} />
       </Sheet>
+      <BankPledgeEditSheet loanId={l.id} pledge={editing?.pledge ?? null} mode={editing?.mode ?? "edit"} onClose={() => setEditing(null)} />
     </>
   );
 }

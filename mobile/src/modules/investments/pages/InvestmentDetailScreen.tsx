@@ -1,12 +1,13 @@
 import React, { useState } from "react";
-import { View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccRow, Buffering, C, EmptyText, FieldGrid, FlatHeader, NoticeBanner, PillTabs, PrimaryButton, Screen, SectionTitle, ServerFlatList, StatusChip, Txt, toast } from "@/common/components/ui";
+import { Pressable, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AccRow, Buffering, C, EmptyText, FieldGrid, FlatHeader, PillTabs, PrimaryButton, Screen, SectionTitle, ConfirmSheet, ServerFlatList, StatusChip, Txt, toast } from "@/common/components/ui";
 import { ActionGroup, type GroupAction } from "@/common/components/ActionGroup";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage } from "@/modules/investments/services/investmentService";
+import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, closeInvestment, deleteInvestment } from "@/modules/investments/services/investmentService";
+import { InvestorProfileSheet } from "@/modules/investments/components/InvestorProfileSheet";
 import { InvestmentLedgerEditSheet } from "@/modules/investments/components/InvestmentLedgerEditSheet";
 import { type InvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
 import { previewInvestmentBondPdf, previewInvestmentStatementPdf } from "@/modules/investments/utils/investmentBond";
@@ -28,7 +29,11 @@ export default function InvestmentDetailScreen() {
   const qc = useQueryClient();
   const visible = investmentId != null;
   const id = investmentId ?? 0;
-  const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | "payInterest" | "edit" | null>(null);
+  const router = useRouter();
+  const canDelete = useAuth().can("Investment_Management", "can_delete_investment");
+  const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | "payInterest" | "edit" | "close" | "delete" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [payout, setPayout] = useState<InvestmentPayout | null>(null);
   const [printing, setPrinting] = useState(false);
 
@@ -64,6 +69,30 @@ export default function InvestmentDetailScreen() {
     for (const key of ["investmentTransactions", "ledger", "cash-summary", "cash-movements"]) qc.invalidateQueries({ queryKey: [key] });
   };
 
+  const closeMut = useMutation({
+    mutationFn: () => closeInvestment(id),
+    onSuccess: () => {
+      setAction(null);
+      invalidate();
+      toast.success("Investment closed");
+    },
+    onError: (e) => setActionError(errMsg(e, "Could not close the investment.")),
+  });
+  const deleteMut = useMutation({
+    mutationFn: () => deleteInvestment(id),
+    onSuccess: () => {
+      setAction(null);
+      invalidate();
+      toast.success("Investment deleted");
+      router.back();
+    },
+    onError: (e) => setActionError(errMsg(e, "Could not delete the investment.")),
+  });
+  const openAction = (a: "close" | "delete") => {
+    setActionError(null);
+    setAction(a);
+  };
+
   async function printStatement() {
     if (!inv) return;
     setPrinting(true);
@@ -91,14 +120,24 @@ export default function InvestmentDetailScreen() {
   }
 
   const canEditInv = !!inv && canUpdate && inv.status === "Active" && !inv.renewedFromInvestmentId && !inv.renewedToInvestmentId && !inv.totalInterestPaid && !inv.interestWithdrawn;
+  const isOpen = !!inv && (inv.status === "Active" || inv.status === "Matured");
+  const nothingOwed = !!inv && isLive && (inv.outstandingPrincipal ?? 0) < 0.01 && (inv.outstandingInterest ?? 0) < 0.01;
+  const closeAction: { label: string; run: () => void } | null = !inv || !canUpdate ? null
+    : inv.status === "Matured" && !nothingOwed ? { label: "Close / Renew", run: () => setAction("mature") }
+    : nothingOwed && isOpen ? { label: "Close Investment", run: () => openAction("close") }
+    : isLive && inv.status === "Active" ? { label: "Close Early", run: () => setAction("mature") }
+    : !isLive && inv.status === "Active" ? { label: "Close Investment", run: () => setAction("mature") }
+    : null;
   const canCash = !!inv && canUpdate && isLive && (inv.status === "Active" || inv.status === "Matured");
   const groupActions: GroupAction[] = inv
     ? [
         ...(canExport ? [{ key: "statement", label: "Print statement", icon: "doc" as const, busy: printing, onPress: printStatement }] : []),
-        ...(inv.plan?.productType === "Bond" ? [{ key: "agreement", label: "Print agreement", icon: "note" as const, busy: printing, onPress: printBond }] : []),
+        ...([{ key: "agreement", label: "Print agreement", icon: "note" as const, busy: printing, onPress: printBond }]),
         ...(canEditInv ? [{ key: "edit", label: "Edit investment", icon: "edit" as const, onPress: () => setAction("edit") }] : []),
         ...(canCash && inv.status === "Active" ? [{ key: "addCash", label: "Add cash", icon: "plus" as const, onPress: () => setAction("addCash") }] : []),
         ...(canCash ? [{ key: "withdraw", label: "Withdraw", icon: "wallet" as const, onPress: () => setAction("withdraw") }] : []),
+        ...(closeAction ? [{ key: "close", label: closeAction.label, icon: "check" as const, onPress: closeAction.run }] : []),
+        ...(canDelete ? [{ key: "delete", label: "Delete", icon: "alert" as const, danger: true, onPress: () => openAction("delete") }] : []),
       ]
     : [];
 
@@ -110,6 +149,9 @@ export default function InvestmentDetailScreen() {
         <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600" }}>Started {dmy(inv.startDate)}</Txt>
         <StatusChip label={inv.status} />
       </View>
+      <Pressable onPress={() => setProfileOpen(true)} accessibilityRole="button" accessibilityLabel="View investor profile" style={{ marginBottom: 12 }}>
+        <Txt style={{ fontSize: 13, color: C.brandDeep, fontWeight: "700", textDecorationLine: "underline" }}>{inv.customer?.name ?? `Customer #${inv.customerId}`} · View investor profile</Txt>
+      </Pressable>
       <FieldGrid
         style={{ marginBottom: 16 }}
         items={[
@@ -128,20 +170,23 @@ export default function InvestmentDetailScreen() {
         ]}
       />
       {inv.renewedFromInvestmentId || inv.renewedToInvestmentId ? (
-        <NoticeBanner>
-          {[
-            inv.renewedFromInvestmentId ? `Renewed from Investment #${inv.renewedFromInvestmentId}` : null,
-            inv.renewedToInvestmentId ? `Renewed to Investment #${inv.renewedToInvestmentId}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </NoticeBanner>
+        <View style={{ marginBottom: 12, gap: 6 }}>
+          {inv.renewedFromInvestmentId ? (
+            <Pressable onPress={() => router.push(`/investments/${inv.renewedFromInvestmentId}` as never)}>
+              <Txt style={{ fontSize: 12.5, color: C.brandDeep, fontWeight: "700", textDecorationLine: "underline" }}>Renewed from Investment #{inv.renewedFromInvestmentId}</Txt>
+            </Pressable>
+          ) : null}
+          {inv.renewedToInvestmentId ? (
+            <Pressable onPress={() => router.push(`/investments/${inv.renewedToInvestmentId}` as never)}>
+              <Txt style={{ fontSize: 12.5, color: C.brandDeep, fontWeight: "700", textDecorationLine: "underline" }}>Renewed to Investment #{inv.renewedToInvestmentId}</Txt>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
       <ActionGroup actions={groupActions} style={{ marginBottom: 10 }} />
       {canUpdate && !isLive && (inv.status === "Active" || inv.status === "Matured") ? (
         <PrimaryButton label="Pay Interest" variant="outline" onPress={() => setAction("payInterest")} style={{ marginBottom: 10 }} />
       ) : null}
-      {canUpdate && inv.status === "Matured" ? <PrimaryButton label="Close / Renew" onPress={() => setAction("mature")} style={{ marginBottom: 10 }} /> : null}
       {isLive ? (
         <SectionTitle flush style={{ marginTop: 8 }}>
           Ledger
@@ -231,6 +276,28 @@ export default function InvestmentDetailScreen() {
           <AddCashSheet inv={inv} visible={action === "addCash"} onClose={() => setAction(null)} onDone={invalidate} />
           <WithdrawSheet inv={inv} visible={action === "withdraw"} onClose={() => setAction(null)} onDone={invalidate} />
           <CloseRenewSheet inv={inv} visible={action === "mature"} onClose={() => setAction(null)} onDone={invalidate} />
+          <InvestorProfileSheet customerId={inv.customerId} visible={profileOpen} onClose={() => setProfileOpen(false)} />
+          <ConfirmSheet
+            visible={action === "close"}
+            onClose={() => setAction(null)}
+            title="Close Investment"
+            message={`Close ${inv.investmentNumber}? Nothing is owed, so no cash moves.`}
+            confirmLabel="Close Investment"
+            loading={closeMut.isPending}
+            error={actionError}
+            onConfirm={() => closeMut.mutate()}
+          />
+          <ConfirmSheet
+            visible={action === "delete"}
+            onClose={() => setAction(null)}
+            title="Delete Investment"
+            danger
+            message={`Delete ${inv.investmentNumber} and reverse all its cash entries? This can't be undone.`}
+            confirmLabel="Delete Investment"
+            loading={deleteMut.isPending}
+            error={actionError}
+            onConfirm={() => deleteMut.mutate()}
+          />
           <PayInterestSheet inv={inv} visible={action === "payInterest"} onClose={() => setAction(null)} onDone={invalidate} />
           <MarkPaidSheet inv={inv} payout={payout} onClose={() => setPayout(null)} onDone={invalidate} />
           <InvestmentLedgerEditSheet

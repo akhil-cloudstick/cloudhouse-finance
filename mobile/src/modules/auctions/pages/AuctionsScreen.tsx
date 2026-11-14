@@ -19,8 +19,8 @@ import {
   SubTabs,
   openPage,
 } from "@/common/components/ui";
-import { useAuth } from "@/common/providers/AuthProvider";
-import { AuctionSaleEditSheet } from "@/modules/auctions/components/AuctionSaleEditSheet";
+import { useAuctionEntryEditor } from "@/modules/auctions/components/useAuctionEntryEditor";
+import { useLocalSearchParams } from "expo-router";
 import { AuctionFlowSheet } from "@/modules/auctions/components/AuctionFlowSheet";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listLoansPage } from "@/modules/loans/services/loanService";
@@ -56,8 +56,14 @@ const ALL_STAGES: AuctionStage[] = [...ACTIVE_STAGES, "Settled", "Withdrawn"];
 const OUTCOME_SECTIONS: GFSection[] = [
   { kind: "static", key: "outcome", label: "Sale Outcome", options: [{ value: "surplus", label: "Settle Surplus" }, { value: "shortfall", label: "Shortfall" }] },
 ];
+// Same options as web: Defaulted (not yet eligible) first, then every stage including the concluded Settled / Withdrawn.
 const stageSections = (stages: AuctionStage[]): GFSection[] => [
-  { kind: "static", key: "stage", label: "Auction Status", options: stages.map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] })) },
+  {
+    kind: "static",
+    key: "stage",
+    label: "Auction Status",
+    options: [{ value: "Defaulted", label: "Defaulted (not yet eligible)" }, ...stages.map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] }))],
+  },
 ];
 
 function useOpenLoan() {
@@ -83,14 +89,29 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
 
   const [flowLoan, setFlowLoan] = useState<Loan | null>(null);
 
-  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
-  const stageCsv = gfValues(fv, "stage").join(",");
+  // The dashboard's Auction Cases tile opens this screen as ?preset=notice-issued: Active Cases filtered to that stage.
+  const { preset } = useLocalSearchParams<{ preset?: string }>();
+  const [fv, setFv] = useState<GroupedFilterValue>(() => (preset === "notice-issued" ? { ...emptyGroupedFilter(), stage: ["NoticeIssued"] } as GroupedFilterValue : emptyGroupedFilter()));
+  const picked = gfValues(fv, "stage");
+  // As on web: only the in-flight stages and "Defaulted" list loans here; Settled / Withdrawn cases live in History.
+  const stageCsv = picked.filter((s) => (ACTIVE_STAGES as string[]).includes(s)).join(",");
+  const wantDefaulted = picked.includes("Defaulted");
+  const nothingActive = picked.length > 0 && !stageCsv && !wantDefaulted;
   const list = useServerList<Loan, { auction_stage?: string; auction_case?: string }>({
     key: ["loans", "auctions"],
     // With no status chosen: the whole pipeline plus defaulted loans that can still be marked Auction Eligible.
-    filters: stageCsv ? { auction_stage: stageCsv } : { auction_case: "all" },
+    filters: stageCsv ? { auction_stage: stageCsv } : wantDefaulted ? { auction_case: "defaulted" } : { auction_case: "all" },
     fetchPage: (p) => listLoansPage(p),
+    enabled: !nothingActive,
   });
+  // Defaulted ticked together with other stages: those loans come from a second query, listed after the stage matches.
+  const defList = useServerList<Loan, { auction_case?: string }>({
+    key: ["loans", "auctionsDefaulted"],
+    filters: { auction_case: "defaulted" },
+    fetchPage: (p) => listLoansPage(p),
+    enabled: wantDefaulted && !!stageCsv,
+  });
+  const shownItems = nothingActive ? [] : wantDefaulted && stageCsv ? [...list.items, ...defList.items.filter((d) => !list.items.some((x) => x.id === d.id))] : list.items;
   useEffect(() => { void list.refetch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Always hand the sheet the live row from the list (a snapshot would keep the pre-change status after a mutation).
@@ -102,7 +123,7 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
     <>
       <ServerFlatList
         list={list}
-        items={list.items}
+        items={shownItems}
         keyOf={(l) => String(l.id)}
         emptyText="No auction cases match your search."
         header={
@@ -113,7 +134,7 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
               onChangeText={list.setSearch}
               placeholder="Search by loan ID or customer name"
               style={{ paddingTop: 12, paddingBottom: 12 }}
-              filter={<GroupedFilter title="Filter cases" sections={stageSections(ACTIVE_STAGES)} value={fv} onChange={setFv} />}
+              filter={<GroupedFilter title="Filter cases" sections={stageSections(ALL_STAGES)} value={fv} onChange={setFv} />}
             />
           </>
         }
@@ -180,9 +201,8 @@ type AuctionHistoryProps = { tabs: React.ReactNode };
 function AuctionHistory({ tabs }: AuctionHistoryProps) {
   const openLoan = useOpenLoan();
   const [hist, setHist] = useState<Hist>("conducted");
-  const canEdit = useAuth().can("Loan_Management", "can_edit_ledger_entry");
+  const editor = useAuctionEntryEditor();
   const [info, setInfo] = useState<ConcludedAuctionRow | null>(null);
-  const [editing, setEditing] = useState<ConcludedAuctionRow | null>(null);
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   // History's own filter, for the Auctions Conducted table only: sales that left a surplus to settle, or fell short.
   // Both ticked (or none) shows every sale.
@@ -230,7 +250,8 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
               statusTone="active"
               details={[
                 { k: "Customer", v: r.customerName || "—" },
-                { k: "Stage", v: r.stage === "Withdrawn" ? "Withdrawn — customer settled" : r.stage },
+                { k: "Marked eligible", v: r.auctionEligibleDate ? dmy(r.auctionEligibleDate) : "—" },
+                { k: "Outcome", v: r.stage === "Withdrawn" ? "Withdrawn — removed from auction" : AUCTION_OUTCOME_LABELS[r.finalSettlementStatus ?? "Pending"] },
               ]}
               actions={[{ label: "View Loan", onPress: () => openLoan(r.loanId) }]}
             />
@@ -253,7 +274,16 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
             ]}
             actions={[
               { label: "Info", onPress: () => setInfo(r) },
-              ...(canEdit ? [{ label: "Edit", onPress: () => setEditing(r) }] : []),
+              ...editor.actionsFor({
+                loanId: r.loanId,
+                loanNumber: r.loanNumber,
+                // The sale always; its surplus settlement / write-off once the case has one (as web's editor does).
+                kinds: [
+                  "sale",
+                  ...(r.surplusDisposition && (r.surplusPayableAmount ?? 0) > 0 ? (["surplus"] as const) : []),
+                  ...(r.finalSettlementStatus === "WrittenOff" ? (["write-off"] as const) : []),
+                ],
+              }),
               { label: "View Loan", onPress: () => openLoan(r.loanId) },
             ]}
           />
@@ -269,16 +299,23 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
           <DetailRow k="Sale amount" v={inr(info.saleAmount ?? 0)} />
           <DetailRow k="Auction expenses" v={info.auctionExpenses ? inr(info.auctionExpenses) : "—"} />
           <DetailRow k="Net proceeds" v={inr((info.saleAmount ?? 0) - (info.auctionExpenses ?? 0))} />
+          <DetailRow k="Amount due at auction" v={inr(info.dueTotal ?? (info.saleAmount ?? 0) - (info.auctionExpenses ?? 0) - (info.surplusShortfall ?? 0))} />
           <DetailRow k={(info.surplusShortfall ?? 0) >= 0 ? "Surplus" : "Shortfall"} v={inr(Math.abs(info.surplusShortfall ?? 0))} />
+          {info.surplusDisposition === "RefundedToCustomer" ? <DetailRow k="Refund to customer" v={inr(info.surplusPayableAmount || Math.max(0, info.surplusShortfall ?? 0))} /> : null}
           <DetailRow k="Outcome" v={AUCTION_OUTCOME_LABELS[info.finalSettlementStatus ?? "Pending"]} />
-          {info.surplusRemarks ? <DetailRow k="Settlement remarks" v={info.surplusRemarks} /> : null}
-          {(info.decisionRequests ?? []).filter((d) => d.decisionRemarks).map((d, i) => (
-            <DetailRow key={d.id} k={`Decision remarks ${i + 1}`} v={d.decisionRemarks} />
+          {(info.decisionRequests ?? []).filter((d) => d.decisionRemarks).map((d, i, all) => (
+            <DetailRow key={d.id} k={all.length > 1 ? `Decision remarks ${i + 1}` : "Decision remarks"} v={d.decisionRemarks} />
           ))}
+          {info.surplusDisposition === "RecordedAsIncome" ? <DetailRow k="Surplus settlement" v="Kept as company income" /> : null}
+          {info.surplusDisposition === "RecordedAsIncome" ? (
+            <DetailRow k="Reason for keeping surplus" v={info.surplusRemarks || "—"} />
+          ) : info.surplusRemarks ? (
+            <DetailRow k="Settlement remarks" v={info.surplusRemarks} />
+          ) : null}
         </View>
       ) : null}
     </Sheet>
-    <AuctionSaleEditSheet auction={editing} onClose={() => setEditing(null)} />
+    {editor.sheet}
     </>
   );
 }

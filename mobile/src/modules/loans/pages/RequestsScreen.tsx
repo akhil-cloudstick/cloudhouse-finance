@@ -177,13 +177,15 @@ export default function RequestsScreen() {
                     { k: "Type", v: r.isPartial ? "Partial release" : "Full release" },
                     { k: "Date", v: dmy(r.requestedAt) },
                   ];
+          const paymentOverdue = !!r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && new Date(r.paymentDueDate) < new Date();
           return (
             <AccRow
               defaultOpen={i === 0}
               id={r.loan?.loanNumber ?? `#${r.loanId}`}
               name={r.type}
               sub={r.loan?.customer?.name ?? "—"}
-              status={r.status}
+              status={paymentOverdue ? "Payment Overdue" : r.status}
+              statusTone={paymentOverdue ? "overdue" : undefined}
               details={details}
               actions={
                 approvedRelease

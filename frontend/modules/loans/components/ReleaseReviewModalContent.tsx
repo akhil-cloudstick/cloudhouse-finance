@@ -208,7 +208,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // A locker packet no longer blocks the box — ticking it releases the packet first. Only gold that cannot be
   // released from here (a bank pledge, or no permission to move packets) still does.
   const packetAutoReleasable = packetInLocker && canMovePackets;
-  const gaveGoldCheckboxDisabled = saving || releasingPacket || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || (goldStillHeld && !packetAutoReleasable);
+  const gaveGoldCheckboxDisabled = saving || releasingPacket || !canDecide || !canVerifyChecklist || req.status !== "Pending" || (goldStillHeld && !packetAutoReleasable);
 
   // Live pre-check for the Top-Up Payment reveal — only meaningful for a
   // partial release (a full release keeps today's plain

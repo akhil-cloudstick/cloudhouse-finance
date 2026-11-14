@@ -15,7 +15,7 @@ import {
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { listLoansPage } from "@/modules/loans/services/loanService";
+import { listLoansPage, loanDisplayStatus } from "@/modules/loans/services/loanService";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 
@@ -82,7 +82,8 @@ export default function LoansScreen() {
   }, [params.status, setFilters]);
 
   const showBranchFilter = useShowBranchFilter();
-  const apiFilters = { ...loanFilterParams(filters, showBranchFilter), schemeId };
+  const base = loanFilterParams(filters, showBranchFilter);
+  const apiFilters = { ...base, schemeId: schemeId ?? base.schemeId };
   const list = useServerList<Loan, typeof apiFilters>({ key: ["loans", "list"], persistKey: "loans", filters: apiFilters, fetchPage: (p) => listLoansPage(p) });
   const overdue = useQuery({ queryKey: ["loans", "overdue-count"], queryFn: () => listLoansPage({ servicing: "overdue", limit: 1, offset: 0 }) });
 
@@ -126,7 +127,7 @@ export default function LoansScreen() {
               name={l.customer?.name ?? `Customer #${l.customerId}`}
               sub={l.scheme?.name || undefined}
               amount={inr(l.principalAmount)}
-              status={l.status}
+              status={loanDisplayStatus(l)}
               details={loanRowDetails(l)}
               actions={[
                 ...(can("Loan_Management", "can_update_loan") ? [{ label: "Collect Payment", disabled: closed, onPress: () => shell.openCollect(l.id) }] : []),

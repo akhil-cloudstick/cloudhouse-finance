@@ -130,6 +130,9 @@ function View({ route, arg }: ViewProps) {
       return <LoanDetailPage id={arg} />;
     case "newloan":
       return <NewLoanPage customerId={arg} />;
+    case "editloan":
+      // key: moving between two loans' edit pages must remount the form, not carry the first loan's fields over.
+      return <NewLoanPage key={arg} editLoanNumber={arg} />;
     case "schemes":
       return <SchemesPage />;
     case "goldrates":

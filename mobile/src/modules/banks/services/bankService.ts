@@ -14,12 +14,12 @@ export function listBanksPage(params: { q?: string; branchId?: string; limit: nu
 
 // Find-or-create, dedupes by name (case-insensitive) — 201 if new, 200 if
 // matched an existing bank.
-export function createBank(input: { name: string; branch?: string; ifsc?: string; accountNo?: string; phone?: string }) {
+export function createBank(input: { name: string; branchId?: number; branch?: string; ifsc?: string; accountNo?: string; phone?: string }) {
   return apiRequest<Bank>("/banks", { method: "POST", body: input });
 }
 
 // Real rename/edit — rejects a name another bank already uses.
-export function updateBank(id: number, input: { name: string; branch?: string; ifsc?: string; accountNo?: string; phone?: string }) {
+export function updateBank(id: number, input: { name: string; branchId?: number; branch?: string; ifsc?: string; accountNo?: string; phone?: string }) {
   return apiRequest<Bank>(`/banks/${id}`, { method: "PUT", body: input });
 }
 
@@ -27,4 +27,9 @@ export function updateBank(id: number, input: { name: string; branch?: string; i
 // transaction, payment or pledge still references the bank.
 export function deleteBank(id: number) {
   return apiRequest<void>(`/banks/${id}`, { method: "DELETE" });
+}
+
+// Reassigns every transaction/pledge from the source bank onto the target, then deletes the source.
+export function mergeBanks(sourceId: number, targetId: number) {
+  return apiRequest<Bank>(`/banks/${sourceId}/merge`, { method: "POST", body: { targetId } });
 }

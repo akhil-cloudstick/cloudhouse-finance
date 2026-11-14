@@ -268,7 +268,7 @@ export function BottomSheetModal({
     const ios = Platform.OS === "ios";
     const animate = (e: KeyboardEvent) => {
       if (ios && e.duration) LayoutAnimation.configureNext({ duration: e.duration, update: { type: LayoutAnimation.Types.keyboard } });
-      else if (!ios) LayoutAnimation.configureNext({ duration: 140, update: { type: LayoutAnimation.Types.easeOut } });
+      else if (!ios) LayoutAnimation.configureNext({ duration: 220, update: { type: LayoutAnimation.Types.easeInEaseOut } });
     };
     let raf = 0;
     const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", (e) => {
@@ -280,16 +280,14 @@ export function BottomSheetModal({
       // Let a window resize (if this device does one) lay out first, then measure.
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        raf = requestAnimationFrame(() => {
-          const finish = (l: number) => {
-            animate(e);
-            setAndroidLift(l);
-            setKeyboardHeight(e.endCoordinates.height);
-          };
-          const node = overlayRef.current;
-          if (!node) return finish(0);
-          node.measureInWindow((_x, y, _w, h) => finish(Math.max(0, Math.round(y + h - e.endCoordinates.screenY))));
-        });
+        const finish = (l: number) => {
+          animate(e);
+          setAndroidLift(l);
+          setKeyboardHeight(e.endCoordinates.height);
+        };
+        const node = overlayRef.current;
+        if (!node) return finish(0);
+        node.measureInWindow((_x, _y, _w, h) => finish(Math.max(0, Math.round(_y + h - e.endCoordinates.screenY))));
       });
     });
     const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", (e) => {
@@ -347,7 +345,7 @@ export function BottomSheetModal({
                     : `${maxHeightPct}%`,
                   ...(fixedHeight && !keyboardHeight ? { height: `${maxHeightPct}%` } : null),
                   marginBottom: lift,
-                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? (Platform.OS === "ios" ? 8 : 14) : 14 + Math.max(insets.bottom, 10),
+                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? (Platform.OS === "ios" ? 0 : 14) : 14 + Math.max(insets.bottom, 10),
                   transform: [{ translateY }],
                 },
               ]}

@@ -7,9 +7,8 @@ import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitP
 import { apiErr } from "@/common/components/loanSheetKit";
 import { editAuctionSale, getAuctionSaleCurrent, type AuctionEditPreview } from "@/modules/auctions/services/auctionService";
 import { todayISO } from "@/common/utils/format";
-import type { ConcludedAuctionRow } from "@/modules/auctions/types/auction-types";
 
-type Props = { auction: ConcludedAuctionRow | null; onClose: () => void };
+type Props = { auction: { loanId: number; loanNumber: string } | null; onClose: () => void };
 
 /** Edit a concluded auction's sale (date, amount, expenses, how the buyer paid). Two steps like every ledger edit:
  * the first press previews the effect on the loan, the second saves — with the entries booked from the sale updated too. */

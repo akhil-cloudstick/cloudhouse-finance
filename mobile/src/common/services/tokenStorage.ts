@@ -1,4 +1,4 @@
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./secureStorage";
 import { rememberToken } from "./apiContract";
 
 const TOKEN_KEY = "cloudhouse_jwt";

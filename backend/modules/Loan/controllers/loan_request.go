@@ -36,6 +36,8 @@ type updateLoanRequest struct {
 	PrincipalAmount *float64 `json:"principal_amount"`
 	// the loan's opening date (YYYY-MM-DD); empty leaves it
 	OpenedDate *string `json:"opened_date"`
+	// how the service charge is taken (WithheldFromPayout / AddedToPrincipal); nil leaves it (or the new scheme's own)
+	ServiceChargeMode *string `json:"service_charge_mode"`
 	OverallPhotoURL *string  `json:"overall_photo_url"`
 	// nil leaves the loan's additional information alone; "" clears it
 	AdditionalInfo *string `json:"additional_info"`

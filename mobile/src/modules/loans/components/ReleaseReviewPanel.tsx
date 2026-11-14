@@ -35,7 +35,7 @@ import {
 import { inr, todayISO } from "@/common/utils/format";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useCanOpen } from "@/common/config/routePermissions";
-import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest } from "@/modules/loans/services/loanService";
+import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, editReleaseRecord, deleteReleaseRecord } from "@/modules/loans/services/loanService";
 import { isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { listPackets, movePacket } from "@/modules/packets/services/packetService";
 import { printReleaseAgreementPdf, printPartialReleaseReceiptPdf, RELEASE_AGREEMENT_LANGS, DOC_LANG_LABELS, type DocLang } from "@/modules/loans/utils/loanPrint";
@@ -68,6 +68,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const { can, employee } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
   const canOpen = useCanOpen();
   // The "Go to …" shortcuts below only when the user may open where they lead.
   const canGoBankPledge = canOpen("/loans") && can("Bank_Pledge_Management", "can_view_bank_pledge_module");
@@ -229,6 +231,21 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
 
   // Reject goes through a themed confirm (with the reason) first.
   const [confirmReject, setConfirmReject] = useState(false);
+  // The release record's own date (edit) and the record itself (delete) — shown once a payment is recorded or the request is decided.
+  const [recordDate, setRecordDate] = useState((request.requestedAt || todayISO()).slice(0, 10));
+  useEffect(() => { setRecordDate((request.requestedAt || todayISO()).slice(0, 10)); }, [request.id, request.requestedAt]);
+  const [confirmDeleteRecord, setConfirmDeleteRecord] = useState(false);
+  const recordEditable = !!request.requestedAt && (request.status !== "Pending" || !!request.paymentRecorded);
+  const saveRecordDate = useMutation({
+    mutationFn: () => editReleaseRecord(request.id, { requestedAt: recordDate }),
+    onSuccess: () => { toast.success("Release date updated"); onSaved(); },
+    onError: reportError,
+  });
+  const removeRecord = useMutation({
+    mutationFn: () => deleteReleaseRecord(request.id),
+    onSuccess: () => { setConfirmDeleteRecord(false); toast.success("Release record deleted"); onSaved(); },
+    onError: (err) => { setConfirmDeleteRecord(false); reportError(err); },
+  });
   const decide = useMutation({
     mutationFn: ({ action, note }: { action: "Approved" | "Rejected"; note?: string }) =>
       approveReleaseRequest(request.id, {
@@ -369,6 +386,17 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
               style={{ marginBottom: 14 }}
             />
           )}
+        </View>
+      ) : null}
+
+      {recordEditable && (canEditLedger || canDeleteLedger) ? (
+        <View style={{ marginBottom: 10 }}>
+          <DateField label="Release date" value={recordDate} onChange={setRecordDate} min={loan.openedDate?.slice(0, 10) || undefined} max={todayISO()} />
+          <BtnRow2>
+            {canDeleteLedger ? <PrimaryButton label="Delete Record" variant="outline" onPress={() => setConfirmDeleteRecord(true)} disabled={removeRecord.isPending} /> : null}
+            {canEditLedger ? <PrimaryButton label="Save Date" onPress={() => saveRecordDate.mutate()} loading={saveRecordDate.isPending} disabled={recordDate === (request.requestedAt || "").slice(0, 10)} /> : null}
+          </BtnRow2>
+          <ConfirmSheet visible={confirmDeleteRecord} onClose={() => setConfirmDeleteRecord(false)} title="Delete Release Record" danger message="Delete this release record? The money it took is edited as ordinary loan payments and is not removed here." confirmLabel="Delete Record" loading={removeRecord.isPending} onConfirm={() => removeRecord.mutate()} />
         </View>
       ) : null}
 

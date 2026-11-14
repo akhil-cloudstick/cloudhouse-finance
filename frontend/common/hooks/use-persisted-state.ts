@@ -45,7 +45,7 @@ export function useResetPageOnChange(setPage: (page: number) => void, deps: read
 // ledger, Loans -> a loan and back) and dropped when the user enters a
 // different section (e.g. Customers). Routes not listed are their own section.
 const SECTION_OF: Record<string, string> = {
-  loans: "loans", loan: "loans", newloan: "loans",
+  loans: "loans", loan: "loans", newloan: "loans", editloan: "loans",
   ledger: "ledger", "ledger-bank": "ledger", "ledger-customer": "ledger", "ledger-category": "ledger",
   "cash-ledger": "ledger", "upi-ledger": "ledger", "bank-transfer-ledger": "ledger", "cheque-ledger": "ledger",
   branches: "branches", "ledger-branch": "branches",
@@ -94,6 +94,11 @@ export function resetSearchOnNavigation(route: string) {
   for (const k of Array.from(store.keys())) {
     if (/^filters:.*[:-]q$/.test(k)) store.delete(k);
   }
+}
+
+// Drops every remembered filter of every page (a sidebar click opens its page fresh).
+export function clearAllPersistedFilters() {
+  store.clear();
 }
 
 // Drops every remembered filter of one page (keys start with `prefix`), e.g. "requests:".

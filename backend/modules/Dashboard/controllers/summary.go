@@ -202,6 +202,21 @@ func activitySources(ctx context.Context, branchScope *uint, now time.Time) []ac
 			},
 		},
 		{
+			// An approved top-up is more money disbursed against the loan, so it shows alongside the original disbursement.
+			base: func() *gorm.DB {
+				return scopeLoans(config.DB.
+					WithContext(ctx).Model(&loanModels.LoanTopUp{}).
+					Joins("JOIN loans ON loans.id = loan_top_ups.loan_id AND loans.deleted_at IS NULL").
+					Joins("JOIN customers ON customers.id = loans.customer_id").
+					Where("loan_top_ups.status = ?", loanModels.TopUpStatusActive))
+			},
+			sel:   "loan_top_ups.id AS source_id, loans.id AS loan_id, loans.loan_number, customers.name AS customer_name, customers.code AS customer_code, loan_top_ups.amount AS amount, loan_top_ups.occurred_on AS date",
+			order: "loan_top_ups.occurred_on desc, loan_top_ups.id desc",
+			toItem: func(r activityRow) ActivityItem {
+				return ActivityItem{Type: "loan", Amount: r.Amount, Date: r.Date, Label: "Loan top-up"}
+			},
+		},
+		{
 			base: func() *gorm.DB {
 				return scopeLoans(config.DB.
 					WithContext(ctx).Model(&loanModels.LoanPayment{}).

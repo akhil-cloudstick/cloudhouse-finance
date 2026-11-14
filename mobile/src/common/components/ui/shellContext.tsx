@@ -357,7 +357,12 @@ export function resetTabs(nav: TabsNav, edit: (routes: TabRoute[], mint: ReturnT
   const live = tabsRef.live?.();
   if (!live) return false;
   const mint = tabRouteMinter(live);
-  const { routes, focusKey, replaced } = edit(live.routes, mint);
+  const edited = edit(live.routes, mint);
+  const { focusKey, replaced } = edited;
+  // A tab we aren't changing keeps its stack in `state`, which is the truth. Its params may still
+  // carry the nested target (`screen`/`params`) of an earlier push or tab press; re-sent in this RESET
+  // the stack followed it again on refocus — e.g. Back to a loan's detail, which then flipped to the list.
+  const routes = edited.routes.map((r) => (r.state && r.params ? { ...r, params: withoutNestedTarget(r.params) } : r));
   const keep = live.routes[live.index]?.key ?? "";
   const focus = focusKey ?? replaced?.get(keep) ?? keep;
   const remap = (key: string) => replaced?.get(key) ?? key;

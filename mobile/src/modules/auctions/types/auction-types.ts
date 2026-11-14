@@ -83,6 +83,8 @@ export type AuctionRecord = {
   surplusDisposition?: AuctionSurplusDisposition | "";
   /** Notes entered when the surplus was settled. */
   surplusRemarks?: string;
+  /** What the loan owed when the sale was recorded (older cases carry none). */
+  dueTotal?: number | null;
   finalSettlementStatus?: AuctionSettlementStatus;
   notices?: AuctionNotice[];
   // Embedded on GET /loans/:id/auction (see backend's preloadAuctionDetail)

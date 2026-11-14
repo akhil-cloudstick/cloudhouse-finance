@@ -57,7 +57,7 @@ func computeDisbursementFigures(l *models.Loan, in *EditDisbursementInput, curre
 	if in.SanctionedAmount != nil {
 		f.Sanctioned = common.RoundMoney(*in.SanctionedAmount)
 		if in.ServiceCharge == nil && l.ServiceChargeType == commonModels.ServiceChargeTypePercent {
-			f.ServiceCharge = common.RoundMoney(computeServiceChargeAmount(l.ServiceChargeType, l.ServiceChargeValue, f.Sanctioned))
+			f.ServiceCharge = common.RoundMoney(chargeOnLoanPrincipal(l.ServiceChargeMode, l.ServiceChargeType, l.ServiceChargeValue, f.Sanctioned))
 		}
 	}
 	if in.ServiceCharge != nil {

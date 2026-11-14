@@ -3,9 +3,11 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { AsyncSelect, Buffering, BtnRow2, C, Card, Field, FieldGrid, Input, MoveItem, PrimaryButton, SectionTitle, Sheet, Stepper, Txt, WarningBanner } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
+import { BankPledgeSheet } from "@/modules/loans/components/BankPledgeSheet";
+import { getLoan } from "@/modules/loans/services/loanService";
 import { getPacket, getPacketMovements, movePacket } from "@/modules/packets/services/packetService";
 import { getLocker, listLockersPage } from "@/modules/lockers/services/lockerService";
-import { dmy, inr } from "@/common/utils/format";
+import { dmyTime, inr } from "@/common/utils/format";
 import type { Locker } from "@/modules/lockers/types/locker-types";
 
 // Packet detail (prototype #packet-detail-modal): field grid, custody
@@ -22,6 +24,9 @@ const READY_FOR_RELEASE = "Ready For Release";
 const RELEASED = "Released";
 // Loan outcomes after which the gold has left custody — the backend rejects
 // every movement, so no actions are offered.
+// Same statuses the backend refuses a pledge on (web canAcceptBankPledge).
+const PLEDGE_INELIGIBLE = ["Closed", "Rejected", "Closure Requested", "Pending Approval", "Auctioned", "Auctioned - Balance Due"];
+const canAcceptBankPledge = (status: string, bankPledgeStatus: string) => !PLEDGE_INELIGIBLE.includes(status) && bankPledgeStatus !== "Bank Pledged";
 const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
 const g = (n?: number) => `${+(n ?? 0).toFixed(2)} g`;
 const errText = (msg: string | null) => (msg ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{msg}</Txt> : null);
@@ -41,8 +46,12 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   const packet = useQuery({ queryKey: ["packet", key], queryFn: () => getPacket(packetId), enabled: packetId > 0 });
   const movements = useQuery({ queryKey: ["packet", key, "movements"], queryFn: () => getPacketMovements(packetId), enabled: packetId > 0 });
 
+  const [pledgeOpen, setPledgeOpen] = useState(false);
+  const loanQ = useQuery({ queryKey: ["loan", packet.data?.loanId], queryFn: () => getLoan(packet.data!.loanId), enabled: pledgeOpen && !!packet.data?.loanId });
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
+  const [pledgeBusy, setPledgeBusy] = useState(false);
   const [locker, setLocker] = useState<Locker | null>(null);
   const [remarks, setRemarks] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -56,18 +65,20 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   // Movement rows and the current locker carry only an id — resolve codes
   // per distinct locker (usually one or two).
   const lockerIds = Array.from(
-    new Set([packet.data?.currentLockerId, ...(movements.data ?? []).map((m) => m.lockerId)].filter((v): v is number => typeof v === "number" && v > 0))
+    new Set([packet.data?.lockerCode ? undefined : packet.data?.currentLockerId, ...(movements.data ?? []).map((m) => m.lockerId)].filter((v): v is number => typeof v === "number" && v > 0))
   );
   const lockerLookups = useQueries({
     queries: lockerIds.map((lid) => ({ queryKey: ["locker", String(lid)], queryFn: () => getLocker(lid), staleTime: 60_000 })),
   });
-  const lockerCode = (lid?: number) => (lid ? lockerLookups[lockerIds.indexOf(lid)]?.data?.code ?? `#${lid}` : undefined);
+  const lockerCode = (lid?: number) => (lid && lid === packet.data?.currentLockerId && packet.data?.lockerCode ? packet.data.lockerCode : lockerCode0(lid));
+  const lockerCode0 = (lid?: number) => (lid ? lockerLookups[lockerIds.indexOf(lid)]?.data?.code ?? `#${lid}` : undefined);
 
   const move = useMutation({
     mutationFn: (input: { toStatus: string; lockerId?: number }) =>
       movePacket(packetId, { ...input, employeeId: employee!.id, remarks: remarks.trim() || undefined }),
     onSuccess: (updated) => {
       setCheckInOpen(false);
+      setChangeOpen(false);
       setReleaseOpen(false);
       setRemarks("");
       setLocker(null);
@@ -87,6 +98,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
 
   const p = packet.data;
   const status = p.status;
+  const loanClosed = p.loan?.status === "Closed";
   const loanStatus = p.loan?.status ?? "";
   const isAuctioned = AUCTIONED_LOAN.includes(loanStatus);
   const movementLocked = isAuctioned || loanStatus === "Closed" || loanStatus === "Rejected" || loanStatus === "Pending Approval";
@@ -98,7 +110,8 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   if (visited.has(BANK_PLEDGED) || visited.has(RETURNED)) rail.push(BANK_PLEDGED, RETURNED);
   if (visited.has(READY_FOR_RELEASE)) rail.push(READY_FOR_RELEASE);
   rail.push(RELEASED);
-  const railIndex = Math.max(0, rail.indexOf(status));
+  const shownStatus = loanClosed ? RELEASED : status;
+  const railIndex = Math.max(0, rail.indexOf(shownStatus));
 
   const ornaments = p.loan?.ornaments ?? [];
   const netWeight = p.totalNetWeight ?? ornaments.reduce((sum, o) => sum + (o.netWeight || 0), 0);
@@ -108,6 +121,24 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   const canCheckIn = status === GENERATED || status === RETURNED;
   const canRelease = status === LOCKER_STORED || status === RETURNED || status === READY_FOR_RELEASE;
   const canRepledge = status === LOCKER_STORED && canBankPledge;
+  async function openPledge() {
+    setError(null);
+    setPledgeBusy(true);
+    try {
+      const loan = await getLoan(p.loanId);
+      if (!canAcceptBankPledge(loan.status ?? "", loan.bankPledgeStatus ?? "")) {
+        setError("This loan can no longer be re-pledged to a bank.");
+        return;
+      }
+      qc.setQueryData(["loan", p.loanId], loan);
+      setPledgeOpen(true);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
+    } finally {
+      setPledgeBusy(false);
+    }
+  }
+
   const hasActions = canMove && !movementLocked && (canCheckIn || canRelease || canRepledge);
 
   const actionNote = movementLocked
@@ -126,6 +157,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
         style={{ marginTop: 10, marginBottom: 14 }}
         items={[
           { k: "Loan", v: `${p.loan?.loanNumber ?? `#${p.loanId}`}${p.loan?.customer?.name ? ` · ${p.loan.customer.name}` : ""}` },
+          { k: "Packet status", v: shownStatus },
           { k: "Loan status", v: loanStatus || "—", color: loanStatus === "Rejected" ? C.red : undefined },
           { k: "Branch", v: p.loan?.branch?.name ?? "—" },
           { k: "Current locker", v: lockerCode(p.currentLockerId) ?? "—" },
@@ -137,7 +169,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
       {isAuctioned ? (
         <Txt style={{ fontSize: 12, color: C.muted }}>This loan&apos;s gold was sold at auction — the packet&apos;s locker workflow no longer applies.</Txt>
       ) : (
-        <Stepper steps={rail} current={railIndex} allDone={status === RELEASED} />
+        <Stepper steps={rail} current={railIndex} allDone={shownStatus === RELEASED} />
       )}
       {status === RETURNED ? <Txt style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Returned from the bank — check in to a locker or release.</Txt> : null}
 
@@ -153,6 +185,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
               items={[
                 { k: "Ornament", v: `${o.name}${o.quantity > 1 ? ` × ${o.quantity}` : ""}` },
                 { k: "Purity", v: o.purity },
+                { k: "Gross weight", v: g(o.grossWeight) },
                 { k: "Net weight", v: g(o.netWeight) },
                 { k: "Gold value", v: inr(o.goldValue) },
               ]}
@@ -166,7 +199,8 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
           <FieldGrid
             items={[
               { k: "Ornament", v: `${o.name}${o.quantity > 1 ? ` × ${o.quantity}` : ""}` },
-              { k: "Status", v: "Released to customer" },
+              { k: "Status", v: o.releasedAt ? `Released ${dmyTime(o.releasedAt)}` : "Released to customer" },
+              { k: "Gross weight", v: g(o.grossWeight) },
               { k: "Net weight", v: g(o.netWeight) },
               { k: "Gold value", v: inr(o.goldValue) },
             ]}
@@ -178,6 +212,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
         Actions
       </SectionTitle>
       {actionNote ? <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>{actionNote}</Txt> : null}
+      {errText(error)}
       {hasActions ? (
         <>
           {canCheckIn || canRepledge ? (
@@ -196,8 +231,11 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
               ) : null}
               {/* A bank pledge is a real transaction recorded on the loan —
                   it moves the packet to Bank Pledged itself. */}
-              {canRepledge ? <PrimaryButton label="Repledge to Bank" variant="outline" onPress={() => onOpenLoan(p.loanId)} /> : null}
+              {canRepledge ? <PrimaryButton label="Repledge to Bank" variant="outline" loading={pledgeBusy} onPress={openPledge} /> : null}
             </BtnRow2>
+          ) : null}
+          {status === LOCKER_STORED ? (
+            <PrimaryButton label="Change Locker" variant="outline" style={{ marginBottom: 10 }} onPress={() => { setError(null); setLocker(null); setRemarks(""); setChangeOpen(true); }} />
           ) : null}
           {canRelease ? (
             <PrimaryButton
@@ -235,7 +273,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
             const sub = [lk ? `Locker ${lk}` : null, m.actorEmployeeId ? `by EMP-${m.actorEmployeeId}` : "System", !isRemark && m.remarks ? m.remarks : null]
               .filter(Boolean)
               .join(" · ");
-            return <MoveItem key={m.id} first={i === 0} title={title} sub={sub} date={dmy(m.createdAt)} />;
+            return <MoveItem key={m.id} first={i === 0} title={title} sub={sub} date={dmyTime(m.createdAt)} />;
           })
         ) : (
           <Txt style={{ fontSize: 12, color: C.muted, paddingVertical: 10 }}>No movements yet.</Txt>
@@ -243,7 +281,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
       </Card>
       {canViewLoans ? <PrimaryButton label="View Loan" variant="outline" onPress={() => onOpenLoan(p.loanId)} /> : null}
 
-      <Sheet visible={checkInOpen} onClose={() => setCheckInOpen(false)} title="Check In to Locker" maxHeightPct={75}>
+      <Sheet visible={checkInOpen || changeOpen} onClose={() => { setCheckInOpen(false); setChangeOpen(false); }} title={changeOpen ? "Change Locker" : "Check In to Locker"} maxHeightPct={75}>
         {branchId == null ? <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 10 }}>This loan has no branch.</Txt> : null}
         <AsyncSelect<Locker>
           label="Locker"
@@ -253,7 +291,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
           // only active lockers that still have room.
           fetcher={async (q) => {
             const all = (await listLockersPage({ branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? [];
-            const free = all.filter((x) => (x.occupied ?? 0) < x.capacity);
+            const free = all.filter((x) => (x.occupied ?? 0) < x.capacity && x.id !== (changeOpen ? p.currentLockerId : undefined));
             lockersAllFull.current = all.length > 0 && free.length === 0;
             return free;
           }}
@@ -272,12 +310,14 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
         </Field>
         {errText(error)}
         <PrimaryButton
-          label="Confirm Check-In"
+          label={changeOpen ? "Confirm Change" : "Confirm Check-In"}
           onPress={() => locker && move.mutate({ toStatus: LOCKER_STORED, lockerId: locker.id })}
           loading={move.isPending}
           disabled={!locker}
         />
       </Sheet>
+
+      {pledgeOpen && loanQ.data ? <BankPledgeSheet loan={loanQ.data} packetStatus={status} visible onClose={() => { setPledgeOpen(false); qc.invalidateQueries({ queryKey: ["packet", key] }); qc.invalidateQueries({ queryKey: ["packets"] }); }} /> : null}
 
       <Sheet visible={releaseOpen} onClose={() => setReleaseOpen(false)} title="Release Packet" maxHeightPct={60}>
         <WarningBanner>This hands {p.code}&apos;s gold back to the customer. This can&apos;t be undone.</WarningBanner>

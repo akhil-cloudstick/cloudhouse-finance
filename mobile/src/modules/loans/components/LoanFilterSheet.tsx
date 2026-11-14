@@ -1,5 +1,6 @@
 import { emptyGroupedFilter, gfDate, gfValues, groupedFilterCount, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
+import { listSchemesPage } from "@/modules/schemes/services/schemeService";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 
 // One grouped filter for the Loans list (mirrors web LoansPage's FilterPanel): Status,
@@ -7,11 +8,13 @@ import { listCustomersPage } from "@/modules/customers/services/customerService"
 // section), plus a Date range on the opened date. The Branch section is left out for a
 // one-branch business or a branch-confined role (see use-branch-switch.ts).
 
-export const LOAN_STATUS_OPTIONS = ["Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Closed", "Rejected"] as const;
+export const LOAN_STATUS_OPTIONS = ["Active", "Due Soon", "Overdue", "Defaulted", "Pending Approval", "Auction Eligible", "Auctioned", "Auctioned - Balance Due", "Closure Requested", "Closed", "Rejected"] as const;
 export type LoanStatusOption = (typeof LOAN_STATUS_OPTIONS)[number];
 
 // Due Soon / Overdue / Defaulted are read-time classifications → `servicing`.
 const SERVICING: Partial<Record<LoanStatusOption, string>> = { "Due Soon": "due_soon", Overdue: "overdue", Defaulted: "defaulted" };
+
+export const PLEDGE_STATUSES = ["Not Pledged", "Bank Pledged", "Released"] as const;
 
 export type LoanFilters = GroupedFilterValue;
 export const EMPTY_LOAN_FILTERS: LoanFilters = emptyGroupedFilter();
@@ -39,11 +42,19 @@ export function loanFilterSections(showBranch: boolean, branchIds: string[]): GF
       label: "Customer",
       deps: [branchIds.join(",")],
       fetchPage: (p) =>
-        listCustomersPage({ q: p.q, limit: p.limit, offset: p.offset, ...(branchIds.length ? { branchIds: branchIds.map(Number) } : {}) }).then((r) => ({
+        listCustomersPage({ q: p.q, limit: p.limit, offset: p.offset, customerType: "Borrower", ...(branchIds.length ? { branchIds: branchIds.map(Number) } : {}) }).then((r) => ({
           items: r.items.map((c) => ({ value: String(c.id), label: c.code ? `${c.name} (${c.code})` : c.name })),
           hasMore: r.hasMore,
         })),
     },
+    {
+      kind: "async",
+      key: "scheme",
+      label: "Scheme",
+      fetchPage: (p) =>
+        listSchemesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((s) => ({ value: String(s.id), label: s.name })), hasMore: r.hasMore })),
+    },
+    { kind: "static", key: "pledge", label: "Pledge Status", options: PLEDGE_STATUSES.map((s) => ({ value: s, label: s })) },
     { kind: "date", key: "date", label: "Date" },
   ];
 }
@@ -55,12 +66,16 @@ export function loanFilterParams(f: LoanFilters, showBranch = true) {
   const stored = statuses.filter((s) => !SERVICING[s as LoanStatusOption]);
   const branches = showBranch ? gfValues(f, "branch") : [];
   const customers = gfValues(f, "customer");
+  const schemes = gfValues(f, "scheme");
+  const pledges = gfValues(f, "pledge");
   const { from, to } = gfDate(f, "date");
   return {
     status: stored.length ? stored.join(",") : undefined,
     servicing: servicing.length ? servicing.join(",") : undefined,
     branchId: branches.length ? branches.join(",") : undefined,
     customerId: customers.length ? customers.join(",") : undefined,
+    schemeId: schemes.length ? schemes.join(",") : undefined,
+    bankPledgeStatus: pledges.length ? pledges.join(",") : undefined,
     from: from || undefined,
     to: to || undefined,
   };

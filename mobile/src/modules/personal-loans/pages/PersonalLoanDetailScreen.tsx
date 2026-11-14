@@ -1,23 +1,35 @@
 import React, { useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
 import { presentFile } from "@/common/utils/presentFile";
-import { AccRow, Buffering, C, Card, ConfirmSheet, EmptyText, FabMenu, FieldGrid, FlatHeader, PillTabs, PIcon, Screen, ServerFlatList, Sheet, SheetListItem, StatusChip, Txt, WarningBanner, toast, type FabMenuAction } from "@/common/components/ui";
+import { AccRow, Buffering, C, Card, ConfirmSheet, EmptyText, FabMenu, FieldGrid, FlatHeader, PillTabs, Screen, ServerFlatList, Sheet, SheetListItem, StatusChip, Txt, WarningBanner, toast, type FabMenuAction } from "@/common/components/ui";
 import { ApprovalChainPanel } from "@/common/components/ApprovalChainPanel";
-import { stageByKey, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import { isFinalStage, stageByKey, stageByPending, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
-import { approvePersonalLoan, deletePersonalLoan, getPersonalLoan, getPersonalLoanSchedulePage, listPersonalLoanApprovals, listPersonalLoanPaymentsPage, personalLoanBondUrl } from "@/modules/personal-loans/services/personalLoanService";
-import type { PersonalLoan, PersonalLoanInstallment, PersonalLoanPayment, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
+import { getCashSummary } from "@/modules/cash/services/cashService";
+import { approvePersonalLoan, deletePersonalLoan, getPersonalLoan, getPersonalLoanHistoryPage, getPersonalLoanSchedulePage, listPersonalLoanApprovals, listPersonalLoanPaymentsPage, personalLoanBondUrl } from "@/modules/personal-loans/services/personalLoanService";
+import type { PersonalLoan, PersonalLoanHistory, PersonalLoanInstallment, PersonalLoanPayment, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 import { PersonalLedgerEditSheet } from "@/modules/personal-loans/components/PersonalLedgerEditSheet";
 import { CollectSheet, CreatePersonalLoanSheet, PER, RenewSheet, errMsg } from "@/modules/personal-loans/pages/PersonalLoansScreen";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import { loadErrorText } from "@/common/services/apiErrors";
+
+// Final due date: opened date + tenure instalments (web finalDueDate).
+function finalDueDate(l: PersonalLoan): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(l.openedDate || "");
+  if (!m || !(l.tenureCount > 0)) return "—";
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  if (l.frequency === "Monthly") d.setMonth(d.getMonth() + l.tenureCount);
+  else d.setDate(d.getDate() + l.tenureCount * (l.frequency === "Weekly" ? 7 : 1));
+  const p = (n: number) => String(n).padStart(2, "0");
+  return dmy(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
+}
 
 // Languages the backend renders the bond in (GET /personal-loans/:id/bond?lang=).
 const BOND_LANGS: { lang: PersonalLoanBondLang; title: string }[] = [
@@ -34,6 +46,7 @@ export default function PersonalLoanDetailScreen() {
   const loanId = Number(idParam) || null;
   const { can } = useAuth();
   const canUpdate = can("Personal_Loan_Management", "can_update_personal_loan");
+  const canViewCash = can("Cash_Management", "can_view_cash_module");
   const visible = loanId != null;
   const id = loanId ?? 0;
   const [collectLoan, setCollectLoan] = useState<PersonalLoan | null>(null);
@@ -73,11 +86,21 @@ export default function PersonalLoanDetailScreen() {
     enabled: visible && tab === "payments",
   });
 
-  // Renewal chain: one hop each way (renewedFromLoanId / renewedToLoanId).
-  const olderId = loan.data?.renewedFromLoanId ?? null;
-  const newerId = loan.data?.renewedToLoanId ?? null;
-  const older = useQuery({ queryKey: ["personalLoan", String(olderId)], queryFn: () => getPersonalLoan(olderId!), enabled: visible && tab === "history" && !!olderId });
-  const newer = useQuery({ queryKey: ["personalLoan", String(newerId)], queryFn: () => getPersonalLoan(newerId!), enabled: visible && tab === "history" && !!newerId });
+  // Event history (created / penal applied / renewed) — web's History tab.
+  const history = useServerList<PersonalLoanHistory>({
+    key: ["personalLoanHistory", id],
+    fetchPage: (p) => getPersonalLoanHistoryPage(id, p.limit, p.offset),
+    enabled: visible && tab === "history",
+  });
+  // Branch balance in hand — the final approval stage pays the loan out of it (web useBalanceInHand).
+  const pendingApproval = loan.data?.status === "Pending Approval";
+  const balance = useQuery({
+    queryKey: ["cash-summary", "pl-approve", loan.data?.branchId],
+    queryFn: () => getCashSummary(loan.data!.branchId),
+    enabled: visible && pendingApproval && canViewCash && !!loan.data?.branchId,
+    retry: false,
+  });
+  const balanceInHand = balance.data?.expectedCash ?? null;
 
   async function downloadBond(lang: PersonalLoanBondLang) {
     const l = loan.data;
@@ -104,7 +127,8 @@ export default function PersonalLoanDetailScreen() {
   const l = loan.data;
   const title = l ? `${l.loanNumber} — ${l.customer?.name ?? `Customer #${l.customerId}`}` : "Personal Loan";
 
-  const active = l?.status === "Active";
+  // Collect / Renew also while "Pending" (past its schedule + penal), like web.
+  const active = l?.status === "Active" || l?.status === "Pending";
   // Terms can be corrected only while nothing is built on them (the server enforces the same).
   const editable = !!l && canUpdate && (l.status === "Active" || l.status === "Pending Approval") && !l.renewedFromLoanId && !l.renewedToLoanId && !l.totalPaid && !l.totalPenalInterestCharged;
   const actions: FabMenuAction[] = l
@@ -133,6 +157,13 @@ export default function PersonalLoanDetailScreen() {
     }
   }
 
+  const approvalStage = pendingApproval ? stageByPending(wf, "personal_loan", l?.approvalStage) : undefined;
+  const approvalIsFinal = !!approvalStage && isFinalStage(wf, "personal_loan", approvalStage.pending);
+  const approveBlockedReason =
+    l && approvalIsFinal && balanceInHand !== null && l.disbursedAmount > balanceInHand + 0.005
+      ? `Balance in hand ${inr(balanceInHand)} is lower than the ${inr(l.disbursedAmount)} to disburse — add cash first.`
+      : undefined;
+
   const detailsCard = l ? (
     <Card style={{ marginBottom: 14 }}>
       <FieldGrid
@@ -143,6 +174,9 @@ export default function PersonalLoanDetailScreen() {
           { k: "Outstanding", v: inr(l.outstandingAmount), color: C.brandDeep },
           { k: "Frequency", v: `${l.frequency} · ${inr(l.installmentAmount)}/${PER[l.frequency] ?? l.frequency}` },
           { k: "Total paid", v: inr(l.totalPaid), color: C.green },
+          { k: "Due date", v: finalDueDate(l) },
+          { k: "Grace period", v: l.gracePeriodDays > 0 ? `${l.gracePeriodDays} days` : "None" },
+          { k: "Penal interest rate", v: `${l.penalInterestRate}%${l.penalFlatAmount > 0 ? ` + ${inr(l.penalFlatAmount)} flat` : ""}` },
         ]}
       />
       {inChain ? (
@@ -156,6 +190,7 @@ export default function PersonalLoanDetailScreen() {
             noun="Personal loan"
             rejectMessage={`Reject ${l.loanNumber}? Nothing is disbursed.`}
             canDecide={canUpdate}
+            approveBlockedReason={approveBlockedReason}
             decide={(input) => approvePersonalLoan(l.id, input)}
             onSaved={() => {
               setError(null);
@@ -199,26 +234,11 @@ export default function PersonalLoanDetailScreen() {
         tabs={DETAIL_TABS}
         value={tab}
         onChange={setTab}
-        labels={{ schedule: "Schedule", payments: "Payment History", history: "Schedule History" }}
+        labels={{ schedule: "Schedule", payments: "Payment History", history: "History" }}
+        style={{ marginHorizontal: -16, marginBottom: 12 }}
       />
     </View>
   ) : null;
-
-  const chainRow = (x: PersonalLoan, label: string, first: boolean) => (
-    <Pressable
-      key={x.id}
-      onPress={() => onOpenLoan(x.id)}
-      style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11, borderTopWidth: first ? 0 : 1, borderTopColor: C.line }}
-    >
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Txt style={{ fontWeight: "700", fontSize: 12.5 }}>{x.loanNumber}</Txt>
-        <Txt style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>
-          {label} · Opened {dmy(x.openedDate)}
-        </Txt>
-      </View>
-      <PIcon name="chevright" color={C.muted} />
-    </Pressable>
-  );
 
   let body: React.ReactNode;
   if (!visible) body = null;
@@ -259,7 +279,21 @@ export default function PersonalLoanDetailScreen() {
         list={payments}
         items={payments.items}
         gutter={16}
-        header={header}
+        header={
+          <>
+            {header}
+            {payments.pages?.[0] ? (
+              <View style={{ marginHorizontal: 16, marginBottom: 14, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+                {([["Debit", payments.pages[0].totalDebit ?? 0, C.red], ["Credit", payments.pages[0].totalCredit ?? 0, C.green]] as const).map(([k, v, color], i) => (
+                  <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 9, ...(i > 0 ? { borderTopWidth: 1, borderTopColor: C.line } : null) }}>
+                    <Txt style={{ fontSize: 12.5, color: C.muted }}>Total {k.toLowerCase()}</Txt>
+                    <Txt style={{ fontSize: 12.5, fontWeight: "700", color }}>{inr(v)}</Txt>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </>
+        }
         emptyText="No payments yet."
         keyOf={(p) => p.key ?? String(p.id)}
         renderItem={(p) => {
@@ -302,27 +336,22 @@ export default function PersonalLoanDetailScreen() {
     );
   else
     body = (
-      <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-        {header}
-        <View style={{ paddingHorizontal: 16 }}>
-          {(olderId && older.isLoading) || (newerId && newer.isLoading) ? (
-            <Buffering block />
-          ) : (
-            <>
-              {older.data && olderId ? chainRow(older.data, "Renewed into this loan", true) : null}
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11, borderTopWidth: older.data && olderId ? 1 : 0, borderTopColor: C.line }}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Txt style={{ fontWeight: "700", fontSize: 12.5 }}>{l.loanNumber} (this loan)</Txt>
-                  <Txt style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>Opened {dmy(l.openedDate)}</Txt>
-                </View>
-                <StatusChip label={l.status} />
-              </View>
-              {newer.data && newerId ? chainRow(newer.data, "Renewed from this loan", false) : null}
-              {!olderId && !newerId ? <Txt style={{ paddingVertical: 12, paddingHorizontal: 2, color: C.muted, fontSize: 12.5 }}>No prior renewals for this loan.</Txt> : null}
-            </>
-          )}
-        </View>
-      </ScrollView>
+      <ServerFlatList
+        list={history}
+        items={history.items}
+        gutter={16}
+        header={header}
+        emptyText="No history yet."
+        keyOf={(h) => String(h.id)}
+        renderItem={(h) => (
+          <AccRow
+            id={dmy(h.occurredAt)}
+            name={h.detail}
+            amount={h.amount ? inr(h.amount) : undefined}
+            actions={h.relatedLoanId ? [{ label: "View loan", onPress: () => onOpenLoan(h.relatedLoanId!) }] : undefined}
+          />
+        )}
+      />
     );
 
   return (

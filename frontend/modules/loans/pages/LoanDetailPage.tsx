@@ -55,7 +55,6 @@ import { EsignStatusModalContent,type EsignStatusSigner } from "@/modules/loans/
 import { PledgeSlipModalContent } from "@/modules/loans/components/PledgeSlipModalContent";
 import { RequestExtensionModalContent } from "@/common/components/modals/RequestExtensionModalContent";
 import { RequestReleaseModalContent } from "@/common/components/modals/RequestReleaseModalContent";
-import { EditLoanModalContent } from "@/modules/loans/components/EditLoanModalContent";
 import { navigate, routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { DisburseLoanModalContent } from "@/modules/loans/components/DisburseLoanModalContent";
@@ -514,7 +513,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
       ? "Purity standard module is disabled"
       : "";
   const editLoanButton = canUpdateLoans && !isFinished && l.status !== "Auctioned" ? (
-    <button className="btn ghost" title={editLoanBlocked || undefined} disabled={!!editLoanBlocked} onClick={() => openModal(<EditLoanModalContent loan={l} onSaved={load} />, true)}>
+    <button className="btn ghost" title={editLoanBlocked || undefined} disabled={!!editLoanBlocked} onClick={() => navigate("editloan", l.id)}>
       <Icon name="edit" /> Edit Loan
     </button>
   ) : null;
@@ -772,18 +771,18 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         : "—";
       openPrintWindow("Statement — " + l.id, `
         ${brandHeader("Statement of Account")}
-        <table>
-          <tr><th style="width:150px">Loan No</th><td>${l.id}</td><th style="width:150px">Statement Date</th><td>${fmtToday()}</td></tr>
+        <table style="table-layout:fixed;width:100%;word-break:break-word;overflow-wrap:anywhere"><colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup>
+          <tr><th>Loan No</th><td>${l.id}</td><th>Statement Date</th><td>${fmtToday()}</td></tr>
           <tr><th>Debtor Name</th><td colspan="3">${esc(c.name)}</td></tr>
           <tr><th>Debtor Address</th><td colspan="3">${esc(c.address || "—")}</td></tr>
           <tr><th>Amount of Loan</th><td>${fmt(l.principal)}</td><th>Amount in Words</th><td>${rupeesInWords(l.principal)}</td></tr>
           <tr><th>Date of Loan</th><td>${fmtDate(l.opened)}</td><th>Date of Maturity</th><td>${fmtDate(l.due)}</td></tr>
           <tr><th>Rate of Interest</th><td>${l.schemeRate}% p.a.</td><th>Status</th><td>${l.status}</td></tr>
           <tr><th>Nature of Security</th><td colspan="3">${esc(security)}</td></tr>
-          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3" style="word-break:break-word;overflow-wrap:anywhere;white-space:normal;max-width:0;width:100%">${esc(l.additionalInfo)}</td></tr>` : ""}
+          ${l.additionalInfo ? `<tr><th>Additional Information</th><td colspan="3" style="white-space:normal">${esc(l.additionalInfo)}</td></tr>` : ""}
         </table>
         <p><b>True account of the transaction with the debtor:</b></p>
-        <table>
+        <table style="table-layout:fixed;width:100%;word-break:break-word;overflow-wrap:anywhere"><colgroup><col style="width:13%"><col style="width:33%"><col style="width:11%"><col style="width:13%"><col style="width:14%"><col style="width:16%"></colgroup>
           <thead><tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th class="num">Amount</th><th class="num">Running Balance</th></tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr><th colspan="4">Outstanding Principal</th><th class="num">${fmt(l.outstanding)}</th><th></th></tr></tfoot>
@@ -1217,7 +1216,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     </a>
                   )}
                 {!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
-                  <a href="#" title={editLoanBlocked || "Edit Loan"} aria-disabled={!!editLoanBlocked} style={editLoanBlocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={(e) => { e.preventDefault(); if (editLoanBlocked) return; setLoanActionsMenuOpen(false); openModal(<EditLoanModalContent loan={l} onSaved={load} />, true); }}>
+                  <a href="#" title={editLoanBlocked || "Edit Loan"} aria-disabled={!!editLoanBlocked} style={editLoanBlocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={(e) => { e.preventDefault(); if (editLoanBlocked) return; setLoanActionsMenuOpen(false); navigate("editloan", l.id); }}>
                     <Icon name="edit" /><span className="tx">Edit Loan</span>
                   </a>
                 )}

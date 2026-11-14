@@ -44,7 +44,7 @@ const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "
 const GROUPS: { key: string; label: string; fg: string; bg: string; types: CalendarEvent["type"][] }[] = [
   { key: "overdue", label: "Overdue", fg: C.red, bg: C.redBg, types: ["Overdue", "PersonalLoanOverdue"] },
   { key: "due", label: "Loan due", fg: C.amber, bg: C.amberBg, types: ["LoanDue", "PersonalLoanDue"] },
-  { key: "auction", label: "Auction", fg: C.amber, bg: C.amberBg, types: ["AuctionScheduled"] },
+  { key: "auction", label: "Auction", fg: C.red, bg: C.redBg, types: ["AuctionScheduled"] },
   { key: "interest", label: "Interest", fg: C.green, bg: C.greenBg, types: ["InterestDue"] },
   { key: "followup", label: "Follow-up", fg: C.blue, bg: C.blueBg, types: ["FollowUp"] },
   { key: "promise", label: "Promise to pay", fg: C.blue, bg: C.blueBg, types: ["PromiseToPay"] },
@@ -52,7 +52,8 @@ const GROUPS: { key: string; label: string; fg: string; bg: string; types: Calen
 const GROUPED_TYPES = GROUPS.flatMap((g) => g.types);
 
 function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
-  if (t === "Overdue" || t === "PersonalLoanOverdue") return "red";
+  // Blue is only for the reminders staff add themselves (custom, follow-up, promise to pay); auctions read as red.
+  if (t === "Overdue" || t === "PersonalLoanOverdue" || t === "AuctionScheduled") return "red";
   if (t === "LoanDue" || t === "InterestDue" || t === "PersonalLoanDue") return "amber";
   return "blue";
 }

@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { C, EmptyText, FlatHeader, PScroll, type GFSection, ReportRow, ReportSectionLabel, Screen, SearchInput, type AccDetail, openPage } from "@/common/components/ui";
+import { C, EmptyText, FlatHeader, PScroll, type GFSection, ReportRow, ReportSectionLabel, Screen, SearchInput, type AccDetail, openPage, toast } from "@/common/components/ui";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { listSchemesPage } from "@/modules/schemes/services/schemeService";
 import { listPurityStandards } from "@/modules/purity-standards/services/purityStandardService";
+import { listOrnamentTypes } from "@/modules/ornament-types/services/ornamentTypeService";
+import { listLockersPage } from "@/modules/lockers/services/lockerService";
+import { fetchRoles } from "@/modules/roles/services/roleService";
+import { AUCTION_OUTCOME_LABELS } from "@/modules/auctions/types/auction-types";
 import { listBanksPage } from "@/modules/banks/services/bankService";
 import { listEmployeesPage } from "@/modules/employees/services/employeeService";
 import { listInvestmentPlansPage } from "@/modules/investments/services/investmentService";
@@ -17,6 +21,9 @@ import { DayBookSheet } from "@/modules/reports/components/DayBookSheet";
 import { type ReportFilters, type ReportResult } from "@/modules/reports/types/reports-types";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import { useCanOpen } from "@/common/config/routePermissions";
+import * as Print from "expo-print";
+import { downloadExport } from "@/modules/reports/services/reportDownload";
+import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 
 // Reports — prototype #header-reports + #page-reports (grouped report rows)
 // and #report-table-modal. Tapping a report opens its table in a sheet:
@@ -93,6 +100,26 @@ const purityGroup = (): FilterGroup =>
     return { items, hasMore: false };
   });
 const INVESTMENT_STATUSES =["Active", "Matured", "Renewed", "Closed"];
+// Same extra filters as web's ReportsPage: ornament type, locker, role (live role list, seeded roles as a fallback).
+const ornamentTypeGroup = () =>
+  asyncGroup("ornament_type", "Ornament Type", (p) => listOrnamentTypes(p.q).then((r) => ({ items: (r ?? []).slice(p.offset, p.offset + p.limit).map((t) => ({ value: t.name, label: t.name })), hasMore: (r ?? []).length > p.offset + p.limit })));
+const lockerGroup = () =>
+  asyncGroup("locker_id", "Locker", (p) => listLockersPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: (r.items ?? []).map((l) => ({ value: String(l.id), label: l.code })), hasMore: r.hasMore })));
+const DEFAULT_ROLES = ["Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier", "Accountant", "Collection Staff", "Auction Administrator", "Auditor"];
+const roleGroup = () =>
+  asyncGroup("role", "Role", async (p) => {
+    if (p.offset > 0) return { items: [], hasMore: false };
+    let names = DEFAULT_ROLES;
+    try {
+      const rs = await fetchRoles();
+      if (rs.length) names = rs.map((r) => r.name);
+    } catch {
+      /* seeded roles */
+    }
+    const term = (p.q ?? "").trim().toLowerCase();
+    return { items: names.filter((n) => !term || n.toLowerCase().includes(term)).map((n) => ({ value: n, label: n })), hasMore: false };
+  });
+const VERIFY_STATUSES = ["Verified", "Pending", "Failed", "Name Mismatch"];
 
 const w = (n?: number | null) => `${(n ?? 0).toFixed(2)} g`;
 export const firstOfMonth = () => `${todayISO().slice(0, 8)}01`;
@@ -113,7 +140,7 @@ export const REPORTS: ReportDef[] = [
     fetch: getDisbursement,
     headline: (t) => inr(t?.totalAmount),
     sub: (t) => `${t?.count ?? 0} loans`,
-    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: dmy(r.openedDate), amount: inr(r.amount), details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Scheme", v: r.schemeName || "—" }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: dmy(r.openedDate), amount: inr(r.amount), details: [{ k: "Opened", v: dmy(r.openedDate) }, { k: "Amount", v: inr(r.amount) }, { k: "Branch", v: r.branchName || "—" }, { k: "Scheme", v: r.schemeName || "—" }] }),
   },
   {
     key: "loans-status",
@@ -124,7 +151,7 @@ export const REPORTS: ReportDef[] = [
     fetch: getLoansStatus,
     headline: (t) => `${t?.count ?? 0} loans`,
     sub: (t) => `${t?.active ?? 0} active · ${t?.overdue ?? 0} overdue · ${t?.defaulted ?? 0} defaulted · ${t?.dueSoon ?? 0} due soon · ${t?.closed ?? 0} closed`,
-    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: `Due ${dmy(r.dueDate)}`, amount: inr(r.outstanding), status: r.status, details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Outstanding", v: inr(r.outstanding) }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: `Due ${dmy(r.dueDate)}`, amount: inr(r.outstanding), status: r.status, details: [{ k: "Status", v: r.status || "—" }, { k: "Due date", v: dmy(r.dueDate) }, { k: "Branch", v: r.branchName || "—" }, { k: "Outstanding", v: inr(r.outstanding) }] }),
   },
   {
     key: "interest-collection",
@@ -140,7 +167,7 @@ export const REPORTS: ReportDef[] = [
       name: dmy(r.paidOn),
       sub: r.branchName,
       amount: inr((r.interestApplied ?? 0) + (r.penalApplied ?? 0)),
-      details: [{ k: "Interest", v: inr(r.interestApplied) }, { k: "Penal", v: inr(r.penalApplied) }],
+      details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Paid on", v: dmy(r.paidOn) }, { k: "Interest", v: inr(r.interestApplied) }, { k: "Penal", v: inr(r.penalApplied) }, { k: "Branch", v: r.branchName || "—" }],
     }),
   },
   {
@@ -152,7 +179,7 @@ export const REPORTS: ReportDef[] = [
     fetch: getPaymentCollection,
     headline: (t) => inr(t?.totalAmount),
     sub: (t) => `${t?.count ?? 0} payments`,
-    row: (r) => ({ id: r.loanNumber, name: r.type, sub: dmy(r.paidOn), amount: inr(r.amount), details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Staff", v: r.employeeName || "—" }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.type, sub: dmy(r.paidOn), amount: inr(r.amount), details: [{ k: "Paid on", v: dmy(r.paidOn) }, { k: "Type", v: r.type || "—" }, { k: "Branch", v: r.branchName || "—" }, { k: "Collected by", v: r.employeeName || "—" }] }),
   },
   // Gold & Custody
   {
@@ -160,7 +187,7 @@ export const REPORTS: ReportDef[] = [
     title: "Gold / Ornament & Weight",
     group: "Gold & Custody",
     kind: "table",
-    filterGroups: [customerGroup(), purityGroup()],
+    filterGroups: [customerGroup(), ornamentTypeGroup(), purityGroup()],
     fetch: getGoldWeight,
     headline: (t) => w(t?.totalNetWeight),
     sub: (t) => `${w(t?.totalGrossWeight)} gross · ${inr(t?.totalGoldValue)} total value`,
@@ -169,7 +196,7 @@ export const REPORTS: ReportDef[] = [
       name: r.name,
       sub: r.customerName,
       amount: inr(r.goldValue),
-      details: [{ k: "Purity", v: r.purity || "—" }, { k: "Gross wt", v: w(r.grossWeight) }, { k: "Net wt", v: w(r.netWeight) }],
+      details: [{ k: "Customer", v: r.customerName || "—" }, { k: "Purity", v: r.purity || "—" }, { k: "Gross wt", v: w(r.grossWeight) }, { k: "Net wt", v: w(r.netWeight) }, { k: "Value", v: inr(r.goldValue) }],
     }),
   },
   {
@@ -177,11 +204,11 @@ export const REPORTS: ReportDef[] = [
     title: "Packet Tracking & Locker",
     group: "Gold & Custody",
     kind: "table",
-    filterGroups: [customerGroup(), loanGroup()],
+    filterGroups: [customerGroup(), loanGroup(), staticGroup("status", "Status", ["Locker Stored", "Bank Pledged", "Returned", "Released"]), lockerGroup()],
     fetch: getPackets,
     headline: (t) => `${t?.count ?? 0} packets`,
     sub: (t) => `${t?.inLocker ?? 0} in locker · ${t?.bankPledged ?? 0} pledged · ${t?.released ?? 0} released`,
-    row: (r) => ({ id: r.code, name: r.loanNumber, sub: r.lockerCode ? `Locker ${r.lockerCode}` : undefined, status: r.status, details: [{ k: "Locker", v: r.lockerCode || "—" }, { k: "Movements", v: String(r.movementCount ?? 0) }] }),
+    row: (r) => ({ id: r.code, name: r.loanNumber, sub: r.lockerCode ? `Locker ${r.lockerCode}` : undefined, status: r.status, details: [{ k: "Packet code", v: r.code || "—" }, { k: "Loan #", v: r.loanNumber || "—" }, { k: "Status", v: r.status || "—" }, { k: "Locker", v: r.lockerCode || "—" }, { k: "Movements", v: String(r.movementCount ?? 0) }] }),
   },
   {
     key: "bank-pledge",
@@ -198,7 +225,7 @@ export const REPORTS: ReportDef[] = [
       sub: dmy(r.pledgeDate),
       amount: inr(r.pledgedAmount),
       status: r.status,
-      details: [{ k: "Pledged on", v: dmy(r.pledgeDate) }, { k: "Released on", v: dmy(r.releaseDate) }],
+      details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Pledged amount", v: inr(r.pledgedAmount) }, { k: "Pledged on", v: dmy(r.pledgeDate) }, { k: "Released on", v: dmy(r.releaseDate) }, { k: "Status", v: r.status || "—" }],
     }),
   },
   {
@@ -215,7 +242,7 @@ export const REPORTS: ReportDef[] = [
       name: `${r.months ?? "—"} months`,
       sub: `Requested ${dmy(r.requestedAt)}`,
       status: r.status,
-      details: [{ k: "New due date", v: dmy(r.newDueDate) }, { k: "Requested on", v: dmy(r.requestedAt) }],
+      details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Months", v: String(r.months ?? "—") }, { k: "New due date", v: dmy(r.newDueDate) }, { k: "Requested on", v: dmy(r.requestedAt) }, { k: "Status", v: r.status || "—" }],
     }),
   },
   {
@@ -223,22 +250,22 @@ export const REPORTS: ReportDef[] = [
     title: "Gold Release / Closure",
     group: "Gold & Custody",
     kind: "table",
-    filterGroups: [customerGroup(), loanGroup()],
+    filterGroups: [customerGroup(), loanGroup(), staticGroup("status", "Status", ["Pending", "Approved", "Rejected"])],
     fetch: getGoldRelease,
     headline: (t) => `${t?.count ?? 0} releases`,
     sub: (t) => `${inr(t?.totalSettlement)} total settlement`,
-    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: dmy(r.requestedAt), amount: inr(r.settlementAmount), status: r.status, details: [{ k: "Requested on", v: dmy(r.requestedAt) }, { k: "Settlement", v: inr(r.settlementAmount) }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: dmy(r.requestedAt), amount: inr(r.settlementAmount), status: r.status, details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Customer", v: r.customerName || "—" }, { k: "Requested on", v: dmy(r.requestedAt) }, { k: "Status", v: r.status || "—" }, { k: "Settlement", v: inr(r.settlementAmount) }] }),
   },
   {
     key: "auctions",
     title: "Auction Reports",
     group: "Gold & Custody",
     kind: "table",
-    filterGroups: [customerGroup(), loanGroup()],
+    filterGroups: [customerGroup(), loanGroup(), staticGroup("settlement", "Settlement", Object.entries(AUCTION_OUTCOME_LABELS).map(([value, label]) => ({ value, label })))],
     fetch: getAuctions,
     headline: (t) => `${t?.count ?? 0} auctions`,
     sub: (t) => `${inr(t?.totalSaleAmount)} total sale amount`,
-    row: (r) => ({ id: r.loanNumber, name: r.stage, sub: dmy(r.auctionDate), amount: inr(r.saleAmount), status: r.settlementStatus, details: [{ k: "Auction date", v: dmy(r.auctionDate) }, { k: "Sale amount", v: inr(r.saleAmount) }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.stage, sub: dmy(r.auctionDate), amount: inr(r.saleAmount), status: AUCTION_OUTCOME_LABELS[r.settlementStatus as keyof typeof AUCTION_OUTCOME_LABELS] ?? r.settlementStatus, details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Stage", v: r.stage || "—" }, { k: "Auction date", v: dmy(r.auctionDate) }, { k: "Sale amount", v: inr(r.saleAmount) }] }),
   },
   // Branch & Compliance
   {
@@ -266,11 +293,11 @@ export const REPORTS: ReportDef[] = [
     title: "KYC Verification",
     group: "Branch & Compliance",
     kind: "table",
-    filterGroups: [customerGroup()],
+    filterGroups: [customerGroup(), staticGroup("kyc_status", "KYC", VERIFY_STATUSES), staticGroup("pan_status", "PAN", VERIFY_STATUSES), staticGroup("aadhaar_status", "Aadhaar", VERIFY_STATUSES)],
     fetch: getKYC,
     headline: (t) => `${t?.count ?? 0} customers`,
     sub: (t) => `${t?.verified ?? 0} verified · ${t?.pending ?? 0} pending`,
-    row: (r) => ({ id: r.code, name: r.name, sub: r.phone, status: r.kycStatus, details: [{ k: "PAN", v: r.panStatus || "—" }, { k: "Aadhaar", v: r.aadhaarStatus || "—" }] }),
+    row: (r) => ({ id: r.code, name: r.name, sub: r.phone, status: r.kycStatus, details: [{ k: "Customer code", v: r.code || "—" }, { k: "Phone", v: r.phone || "—" }, { k: "KYC", v: r.kycStatus || "—" }, { k: "PAN", v: r.panStatus || "—" }, { k: "Aadhaar", v: r.aadhaarStatus || "—" }] }),
   },
   {
     key: "gold-rate-history",
@@ -288,7 +315,7 @@ export const REPORTS: ReportDef[] = [
     title: "Employee Performance",
     group: "Branch & Compliance",
     kind: "table",
-    filterGroups: [employeeGroup()],
+    filterGroups: [employeeGroup(), roleGroup()],
     fetch: getEmployeePerformance,
     headline: (t) => `${t?.totalLoansProcessed ?? 0} loans processed`,
     sub: (t) => `${inr(t?.totalCollections)} collected`,
@@ -297,6 +324,7 @@ export const REPORTS: ReportDef[] = [
       sub: [r.role, r.branchName].filter(Boolean).join(" · "),
       amount: inr(r.collectionsAmount),
       details: [
+        ...(r.employeeCode ? [{ k: "Employee ID", v: r.employeeCode }] : []),
         { k: "Loans processed", v: String(r.loansProcessed ?? 0) },
         { k: "Reminders sent", v: String(r.remindersSent ?? 0) },
         { k: "Approvals", v: String(r.approvals ?? 0) },
@@ -309,11 +337,11 @@ export const REPORTS: ReportDef[] = [
     title: "Communication History",
     group: "Branch & Compliance",
     kind: "table",
-    filterGroups: [employeeGroup(), staticGroup("trigger_type", "Trigger Type", ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"])],
+    filterGroups: [employeeGroup(), staticGroup("channel", "Channel", ["WhatsApp"]), staticGroup("status", "Status", ["sent", "failed"]), staticGroup("trigger_type", "Trigger Type", ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"])],
     fetch: getCommunicationHistory,
     headline: (t) => `${t?.count ?? 0} messages`,
     sub: (t) => `${t?.sent ?? 0} sent · ${t?.failed ?? 0} failed`,
-    row: (r) => ({ name: r.recipientName, sub: `${r.channel} · ${dmy(r.sentAt)}`, status: r.status, details: [{ k: "Phone", v: r.recipientPhone || "—" }, { k: "Trigger", v: r.triggerType || "—" }] }),
+    row: (r) => ({ name: r.recipientName, sub: `${r.channel} · ${dmy(r.sentAt)}`, status: r.status, details: [{ k: "Phone", v: r.recipientPhone || "—" }, { k: "Channel", v: r.channel || "—" }, { k: "Trigger", v: r.triggerType || "—" }, { k: "Sent at", v: dmy(r.sentAt) }] }),
   },
   {
     key: "personal-loans",
@@ -432,6 +460,20 @@ export default function ReportsScreen() {
   const [search, setSearch] = useState("");
   const router = useRouter();
   const [dayBookOpen, setDayBookOpen] = useState(false);
+  // The quick Print on a tile: the report's own default range, as a PDF straight to the print dialog.
+  const [printingKey, setPrintingKey] = useState<string | null>(null);
+  async function quickPrint(r: ReportDef) {
+    if (printingKey) return;
+    setPrintingKey(r.key);
+    try {
+      const range = r.key === "day-book" ? { from: firstOfMonth(), to: todayISO() } : r.defaultRange?.() ?? (r.kind === "table" ? { from: firstOfMonth(), to: todayISO() } : {});
+      await Print.printAsync({ uri: await downloadExport(r.key, "pdf", range) });
+    } catch (e) {
+      if (!isUserCancel(e)) toast.error("Print failed", userMessage(e, "Could not print — try again."));
+    } finally {
+      setPrintingKey(null);
+    }
+  }
 
   const canOpen = useCanOpen();
   // A "link" row (e.g. Ledger / Statement) only when its page may be opened.
@@ -464,7 +506,7 @@ export default function ReportsScreen() {
             <View key={g}>
               <ReportSectionLabel>{g}</ReportSectionLabel>
               {rows.map((r) => (
-                <ReportRow key={r.key} title={r.title} onPress={() => openReport(r)} />
+                <ReportRow key={r.key} title={r.title} onPress={() => openReport(r)} onPrint={r.kind === "link" ? undefined : () => void quickPrint(r)} printBusy={printingKey === r.key} />
               ))}
             </View>
           );

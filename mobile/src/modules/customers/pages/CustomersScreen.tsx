@@ -80,10 +80,12 @@ export default function CustomersScreen() {
             defaultOpen={i === 0}
             id={c.code}
             name={c.name}
-            sub={c.phone || undefined}
+            sub={[c.phone, c.address].filter(Boolean).join(" · ") || undefined}
             status={c.kycStatus || undefined}
             details={[
               { k: "Phone", v: c.phone || "—" },
+              { k: "Address", v: c.address || "—" },
+              { k: "Loans", v: String(c.loanCount ?? 0) },
               { k: "Branch", v: c.branch?.name || "—" },
               { k: "KYC status", v: c.kycStatus || "—" },
               { k: "PAN", v: c.panStatus || "—" },

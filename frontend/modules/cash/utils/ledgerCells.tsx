@@ -1,5 +1,6 @@
 "use client";
 
+import { type ReactNode } from "react";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { expenseCategoryOf, loanNumberOfCategory } from "@/common/hooks/use-expense-category-ids";
 import { MODE_LEDGER_ROUTE } from "@/modules/cash/services/cashService";
@@ -20,6 +21,13 @@ import { isLoanSource } from "@/modules/cash/services/cashSourceService";
 // already in the Ref No column, so the row reads just "Bank pledge" with the
 // bank's name on the line below.
 const BANK_PLEDGE_RE = /^(Bank pledge(?: release)?) — (.+) — (?:LN|PL|INV)-\S+$/;
+
+// A ledger row's Particulars can carry a long remark; the table shows a short version and the full text on hover.
+const CLIP_AT = 70;
+export function clipText(text: string): ReactNode {
+  if (text.length <= CLIP_AT) return text;
+  return <span title={text}>{text.slice(0, CLIP_AT).trimEnd()}…</span>;
+}
 
 export function particularsFor(m: CashMovementView, categoryIds: Record<string, number>) {
   const pledge = m.purpose ? BANK_PLEDGE_RE.exec(m.purpose) : null;
@@ -55,15 +63,8 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
   if (m.purpose && /^Auction (sale proceeds|surplus settlement)/.test(m.purpose)) {
     const loanNo = loanNumberFor(m);
     if (loanNo.startsWith("LN-")) {
-      const link = <LedgerRefLink kind="auction" id={`history:${loanNo}`} label={text || "Auction"} />;
-      // The settlement's remarks ride on the cash movement; show them under the entry.
-      if (!m.remarks) return link;
-      return (
-        <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", lineHeight: 1.3 }}>
-          {link}
-          <span style={{ fontSize: 12, color: "var(--muted)" }}>{m.remarks}</span>
-        </span>
-      );
+      // The settlement's remarks are not shown in the ledger; they live in the Auction History info modal.
+      return <LedgerRefLink kind="auction" id={`history:${loanNo}`} label={text || "Auction"} />;
     }
   }
   const category = expenseCategoryOf(m.purpose);

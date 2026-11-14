@@ -106,11 +106,11 @@ export function WithdrawInvestmentModalContent({
         <div className="notice" style={{ marginBottom: 16 }}>
           Outstanding Principal: <strong>{fmt(outstandingPrincipal)}</strong> · Outstanding Interest: <strong>{fmt(outstandingInterest)}</strong>
         </div>
-        <div className="frow c2">
+        <div className="frow c2" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
           <div><label className="f">Withdraw From *</label><Select options={WITHDRAW_FROM_OPTIONS} value={from} onChange={(v) => setFrom(v as WithdrawFrom)} /></div>
           <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={occurredOn} onChange={setOccurredOn} max={todayISO()} /><FieldError msg={fe.date} /></div>
         </div>
-        <div className="frow c2">
+        <div className="frow c2" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
           {from !== "Principal" && (
             <div className={fe.interest ? "has-err" : undefined}><label className="f">Interest Amount *</label><input className="inp" type="number" min={0} step={0.01} max={outstandingInterest} placeholder="e.g. 1200" value={interestAmount} onChange={(e) => setInterestAmount(e.target.value)} /><FieldError msg={fe.interest} /></div>
           )}

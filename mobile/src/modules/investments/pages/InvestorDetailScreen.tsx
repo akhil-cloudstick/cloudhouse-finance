@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccRow, Buffering, ConfirmSheet, EmptyText, FieldGrid, FlatHeader, Screen, SectionTitle, ServerFlatList, toast } from "@/common/components/ui";
+import { AccRow, Buffering, C, ConfirmSheet, EmptyText, FieldGrid, FlatHeader, PrimaryButton, Screen, SectionTitle, ServerFlatList, Sheet, StatusChip, Txt, toast } from "@/common/components/ui";
 import { ActionGroup, type GroupAction } from "@/common/components/ActionGroup";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -38,6 +38,13 @@ export default function InvestorDetailScreen() {
     filters: { customerId: id },
     fetchPage: (p) => listInvestmentsPage({ ...p, customerId: id }),
     enabled: id > 0,
+  });
+
+  // Investments still on file block the delete — listed here (tap to open one) instead of failing after the tap.
+  const blockers = useQuery({
+    queryKey: ["investments", "blockers", id],
+    queryFn: () => listInvestmentsPage({ customerId: id, limit: 50, offset: 0 }).then((r) => r.items ?? []),
+    enabled: deleteOpen && id > 0,
   });
 
   const remove = useMutation({
@@ -120,8 +127,18 @@ export default function InvestorDetailScreen() {
               router.push(`/investments/${created.id}` as never);
             }}
           />
+          <Sheet visible={deleteOpen && !!blockers.data?.length} onClose={() => setDeleteOpen(false)} title="Can't Delete Yet" maxHeightPct={70}>
+            <Txt style={{ fontSize: 12.5, color: C.muted, marginVertical: 10 }}>Close and delete these investments first, then come back — {inv.name} still holds:</Txt>
+            {(blockers.data ?? []).map((b) => (
+              <Pressable key={b.id} onPress={() => { setDeleteOpen(false); router.push(`/investments/${b.id}` as never); }} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.line }}>
+                <Txt style={{ fontSize: 13, fontWeight: "700", color: C.brandDeep, textDecorationLine: "underline" }}>{b.investmentNumber}</Txt>
+                <StatusChip label={b.status} />
+              </Pressable>
+            ))}
+            <PrimaryButton label="Close" variant="outline" style={{ marginTop: 14 }} onPress={() => setDeleteOpen(false)} />
+          </Sheet>
           <ConfirmSheet
-            visible={deleteOpen}
+            visible={deleteOpen && !blockers.data?.length}
             onClose={() => setDeleteOpen(false)}
             title="Delete Investor Permanently"
             danger

@@ -41,6 +41,7 @@ import { TENANT_MODULES } from "@/common/config/tenantModules";
 import { DayBookEntrySheet } from "@/modules/reports/components/DayBookEntrySheet";
 import { useCanOpen } from "@/common/config/routePermissions";
 import { useRefetchOnFocus } from "@/common/hooks/use-refetch-on-focus";
+import { getCashSummary } from "@/modules/cash/services/cashService";
 import { getDashboardSummary, listDashboardActivityPage, listNeedsAttentionPage, NEEDS_ATTENTION_PAGE_SIZE } from "@/modules/dashboard/services/dashboardService";
 import { type NeedsAttentionItem, type NeedsAttentionKind } from "@/modules/dashboard/types/dashboard-types";
 import { latestGoldRate } from "@/modules/gold-rates/services/goldRateService";
@@ -107,9 +108,15 @@ export default function DashboardScreen() {
     queryFn: () => listCalendarEventsPage({ limit: 1, offset: 0, from: todayISO(), to: todayISO() }),
     enabled: canViewReminders,
   });
-  useRefetchOnFocus(summary.refetch, rate.refetch, todayReminders.refetch);
+  // Same source and formula as the web dashboard's "Cash in Hand" tile: the cash summary's cash plus bank balance.
+  const canViewCash = can("Cash_Management", "can_view_cash_module");
+  const cashSummary = useQuery({ queryKey: ["cash", "summary", "dashboard"], queryFn: () => getCashSummary(), enabled: canViewCash });
+  useRefetchOnFocus(summary.refetch, rate.refetch, todayReminders.refetch, cashSummary.refetch);
 
   const s = summary.data;
+  const cashTotal = cashSummary.data
+    ? (cashSummary.data.cashInHand ?? 0) + (cashSummary.data.bankBalance ?? 0)
+    : (s?.cashInHand ?? 0);
   const r22 = s?.rate22k ?? rate.data?.k22 ?? 0;
   const r24 = s?.rate24k ?? rate.data?.k24 ?? 0;
   const r18 = rate.data?.k18 || (r24 ? rateForKarat(r24, 18) : 0);
@@ -126,7 +133,7 @@ export default function DashboardScreen() {
           initials={initialsOf(employee?.name)}
           name={employee?.name ?? ""}
           branch={employee?.branch?.name ? `${employee.branch.name} Branch` : employee?.role}
-          cashValue={summary.isLoading ? "…" : inr(s?.cashInHand ?? 0)}
+          cashValue={summary.isLoading || (canViewCash && cashSummary.isLoading) ? "…" : inr(cashTotal)}
           rates={[
             { k: "24K / g", v: inr(Math.round(r24)) },
             { k: "22K / g", v: inr(Math.round(r22)) },
@@ -186,7 +193,7 @@ export default function DashboardScreen() {
                 onPress={can("Report_Management", "can_view_report_module") ? () => openPage("/reports") : undefined}
                 stats={[
                   { n: String(s?.today.loansIssued ?? 0), l: "Loans issued" },
-                  { n: inrShort(s?.today.collections ?? 0), l: "Balance in hand" },
+                  { n: inrShort(cashTotal), l: "Cash in hand" },
                   { n: String(s?.today.newCustomers ?? 0), l: "New customers" },
                 ]}
               />

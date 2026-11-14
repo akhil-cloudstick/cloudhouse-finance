@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Buffering, C, ChipToggle, DateField, FieldGrid, Field, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
+import { Buffering, toast, C, ChipToggle, DateField, FieldGrid, Field, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
 import {
   issueAuctionNotice,
   markAuctionEligible,
@@ -25,6 +25,9 @@ import type { Loan } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { ErrorText } from "@/common/components/ErrorText";
+import { GoldAtBankBlock } from "@/modules/auctions/components/GoldAtBankBlock";
+import { getLoan } from "@/modules/loans/services/loanService";
+import { printAuctionLetter } from "@/modules/loans/utils/loanPrint";
 
 const DECISION_LABELS: Record<string, string> = {
   PursueBalance: "Pursue balance",
@@ -55,9 +58,12 @@ export function AuctionSheet({
   const wf = useApprovalWorkflow();
   const { can, employee } = useAuth();
   const canAct = can("Loan_Management", "can_update_loan");
-  const aw = (k: string) => canAct && can("Auction_Workflow", k);
+  // Gold sitting with a bank cannot be noticed, scheduled or sold (the server rejects it too); settling is unaffected.
+  const goldAtBank = l.bankPledgeStatus === "Bank Pledged";
+  const aw = (k: string) => canAct && !(goldAtBank && k !== "can_settle_auction") && can("Auction_Workflow", k);
   const [error, setError] = useState<string | null>(null);
-  const [auctionDate, setAuctionDate] = useState("");
+  const [auctionDate, setAuctionDate] = useState(todayISO());
+  const [printing, setPrinting] = useState(false);
   const [referenceNumber, setReferenceNumber] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
   const [expenses, setExpenses] = useState("");
@@ -130,6 +136,20 @@ export function AuctionSheet({
   // getAuction only returns the ACTIVE case — a null record with an Auctioned
   // status means the pipeline already concluded, not "never started".
   const alreadyAuctioned = l.status === "Auctioned" || balanceDue;
+  const preSale = !!rec && (rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued" || rec.stage === "AuctionScheduled");
+  const lastAuto = rec ? [...(rec.decisionRequests ?? [])].reverse().find((d) => d.decidedByRole === "System") : undefined;
+  const partialAuto = isFlowOff(wf, "auction_partial_repayment");
+  async function printNotice() {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      await printAuctionLetter(await getLoan(id), rec?.auctionDate);
+    } catch {
+      toast.error("Could not print", "Could not print the notice — try again.");
+    } finally {
+      setPrinting(false);
+    }
+  }
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Auction" maxHeightPct={90}>
@@ -140,7 +160,9 @@ export function AuctionSheet({
         alreadyAuctioned ? (
           <Txt style={{ fontSize: 12.5, color: C.muted }}>This loan&apos;s gold was already sold at auction — see Auction History for the outcome.</Txt>
         ) : l.isDefaulted ? (
-          aw("can_mark_loan_auction_eligible") ? (
+          goldAtBank ? (
+            <GoldAtBankBlock loanId={id} />
+          ) : aw("can_mark_loan_auction_eligible") ? (
             <>
               <NoticeBanner>This loan has defaulted and can be moved into the auction pipeline.</NoticeBanner>
               <ErrorText>{error}</ErrorText>
@@ -203,18 +225,28 @@ export function AuctionSheet({
           ) : null}
 
           {balanceDue && !decisionReq ? <NoticeBanner>Balance due after auction — collect it as a normal payment.</NoticeBanner> : null}
+          {hasUndisposedSurplus(rec) && !frozen ? <NoticeBanner>{`${inr(rec.surplusPayableAmount)} surplus pending. Settle to refund.`}</NoticeBanner> : null}
+          {!decisionReq && (lastAuto || (preSale && partialAuto)) ? (
+            <NoticeBanner>{lastAuto?.kind === "Shortfall" ? "Balance pursued automatically." : "No decision needed. Auction continues."}</NoticeBanner>
+          ) : null}
+          {goldAtBank && !frozen && preSale ? <GoldAtBankBlock loanId={id} /> : null}
 
-          {!frozen && aw("can_issue_auction_notice") && rec.stage === "AuctionEligible" ? (
+          {!frozen && aw("can_issue_auction_notice") && (rec.stage === "AuctionEligible" || rec.stage === "NoticeIssued") ? (
             <>
+              <Field label="Channel">
+                <Txt style={{ fontSize: 13.5 }}>WhatsApp — sent automatically</Txt>
+              </Field>
               <ErrorText>{error}</ErrorText>
               <PrimaryButton label="Issue Notice" onPress={() => notice.mutate()} loading={notice.isPending} />
             </>
           ) : null}
+          {rec.stage === "NoticeIssued" ? <PrimaryButton label={printing ? "Preparing…" : "Print Notice"} variant="outline" onPress={printNotice} disabled={printing} style={{ marginBottom: 8 }} /> : null}
 
           {!frozen && aw("can_schedule_auction") && rec.stage === "NoticeIssued" ? (
             <>
               <DateField label="Auction date" value={auctionDate} onChange={setAuctionDate} min={todayISO()} />
               <TextField label="Reference number" value={referenceNumber} onChangeText={setReferenceNumber} placeholder="Optional" />
+              {/* same fields as the Auction Flow sheet and web: date + reference number */}
               <ErrorText>{error}</ErrorText>
               <PrimaryButton label="Schedule Auction" onPress={() => schedule.mutate()} loading={schedule.isPending} disabled={!auctionDate} />
             </>
@@ -226,8 +258,17 @@ export function AuctionSheet({
               <TextField label="Sale amount" keyboardType="decimal-pad" value={saleAmount} onChangeText={setSaleAmount} placeholder="0" />
               <TextField label="Auction expenses" keyboardType="decimal-pad" value={expenses} onChangeText={setExpenses} placeholder="0" />
               <SplitPaymentInput total={Math.max(0, Number(saleAmount) || 0)} onChange={setSalePay} bankLabel="Bank (account proceeds landed in)" />
+              {Number(expenses) > Number(saleAmount) && Number(saleAmount) > 0 ? <ErrorText>Auction expenses cannot be more than the sale amount.</ErrorText> : null}
+              {Number(saleAmount) > 0 ? (
+                <NoticeBanner>
+                  {(() => {
+                    const p = Number(saleAmount) - (Number(expenses) || 0) - (l.totalOutstandingBalance ?? 0);
+                    return p > 0.01 ? `Surplus ${inr(p)} — payable to the customer after the sale.` : p >= -0.01 ? "The sale exactly clears the debt — the loan will be closed." : `Shortfall — balance owing ${inr(Math.abs(p))}.`;
+                  })()}
+                </NoticeBanner>
+              ) : null}
               <ErrorText>{error}</ErrorText>
-              <PrimaryButton label="Record Sale" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(Number(saleAmount) > 0) || !salePay?.ready} />
+              <PrimaryButton label="Record Sale" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(Number(saleAmount) > 0) || Number(expenses) > Number(saleAmount) || !salePay?.ready} />
             </>
           ) : null}
 

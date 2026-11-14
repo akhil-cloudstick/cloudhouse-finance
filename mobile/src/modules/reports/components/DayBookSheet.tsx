@@ -39,6 +39,18 @@ import { type DayBookRow } from "@/modules/reports/types/reports-types";
 
 const PAGE = 20;
 const firstOfMonth = () => `${todayISO().slice(0, 8)}01`;
+// The Month filter offers this many past months (web DayBookReportView).
+const MONTHS_BACK = 24;
+const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+const monthLabel = (k: string) => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
+const monthRange = (k: string) => {
+  const last = new Date(+k.slice(0, 4), +k.slice(5, 7), 0).getDate();
+  return { from: `${k}-01`, to: `${k}-${String(last).padStart(2, "0")}` };
+};
+const MONTH_OPTIONS = Array.from({ length: MONTHS_BACK }, (_, i) => {
+  const k = monthKey(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1));
+  return { value: k, label: monthLabel(k) };
+});
 
 type DayBookSheetProps = { visible: boolean; onClose: () => void };
 
@@ -60,7 +72,7 @@ export function DayBookSheet({ visible, onClose }: DayBookSheetProps) {
 
   // Each opening starts on the current month.
   useEffect(() => {
-    if (visible) setFv({ options: {}, dates: { date: { from: firstOfMonth(), to: todayISO() } } });
+    if (visible) setFv({ options: { month: [MONTH_OPTIONS[0]] }, dates: { date: { from: firstOfMonth(), to: todayISO() } } });
   }, [visible]);
   // Back to the first page whenever the filters change.
   useEffect(() => setShown(PAGE), [from, to, branchId]);
@@ -120,12 +132,34 @@ export function DayBookSheet({ visible, onClose }: DayBookSheetProps) {
       single: true,
       fetchPage: (p: { q?: string; limit: number; offset: number }) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
     }]),
+    // Month is single-choice: it sets the date range, and two months can't be one range.
+    { kind: "static", key: "month", label: "Month", single: true, options: MONTH_OPTIONS },
     { kind: "date", key: "date", label: "Date" },
   ];
+  function onFilterChange(next: GroupedFilterValue) {
+    const picked = next.options.month?.[0]?.value ?? "";
+    const prev = fv.options.month?.[0]?.value ?? "";
+    if (picked && picked !== prev) {
+      // A month sets the date range to that month.
+      const r = monthRange(picked);
+      setFv({ ...next, dates: { ...next.dates, date: { from: r.from, to: r.to } } });
+      return;
+    }
+    if (picked) {
+      // A date range of its own replaces the month (unless it still is exactly that month).
+      const r = monthRange(picked);
+      const d = next.dates.date;
+      if (d?.from !== r.from || d?.to !== r.to) {
+        setFv({ ...next, options: { ...next.options, month: [] } });
+        return;
+      }
+    }
+    setFv(next);
+  }
   // Wraps on a narrow phone instead of squeezing the buttons.
   const headExtra = (
     <View style={{ paddingTop: 12, paddingBottom: 10, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <GroupedFilter title="Filter day book" sections={sections} value={fv} onChange={setFv} />
+      <GroupedFilter title="Filter day book" sections={sections} value={fv} onChange={onFilterChange} />
       <View style={{ flex: 1 }} />
       <PillButton label="+ Add Entry" onPress={() => setAdding(true)} />
       <ExportMenu busy={exporting || printing} onExcel={onExport} onPdf={onPrint} />

@@ -1,3 +1,4 @@
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import React, { useMemo, useState } from "react";
 import { View } from "react-native";
@@ -34,7 +35,8 @@ const SECTIONS: GFSection[] = [
 ];
 
 export default function LedgerStatementScreen() {
-  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  // Kept while moving around Reports (a party ledger and back), like web.
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("reports:ledger-export:filters", emptyGroupedFilter());
   // No Branch section for a one-branch business or a branch-confined role (same rule as web).
   const showBranch = useShowBranchFilter();
   // Customer narrows to the selected branches (a customer has one home branch).
@@ -73,6 +75,8 @@ export default function LedgerStatementScreen() {
 
   const list = useServerList<CashMovement, MovementFilters>({
     key: ["cash-movements", "statement"],
+    persistKey: "reports:ledger-export",
+    keepSearch: true,
     fetchPage: (p) => listCashMovementsPage(p),
     filters,
   });

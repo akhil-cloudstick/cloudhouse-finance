@@ -12,6 +12,7 @@ import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVE
 import { type BackendInvestment, type BackendInvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
 import { InvestorProfileModalContent } from "@/modules/investments/components/InvestorProfileModalContent";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModalContent";
+import { WithdrawFixedModalContent } from "@/modules/investments/components/WithdrawFixedModalContent";
 import { PayInterestModalContent } from "@/modules/investments/components/PayInterestModalContent";
 import { MarkPayoutPaidModalContent } from "@/modules/investments/components/MarkPayoutPaidModalContent";
 import { AddInvestmentCashModalContent } from "@/modules/investments/components/AddInvestmentCashModalContent";
@@ -99,11 +100,11 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
   const [printingStatement, setPrintingStatement] = useState(false);
 
   const {
-    open: cashMenuOpen,
-    setOpen: setCashMenuOpen,
-    menuRef: cashMenuRef,
-    triggerRef: cashMenuTriggerRef,
-    onKeyDown: onCashMenuKeyDown,
+    open: actMenuOpen,
+    setOpen: setActMenuOpen,
+    menuRef: actMenuRef,
+    triggerRef: actMenuTriggerRef,
+    onKeyDown: onActMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
   const {
     open: docsMenuOpen,
@@ -237,6 +238,21 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
 
   function openWithdraw() {
     if (!investment) return;
+    // a fixed-payout investment is withdrawn from by taking principal out of its schedule
+    if (!isLive) {
+      openModal(
+        <WithdrawFixedModalContent
+          investment={investment}
+          onSaved={async () => {
+            toast("Withdrawal recorded");
+            await refreshInvestment();
+            schedule.reload();
+            void refreshLedger();
+          }}
+        />
+      );
+      return;
+    }
     openModal(
       <WithdrawInvestmentModalContent
         investment={investment}
@@ -333,44 +349,43 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             </div>
           )}
         </div>
-        {canUpdate && isLive && (investment.status === "Active" || investment.status === "Matured") && (
-          <div className="docs-dd" ref={cashMenuRef} onKeyDown={onCashMenuKeyDown}>
-            <button
-              ref={cashMenuTriggerRef}
-              className="btn"
-              onClick={() => setCashMenuOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={cashMenuOpen}
-            >
-              <Icon name="coin" /> Cash <Icon name="chevronDown" className="docs-dd-chev" />
-            </button>
-            {cashMenuOpen && (
-              <div className="docs-dd-menu" role="menu">
-                {investment.status === "Active" && <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openAddCash(); }}>
-                  <Icon name="plus" /><span className="tx">Add Cash</span>
-                </a>}
-                <a href="#" title="Withdraw" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openWithdraw(); }}>
-                  <Icon name="coin" /><span className="tx">Withdraw</span>
-                </a>
-              </div>
-            )}
-          </div>
-        )}
-        {canUpdate && !isLive && (investment.status === "Active" || investment.status === "Matured") && (
-          <button className="btn" onClick={openPayInterest}><Icon name="coin" /> Pay Interest</button>
-        )}
-        {canUpdate && investment.status === "Matured" && (
-          <button className="btn" onClick={openMaturity}>Close / Renew</button>
-        )}
-        {canUpdate && nothingOwed && (investment.status === "Active" || investment.status === "Matured") && (
-          <button className="btn" onClick={openClose}><Icon name="check" /> Close Investment</button>
-        )}
-        {canUpdate && investment.status === "Active" && !investment.renewedFromInvestmentId && !investment.renewedToInvestmentId && !investment.totalInterestPaid && !investment.interestWithdrawn && (
-          <button className="btn" onClick={() => openModal(<NewInvestmentModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true)}><Icon name="edit" /> Edit</button>
-        )}
-        {canDelete && (
-          <button className="btn danger" onClick={openDelete}><Icon name="trash" /> Delete</button>
-        )}
+        {/* One grouped button for everything that acts on the investment itself. */}
+        {(() => {
+          const open = investment.status === "Active" || investment.status === "Matured";
+          const canPayInterest = canUpdate && !isLive && open;
+          const canAddCash = canUpdate && isLive && investment.status === "Active";
+          const canWithdraw = canUpdate && (isLive ? open : investment.status === "Active");
+          const closeAction: { label: string; run: () => void } | null = !canUpdate ? null
+            : investment.status === "Matured" && !nothingOwed ? { label: "Close / Renew", run: openMaturity }
+            : nothingOwed && open ? { label: "Close Investment", run: openClose }
+            : isLive && investment.status === "Active" ? { label: "Close Early", run: openMaturity }
+            : !isLive && investment.status === "Active" ? { label: "Close Investment", run: openMaturity }
+            : null;
+          const canEdit = canUpdate && investment.status === "Active" && !investment.renewedFromInvestmentId && !investment.renewedToInvestmentId && !investment.totalInterestPaid && !investment.interestWithdrawn;
+          if (!canPayInterest && !canAddCash && !canWithdraw && !closeAction && !canEdit && !canDelete) return null;
+          const item = (icon: "coin" | "check" | "edit" | "trash" | "plus", label: string, run: () => void, danger?: boolean) => (
+            <a href="#" key={label} title={label} style={danger ? { color: "var(--red)" } : undefined} onClick={(e) => { e.preventDefault(); setActMenuOpen(false); run(); }}>
+              <Icon name={icon} /><span className="tx">{label}</span>
+            </a>
+          );
+          return (
+            <div className="docs-dd" ref={actMenuRef} onKeyDown={onActMenuKeyDown}>
+              <button ref={actMenuTriggerRef} className="btn" onClick={() => setActMenuOpen((v) => !v)} aria-haspopup="menu" aria-expanded={actMenuOpen}>
+                Actions <Icon name="chevronDown" className="docs-dd-chev" />
+              </button>
+              {actMenuOpen && (
+                <div className="docs-dd-menu" role="menu">
+                  {canPayInterest && item("coin", "Pay Interest", openPayInterest)}
+                  {canAddCash && item("plus", "Add Cash", openAddCash)}
+                  {canWithdraw && item("coin", "Withdraw", openWithdraw)}
+                  {closeAction && item("check", closeAction.label, closeAction.run)}
+                  {canEdit && item("edit", "Edit", () => () => openModal(<NewInvestmentModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true))}
+                  {canDelete && item("trash", "Delete", openDelete, true)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
       <hr className="gold-rule" />
 
@@ -416,7 +431,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
               ].filter(Boolean).join(" · ");
               return (
                 <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount} data-ledger-ref={`i:${r.id}`}>
-                  <td data-label="Date">{fmtDate(r.date)}</td>
+                  <td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
                   <td data-label="Ref No" style={{ whiteSpace: "nowrap" }}>{r.reference || "—"}</td>
                   <td data-label="Particulars">
                     {r.description || r.type}

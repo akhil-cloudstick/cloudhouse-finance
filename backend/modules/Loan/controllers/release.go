@@ -273,9 +273,8 @@ func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, i
 		return nil, common.NewPermissionDenied("Access denied", "can verify release checklist")
 	}
 	if in.CustomerSawGold != nil {
-		if req.Locked {
-			return nil, common.NewConflict("this release request is locked after payment — it can no longer be rejected or have its checklist changed")
-		}
+		// The checklist is not tied to the payment lock: whether the customer has seen the gold can be set at any time
+		// while the request is pending (a locked request only stops it being rejected).
 		req.CustomerSawGold = *in.CustomerSawGold
 	}
 	if in.VerificationNotes != nil {

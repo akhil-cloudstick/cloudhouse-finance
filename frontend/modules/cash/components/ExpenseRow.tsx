@@ -42,7 +42,7 @@ export function ExpenseRow({ e, categoryId, canApprove, awaiting, busy, onApprov
         )}
       </td>
       <td data-label="Info" style={{ textAlign: "center" }}>
-        <button type="button" className="btn sm ghost" title="View details" aria-label="View expense details" onClick={onInfo}><Icon name="eye" /></button>
+        <span className="ledger-info" style={{ right: "50%", transform: "translate(50%, -50%)" }}><button type="button" title="Details" aria-label="Expense details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }} onClick={onInfo}><Icon name="info" /></button></span>
       </td>
     </tr>
   );

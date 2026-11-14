@@ -12,6 +12,9 @@ export type ReportFilters = {
   branchId?: string;
   page?: number;
   pageSize?: number;
+  // Form G's named period ("q1".."q4" | "annual") and its year; when set, from/to are not sent.
+  period?: string;
+  year?: number;
   // Per-report filter selections: query param name -> comma-joined values
   // (status, trigger_type, customer_id, scheme_id, ...). Sent as-is on both the list and export calls.
   extra?: Record<string, string>;
@@ -83,7 +86,7 @@ export type KYCTotals = { count: number; verified: number; pending: number };
 export type GoldRateHistoryRow = { date: string; k24: number; setBy: string };
 export type GoldRateHistoryTotals = { count: number };
 export type EmployeePerformanceRow = {
-  employeeId: number; name: string; role: string; branchName: string;
+  employeeId: number; employeeCode?: string; name: string; role: string; branchName: string;
   loansProcessed: number; collectionsAmount: number; remindersSent: number; approvals: number;
 };
 export type EmployeePerformanceTotals = { totalLoansProcessed: number; totalCollections: number };

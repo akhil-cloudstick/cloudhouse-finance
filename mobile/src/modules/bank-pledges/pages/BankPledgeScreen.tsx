@@ -36,6 +36,8 @@ import { type BankPledgeHistoryRow, type BankPledgeRecordWithWeights } from "@/m
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { dmy, inr } from "@/common/utils/format";
+import { BankPledgeEditSheet } from "@/modules/loans/components/BankPledgeEditSheet";
+import { fmtW, pledgeOrnaments, pledgeOverdue } from "@/modules/loans/utils/pledgeView";
 import type { Loan } from "@/modules/loans/types/loan-types";
 
 // Bank Pledges — prototype #header-bankpledges + #page-bankpledges, Add to
@@ -64,6 +66,10 @@ export default function BankPledgeScreen() {
   const canCreatePledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
   const canUpdatePledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canVoid = canUpdatePledges;
+  // Correcting or erasing a pledge rewrites its ledger lines, so it takes the ledger edit/delete grants too (web).
+  const canEditPledge = canUpdatePledges && can("Loan_Management", "can_edit_ledger_entry");
+  const canErasePledge = canUpdatePledges && can("Loan_Management", "can_delete_ledger_entry");
+  const [editTarget, setEditTarget] = useState<{ loanId: number; pledge: BankPledgeRecordWithWeights; mode: "edit" | "delete" } | null>(null);
   const canViewBanks = can("Bank_Management", "can_view_bank_module");
   const canViewLoans = can("Loan_Management", "can_view_loan_module");
 
@@ -158,7 +164,11 @@ export default function BankPledgeScreen() {
                   { k: "Weight", v: weight ? `${+Number(weight).toFixed(2)} g` : "—" },
                   { k: "Cash treatment", v: p ? cashLabel(p.cashTreatment) : "—" },
                   { k: "Pledged on", v: dmy(p?.pledgeDate) },
-                  { k: "Due date", v: dmy(p?.bankPledgeDueDate) },
+                  { k: "Due date", v: dmy(p?.bankPledgeDueDate) + (p && pledgeOverdue(p) ? "  · Overdue" : ""), color: p && pledgeOverdue(p) ? C.red : undefined },
+                  { k: "Gross weight", v: fmtW(p?.pledgedGrossWeight) },
+                  { k: "Net weight", v: fmtW(p?.pledgedNetWeight) },
+                  { k: "Interest rate", v: p?.bankInterestRate ? `${p.bankInterestRate}% p.m.` : "—" },
+                  { k: "Ornaments", v: p ? pledgeOrnaments(p, l) : "—" },
                   { k: "Ref no", v: or(p?.referenceNumber) },
                 ]}
                 actions={[
@@ -186,6 +196,7 @@ export default function BankPledgeScreen() {
                         },
                       ]
                     : []),
+                  ...(target && canEditPledge ? [{ label: "Edit", onPress: () => setEditTarget({ loanId: l.id, pledge: target.pledge, mode: "edit" }) }] : []),
                   ...(canViewLoans && (!target || (!canUpdatePledges && !canVoid)) ? [{ label: "View Loan", onPress: () => openLoan(l.id) }] : []),
                 ]}
               />
@@ -217,15 +228,24 @@ export default function BankPledgeScreen() {
                 { k: "Cash treatment", v: cashLabel(r.cashTreatment) },
                 { k: "Pledged", v: dmy(r.pledgeDate) },
                 { k: "Released", v: dmy(r.releaseDate) },
+                { k: "Due date", v: dmy(r.bankPledgeDueDate) },
+                { k: "Interest rate", v: r.bankInterestRate ? `${r.bankInterestRate}% p.m.` : "—" },
+                { k: "Gross weight", v: fmtW(r.pledgedGrossWeight) },
+                { k: "Net weight", v: fmtW(r.pledgedNetWeight) },
+                { k: "Ornaments", v: pledgeOrnaments(r) },
                 ...(r.status === "Voided" ? [{ k: "Delete reason", v: or(r.voidReason) }] : []),
               ]}
-              actions={canViewLoans ? [{ label: "View Loan", onPress: () => openLoan(r.loanId) }] : undefined}
+              actions={[
+                ...(r.status !== "Voided" && canEditPledge ? [{ label: "Edit", onPress: () => setEditTarget({ loanId: r.loanId, pledge: r, mode: "edit" as const }) }] : []),
+                ...(r.status !== "Voided" && canErasePledge ? [{ label: "Delete", danger: true, onPress: () => setEditTarget({ loanId: r.loanId, pledge: r, mode: "delete" as const }) }] : []),
+              ]}
             />
           )}
         />
       )}
 
       <AddBankPledgeSheet visible={addPledge} onClose={() => setAddPledge(false)} />
+      <BankPledgeEditSheet loanId={editTarget?.loanId ?? 0} pledge={editTarget?.pledge ?? null} mode={editTarget?.mode ?? "edit"} onClose={() => setEditTarget(null)} />
       <BanksSheet visible={banksOpen} onClose={() => setBanksOpen(false)} />
 
       <Sheet visible={!!releaseTarget} onClose={() => setReleaseTarget(null)} title="Release Bank Pledge" maxHeightPct={releaseTarget?.pledge.cashTreatment === "CashIn" ? 88 : 60}>

@@ -61,6 +61,10 @@ const STATUSES = ["Active", "Inactive"] as const;
 const ACCRUALS = ["daily", "monthly"] as const;
 const ACCRUAL_LABELS: Record<AccrualBasis, string> = { daily: "Daily", monthly: "Monthly" };
 
+function FieldErr({ msg }: { msg?: string }) {
+  return msg ? <Txt style={{ fontSize: 11.5, color: C.red, marginTop: 4 }}>{msg}</Txt> : null;
+}
+
 export const num = (t: string) => t.replace(/[^0-9.]/g, "");
 
 type SchemeSheetProps = { visible: boolean; onClose: () => void; scheme?: Scheme | null };
@@ -100,6 +104,9 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const [chargeType, setChargeType] = useState<ServiceChargeType>("None");
   const [chargeValue, setChargeValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Field-level errors (web SchemeModalContent parity); cleared per field as it is edited.
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const clearFe = (k: string) => setFe((cur) => (cur[k] ? { ...cur, [k]: "" } : cur));
 
   useEffect(() => {
     if (!visible) return;
@@ -121,6 +128,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
     setChargeType(ct);
     setChargeValue(ct !== "None" ? String(sc?.serviceChargeValue ?? "") : "");
     setError(null);
+    setFe({});
   }, [visible, scheme]);
 
   const save = useMutation({
@@ -161,15 +169,27 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
   const chargeSet = chargeType !== "None";
   const patchTier = (i: number, p: Partial<TierDraft>) => setTiers((cur) => cur.map((x, j) => (j === i ? { ...x, ...p } : x)));
   const submit = () => {
+    const errors: Record<string, string> = {};
+    if (name.trim().length < 3) errors.name = "Please enter a scheme name (at least 3 characters).";
+    if (!isMultiple && !(parseFloat(interestRate) > 0)) errors.rate = "Please enter a valid interest rate.";
+    if (!(parseInt(durationMonths, 10) > 0)) errors.duration = "Please enter a valid loan duration in months.";
+    const l = parseFloat(ltvPercent);
+    if (ltvBased && !(l >= 1 && l <= 100)) errors.ltv = "LTV must be between 1 and 100%.";
+    const p = parseFloat(penalRate);
+    if (!(p >= 0 && p <= 60)) errors.penal = "Please enter penal charges between 0 and 60% per annum.";
+    const cv = parseFloat(chargeValue);
+    if (chargeSet && !(cv >= 0 && (chargeType !== "Percent" || cv <= 100))) errors.charge = chargeType === "Percent" ? "Percentage charge must be between 0 and 100." : "Please enter a valid flat charge amount.";
     const err = isMultiple ? tiersError(tiers) : "";
-    if (err) { setError(err); return; }
+    if (Object.keys(errors).length || err) { setFe(errors); setError(err || null); return; }
+    setFe({});
     setError(null);
     save.mutate();
   };
   return (
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Scheme" : "Scheme"} maxHeightPct={92}>
       <Field label="Name">
-        <Input placeholder="e.g. Gold Plus" value={name} onChangeText={setName} />
+        <Input placeholder="e.g. Gold Plus" value={name} onChangeText={(t) => { setName(t); clearFe("name"); }} />
+        <FieldErr msg={fe.name} />
       </Field>
       <FieldRow>
         <BranchField branch={branch} onChange={setBranch} />
@@ -179,7 +199,8 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
           </Field>
         ) : (
           <Field label="Interest rate (% p.a.)">
-            <Input placeholder="e.g. 14.4" keyboardType="decimal-pad" value={interestRate} onChangeText={(t) => setInterestRate(num(t))} />
+            <Input placeholder="e.g. 14.4" keyboardType="decimal-pad" value={interestRate} onChangeText={(t) => { setInterestRate(num(t)); clearFe("rate"); }} />
+            <FieldErr msg={fe.rate} />
           </Field>
         )}
       </FieldRow>
@@ -192,11 +213,13 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
       ) : null}
       <FieldRow>
         <Field label="Duration (months)">
-          <Input placeholder="e.g. 6" keyboardType="number-pad" value={durationMonths} onChangeText={(t) => setDurationMonths(t.replace(/\D/g, ""))} />
+          <Input placeholder="e.g. 6" keyboardType="number-pad" value={durationMonths} onChangeText={(t) => { setDurationMonths(t.replace(/\D/g, "")); clearFe("duration"); }} />
+          <FieldErr msg={fe.duration} />
         </Field>
         {ltvBased ? (
           <Field label="LTV (%)">
-            <Input placeholder="e.g. 75" keyboardType="decimal-pad" value={ltvPercent} onChangeText={(t) => setLtvPercent(num(t))} />
+            <Input placeholder="e.g. 75" keyboardType="decimal-pad" value={ltvPercent} onChangeText={(t) => { setLtvPercent(num(t)); clearFe("ltv"); }} />
+            <FieldErr msg={fe.ltv} />
           </Field>
         ) : null}
       </FieldRow>
@@ -213,7 +236,8 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         </Field>
       </FieldRow>
       <Field label="Penal charges (p.a)">
-        <Input placeholder="e.g. 24" keyboardType="decimal-pad" value={penalRate} onChangeText={(t) => setPenalRate(num(t))} />
+        <Input placeholder="e.g. 24" keyboardType="decimal-pad" value={penalRate} onChangeText={(t) => { setPenalRate(num(t)); clearFe("penal"); }} />
+        <FieldErr msg={fe.penal} />
       </Field>
       {isMultiple ? (
         <Field>
@@ -236,7 +260,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
                   <View style={{ width: 74 }}>
                     {last
                       ? <Input value="—" editable={false} style={ladderInput} />
-                      : <Input placeholder="90" keyboardType="number-pad" value={t.days} onChangeText={(v) => patchTier(i, { days: v.replace(/D/g, "") })} style={ladderInput} />}
+                      : <Input placeholder="90" keyboardType="number-pad" value={t.days} onChangeText={(v) => patchTier(i, { days: v.replace(/\D/g, "") })} style={ladderInput} />}
                   </View>
                   <View style={{ width: 74 }}>
                     <Input placeholder="12" keyboardType="decimal-pad" value={t.rate} onChangeText={(v) => patchTier(i, { rate: num(v) })} style={ladderInput} />
@@ -285,15 +309,15 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
           keyboardType="decimal-pad"
           editable={chargeSet}
           value={chargeValue}
-          onChangeText={(t) => setChargeValue(num(t))}
+          onChangeText={(t) => { setChargeValue(num(t)); clearFe("charge"); }}
         />
+        <FieldErr msg={fe.charge} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
         label="Save Scheme"
         onPress={submit}
         loading={save.isPending}
-        disabled={!name || !(penalRate !== "" && Number(penalRate) >= 0 && Number(penalRate) <= 60) || (!isMultiple && !interestRate) || !durationMonths || (ltvBased && !ltvPercent) || (chargeSet && !chargeValue)}
       />
     </Sheet>
   );

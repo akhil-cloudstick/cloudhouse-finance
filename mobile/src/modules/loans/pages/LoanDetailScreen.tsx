@@ -27,7 +27,7 @@ import {
 } from "@/common/components/ui";
 import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { approveLoan, getLoan, hardDeleteLoan, listLoanRequests, listTopUps, normalizeSanctionStage } from "@/modules/loans/services/loanService";
+import { approveLoan, loanDisplayStatus, getLoan, hardDeleteLoan, listLoanRequests, listTopUps, normalizeSanctionStage } from "@/modules/loans/services/loanService";
 import { type SanctionStage } from "@/modules/loans/types/loan-types";
 import { isFinalStage, stageByKey, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { listPackets } from "@/modules/packets/services/packetService";
@@ -105,6 +105,8 @@ export default function LoanDetailScreen() {
   const canEditLoan = can("Loan_Management", "can_update_loan");
   const canTopUp = can("Loan_Management", "can_top_up_loan");
   const canHardDeleteLoan = can("Loan_Management", "can_hard_delete_loan");
+  // The edit form picks a scheme and a purity standard, so it needs both modules viewable (web LoanDetailPage).
+  const editLoanBlocked = !can("Scheme_Management", "can_view_scheme_module") ? "Scheme module is disabled" : !can("Purity_Standard_Management", "can_view_purity_standard_module") ? "Purity standard module is disabled" : "";
 
   const loan = useQuery({ queryKey: ["loan", id], queryFn: () => getLoan(loanId), enabled: !!id });
   // The branch's Balance in Hand — the final sanction stage pays the principal
@@ -390,7 +392,7 @@ export default function LoanDetailScreen() {
           sub={`${l.loanNumber}${l.scheme?.name ? ` · ${l.scheme.name} scheme` : ""}`}
           status={
             <View style={{ alignItems: "flex-end", gap: 6 }}>
-              <StatusChip label={l.isOverdue && l.status === "Active" ? "Overdue" : l.status} />
+              <StatusChip label={loanDisplayStatus(l)} />
               {l.bankPledgeStatus === "Bank Pledged" ? <StatusChip label="Bank Pledged" /> : null}
             </View>
           }
@@ -593,7 +595,7 @@ export default function LoanDetailScreen() {
           if (canTopUp && TOP_UP_STATUSES.includes(l.status)) {
             add("topup", { icon: "plus", title: "Top Up Loan", sub: "Disburse more against the pledged gold", onPress: () => go("topup") });
           }
-          if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: "Scheme, principal, and ornament details", onPress: () => go("edit") });
+          if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: editLoanBlocked || "Scheme, principal, and ornament details", onPress: () => { if (!editLoanBlocked) go("edit"); } });
           if (pendingStage && canActOnStage) add("docs", { icon: "doc", title: "Loan Documents", sub: "Statement, bond & eSign", onPress: () => go("documents") });
           if (can("Bank_Pledge_Management", "can_view_bank_pledge_module")) add("bank", {
             icon: "shield",
@@ -614,7 +616,7 @@ export default function LoanDetailScreen() {
         loan={l}
         visible={open === "topup"}
         onClose={() => setOpen(null)}
-        onAddOrnaments={canEditThis ? () => go("edit") : undefined}
+        onAddOrnaments={canEditThis && !editLoanBlocked ? () => go("edit") : undefined}
         // Recording a payment is a loan update — top-up alone doesn't grant it.
         onRecordPayment={canEditLoan && l.status !== "Pending Approval" ? () => go("collect") : undefined}
       />

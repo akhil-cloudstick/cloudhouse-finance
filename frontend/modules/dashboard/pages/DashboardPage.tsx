@@ -61,7 +61,7 @@ function RateTile({ k, r }: RateTileProps) {
     <div className="rate-tile">
       <div className="k">{k}</div>
       <div className="r">{fmt(r)}</div>
-      <div className="u">per gram</div>
+      <div className="u">Per Gram</div>
     </div>
   );
 }

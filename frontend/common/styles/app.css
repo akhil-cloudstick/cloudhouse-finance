@@ -1287,6 +1287,12 @@ button.fi-trigger {
   flex: 0 0 150px
 }
 
+/* Any date field in a modal form fills its grid cell, level with the inputs and selects beside it. */
+.modal .frow .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
+}
+
 /* NewLoan.tsx's Loan Date shares a `.frow.c2` row with Loan No, and every
  * other field in that form fills its grid cell — a 230px picker beside a
  * full-width input read as a misaligned column. Fill the cell instead. */
@@ -1984,6 +1990,11 @@ button.fi-trigger {
   min-width: 0;
   height: 100%;
   overflow-y: auto;
+  scrollbar-width: none; /* hide the bar, the pane still scrolls */
+}
+
+.set-pane::-webkit-scrollbar {
+  display: none;
 }
 
 .set-sub {
@@ -2025,8 +2036,9 @@ button.fi-trigger {
 
 /* Link Mobile: QR and Code views share one layout, so switching never moves the text or buttons. */
 .set-link-fixed { align-items: start; }
-.set-link-fixed .set-steps { min-height: 176px; }
-.set-link-fixed .set-meta { min-height: 32px; }
+/* Fixed (not min) heights: the QR text wraps to more lines than the code text, and a modal width change re-wraps both. */
+.set-link-fixed .set-steps { height: 184px; overflow: hidden; }
+.set-link-fixed .set-meta { height: 32px; min-height: 32px; }
 
 .set-visual {
   display: flex;

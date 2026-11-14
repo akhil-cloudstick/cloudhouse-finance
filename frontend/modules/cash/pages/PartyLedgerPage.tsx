@@ -12,7 +12,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { CategoryChip } from "@/common/components/CategoryChip";
-import { loanCatRef } from "@/modules/cash/utils/ledgerCells";
+import { loanCatRef, clipText } from "@/modules/cash/utils/ledgerCells";
 import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
 import { useExpenseCategoryIdsState } from "@/common/hooks/use-expense-category-ids";
 import { ledgerFocusTarget, rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
@@ -288,7 +288,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
                     )}
                   </td>
                   <td data-label="Particulars" style={{ textAlign: "center" }}>
-                    {r.description || r.type}
+                    {clipText(r.description || r.type)}
                     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4, marginTop: 4 }}>
                       {kind !== "customer" && r.customerId ? (
                         <LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} />

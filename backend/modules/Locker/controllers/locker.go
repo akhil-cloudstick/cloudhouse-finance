@@ -157,7 +157,8 @@ func findByCode(ctx context.Context, code string) (*models.Locker, error) {
 
 func persistLocker(ctx context.Context, l *models.Locker) error {
 	return config.DB.
-		WithContext(ctx).Save(l).Error
+		// Omit the preloaded Branch: saving it would write its old id back over the new branch_id.
+		WithContext(ctx).Omit("Branch").Save(l).Error
 }
 
 func removeLocker(ctx context.Context, id uint) error {
@@ -292,6 +293,9 @@ func updateLocker(ctx context.Context, id uint, in UpdateInput, branchID *uint) 
 	}
 	if err := capacityHoldsPackets(in.Capacity, occupied); err != nil {
 		return nil, err
+	}
+	if in.BranchID != rec.BranchID && occupied > 0 {
+		return nil, common.NewConflict(fmt.Sprintf("this locker already holds %d packet(s) — move them to a different locker before changing its branch", occupied))
 	}
 	rec.Code = in.Code
 	rec.BranchID = in.BranchID

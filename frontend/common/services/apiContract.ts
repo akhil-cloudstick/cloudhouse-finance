@@ -1759,6 +1759,12 @@ const ROUTES: [string, string, string, string][] = [
  ],
  [
   "GET",
+  "/reports/gold-rate-history/set-by",
+  "GET",
+  "/users/:user_id/reports/gold-rate-history/set-by"
+ ],
+ [
+  "GET",
   "/reports/gold-release",
   "GET",
   "/users/:user_id/reports/gold-release"

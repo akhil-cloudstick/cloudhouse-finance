@@ -1,13 +1,14 @@
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import React, { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { AccRow, AsyncSelect, Buffering, C, Card, ChipToggle, FabCorner, Field, FieldGrid, GroupedFilter, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue, FieldRow, FlatHeader, Input, PrimaryButton, Screen, SearchFilterRow, ServerFlatList, Sheet, Txt, WarningBanner, toast } from "@/common/components/ui";
-import { isFlowOff, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import { AccRow, AsyncSelect, gfDate, Buffering, C, Card, ChipToggle, FabCorner, Field, FieldGrid, GroupedFilter, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue, FieldRow, FlatHeader, Input, PrimaryButton, Screen, SearchFilterRow, ServerFlatList, Sheet, Txt, WarningBanner, toast } from "@/common/components/ui";
+import { chainFor, isFlowOff, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
 import { listCustomers } from "@/modules/customers/services/customerService";
 import { createPersonalLoan, editPersonalLoan, listPersonalLoansPage, previewRenewal, recordPersonalLoanPayment, renewPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
 import { type Frequency, type InterestType, type PersonalLoan } from "@/modules/personal-loans/types/personal-loan-types";
@@ -26,16 +27,18 @@ export const PER: Record<Frequency, string> = { Daily: "day", Weekly: "wk", Mont
 // "Pending approval" lists loans waiting in the tenant's "personal_loan"
 // approval chain (status filter is server-side).
 
-type Filters = { frequency?: string; status?: string };
+type Filters = { frequency?: string; status?: string; from?: string; to?: string };
 
-const FILTER_SECTIONS: GFSection[] = [
+// Pending Approval / Rejected only occur while the business has the personal_loan approval flow on (web parity).
+const filterSections = (approvalOn: boolean): GFSection[] => [
   { kind: "static", key: "freq", label: "Frequency", options: FREQS.map((f) => ({ value: f, label: f })) },
   {
     kind: "static",
     key: "status",
     label: "Status",
-    options: ["Active", "Pending Approval", "Rejected", "Closed", "Renewed", "Defaulted"].map((s) => ({ value: s, label: s })),
+    options: (approvalOn ? ["Active", "Pending Approval", "Rejected", "Closed", "Renewed", "Defaulted"] : ["Active", "Closed", "Renewed", "Defaulted"]).map((s) => ({ value: s, label: s })),
   },
+  { kind: "date", key: "date", label: "Date" },
 ];
 
 export const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
@@ -66,8 +69,10 @@ export default function PersonalLoansScreen() {
 
   const freqs = gfValues(fv, "freq");
   const statuses = gfValues(fv, "status");
-  const filters: Filters = { frequency: freqs.length ? freqs.join(",") : undefined, status: statuses.length ? statuses.join(",") : undefined };
-  const filterCount = freqs.length + statuses.length;
+  const approvalOn = chainFor(useApprovalWorkflow(), "personal_loan").length > 0;
+  const dr = gfDate(fv, "date");
+  const filters: Filters = { frequency: freqs.length ? freqs.join(",") : undefined, status: statuses.length ? statuses.join(",") : undefined, from: dr.from || undefined, to: dr.to || undefined };
+  const filterCount = freqs.length + statuses.length + (dr.from || dr.to ? 1 : 0);
   const list = useServerList<PersonalLoan, Filters>({ key: ["personalLoans", "list"], persistKey: "personalLoans", filters, fetchPage: (p) => listPersonalLoansPage(p) });
 
   return (
@@ -86,7 +91,7 @@ export default function PersonalLoansScreen() {
               value={list.search}
               onChangeText={list.setSearch}
               placeholder="Search by loan ID or customer name"
-              filter={<GroupedFilter title="Filter personal loans" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
+              filter={<GroupedFilter title="Filter personal loans" sections={filterSections(approvalOn)} value={fv} onChange={setFv} />}
             />
           </View>
         }
@@ -103,7 +108,7 @@ export default function PersonalLoansScreen() {
               { k: "Frequency", v: `${l.frequency} · ${inr(l.installmentAmount)}/${PER[l.frequency] ?? l.frequency}` },
             ]}
             actions={[
-              { label: "Collect Payment", disabled: !canUpdate || l.status !== "Active", onPress: () => setCollectLoan(l) },
+              { label: "Collect Payment", disabled: !canUpdate || (l.status !== "Active" && l.status !== "Pending"), onPress: () => setCollectLoan(l) },
               { label: "View", primary: true, onPress: () => router.push(`/personal-loans/${l.id}` as never) },
             ]}
           />
@@ -141,6 +146,8 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
   // Approval" and only disbursed once its final stage approves it.
   const needsApproval = !editing && !isFlowOff(useApprovalWorkflow(), "personal_loan");
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
+  const [addingCustomer, setAddingCustomer] = useState(false);
   const [principal, setPrincipal] = useState("");
   const [interestType, setInterestType] = useState<InterestType>("Flat");
   const [interestValue, setInterestValue] = useState("");
@@ -254,6 +261,11 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
       )}
+      {!loan && canCreateCustomer && !customer ? (
+        <Pressable onPress={() => setAddingCustomer(true)} hitSlop={6} style={{ marginTop: -6, marginBottom: 12 }} accessibilityRole="button">
+          <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.brandDeep }}>+ Add new customer</Txt>
+        </Pressable>
+      ) : null}
       <Field label="Principal amount">
         <Input keyboardType="decimal-pad" placeholder="e.g. 15000" value={principal} onChangeText={setPrincipal} />
       </Field>
@@ -302,6 +314,7 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
           submit.mutate();
         }}
       />
+      <CustomerFormSheet visible={addingCustomer} onClose={() => setAddingCustomer(false)} onSaved={(c) => { if (c?.id) setCustomer(c); }} />
     </Sheet>
   );
 }

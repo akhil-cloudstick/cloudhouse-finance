@@ -21,12 +21,6 @@ import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { TableCols } from "@/common/components/ui/TableCols";
 
-/* Hardcoded actor id — this codebase has no auth/session yet, so every
- * staff-attributed action across the app (loan approvals, payments) uses
- * employeeId 1 as a placeholder until real auth exists (see NewLoan.tsx /
- * RepledgeModal.tsx). Packet movements follow the same convention. */
-const ACTOR_EMPLOYEE_ID = 1;
-
 type StepperProps = { status: string };
 
 function Stepper({ status }: StepperProps) {
@@ -64,7 +58,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
   const toast = useToast();
   const showBranch = useShowBranch();
   const { openModal } = useModal();
-  const { can } = useAuth();
+  const { can, employee } = useAuth();
   const canOpen = useCanOpenRoute();
 
   const canCreateBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
@@ -134,7 +128,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
     if (!p) return;
     setBusy(true);
     try {
-      await recordMovement(p.id, { toStatus, lockerId: extraLockerId, employeeId: ACTOR_EMPLOYEE_ID });
+      await recordMovement(p.id, { toStatus, lockerId: extraLockerId, employeeId: employee?.id ?? 0 });
       toast(changingLocker ? `Packet ${p.code} moved to another locker` : `Packet ${p.code} moved to "${toStatus}"`);
       setPickLocker(false);
       setChangingLocker(false);

@@ -39,6 +39,7 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   pageSize = PAGE_SIZE,
   fresh = false,
   persistKey,
+  keepSearch = false,
   staleTime,
 }: {
   key: unknown[];
@@ -51,6 +52,8 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   fresh?: boolean;
   /** Keep the search text under this key so it survives leaving the screen. */
   persistKey?: string;
+  /** Keep the search text when the screen loses focus (a report keeps its search like web's ReportView). */
+  keepSearch?: boolean;
   /** How long fetched pages count as fresh (ms). */
   staleTime?: number;
 }) {
@@ -64,7 +67,7 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   const q = useDebouncedValue(search.trim());
   // Search text is not kept across pages: when the screen loses focus (navigating away) it is cleared,
   // so coming back shows a fresh, refreshed list.
-  useFocusEffect(useCallback(() => () => setSearch(""), [setSearch]));
+  useFocusEffect(useCallback(() => () => { if (!keepSearch) setSearch(""); }, [setSearch, keepSearch]));
 
   const query = useInfiniteQuery({
     queryKey: [...key, "page", q, filters ?? {}],

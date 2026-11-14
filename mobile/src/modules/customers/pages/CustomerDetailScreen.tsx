@@ -9,7 +9,6 @@ import {
   C,
   Card,
   ChipToggle,
-  ConfirmSheet,
   Field,
   Sheet,
   SheetListItem,
@@ -22,7 +21,7 @@ import {
   FabMenu,
   PillTabs,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   SectionTitle,
   ServerFlatList,
   Txt,
@@ -39,6 +38,7 @@ import { fromCamera, fromFiles, fromLibrary, PermissionError } from "@/common/co
 import { uploadFile } from "@/common/services/uploadService";
 import { updateCustomer } from "@/modules/customers/services/customerService";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
+import { DeleteCustomerSheet } from "@/modules/customers/components/DeleteCustomerSheet";
 import { useServerList, type ServerList, type ServerPage } from "@/common/hooks/use-server-list";
 import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import {
@@ -234,17 +234,15 @@ function CustomerActions({ c, onEdit, onRequest }: CustomerActionsProps) {
   return (
     <>
       {actions.length ? <FabMenu label="Customer actions" actions={actions} /> : null}
-      <ConfirmSheet
+      <DeleteCustomerSheet
         visible={deleteOpen}
         onClose={() => setDeleteOpen(false)}
-        title="Delete Customer Permanently"
-        danger
-        message={`Permanently delete ${c.name} and every record tied to them — loans, payments, ornaments and reminders? This cannot be undone. It is refused while any of their loans is still open.`}
-        confirmLabel="Delete Permanently"
+        customer={c}
         loading={hardDelete.isPending}
         error={deleteError}
         onConfirm={() => hardDelete.mutate()}
       />
+
     </>
   );
 }
@@ -358,12 +356,13 @@ function useTabList<T>({ name, queryKey, fetchPage, sections = [DATE_SECTION], t
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const list = useServerList<T, TabFilters>({ key: queryKey, fetchPage, filters: toParams(fv), enabled, staleTime: TAB_STALE });
   const controls = (
-    <>
-      <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-        <GroupedFilter title="Filter" sections={sections} value={fv} onChange={setFv} />
-      </View>
-      <SearchInput value={list.search} onChangeText={list.setSearch} placeholder={placeholder} style={{ paddingBottom: 16 }} />
-    </>
+    <SearchFilterRow
+      value={list.search}
+      onChangeText={list.setSearch}
+      placeholder={placeholder}
+      style={{ paddingTop: 12, paddingBottom: 16 }}
+      filter={<GroupedFilter title="Filter" sections={sections} value={fv} onChange={setFv} />}
+    />
   );
   return { list, controls, emptyText: list.search ? "Nothing matches your search." : emptyText, keyOf: (t: T) => `${name}-${keyOf(t)}`, renderItem };
 }
@@ -433,7 +432,9 @@ export default function CustomerDetailScreen() {
   const canOpen = useCanOpen();
   const canViewLoans = canOpen("/loans");
   // The Auctions tab needs "can view auction module".
-  const visibleTabs: readonly Tab[] = canOpen("/auctions") ? TABS : TABS.filter((t) => t !== "Auctions");
+  // The Ledger tab needs "can view cash module" (web canViewCash).
+  const canViewCash = useAuth().can("Cash_Management", "can_view_cash_module");
+  const visibleTabs: readonly Tab[] = TABS.filter((t) => (t !== "Auctions" || canOpen("/auctions")) && (t !== "Ledger" || canViewCash));
   const on = (t: Tab) => !!id && (tab === t || (warm && visibleTabs.includes(t)));
 
   const loans = useTabList<Loan>({
@@ -458,6 +459,7 @@ export default function CustomerDetailScreen() {
           { k: "Principal", v: inr(l.principalAmount) },
           { k: "Opened", v: dmy(l.openedDate) },
           { k: "Due", v: dmy(l.dueDate) },
+          { k: "Pledge", v: l.bankPledgeStatus || "—" },
         ]}
         actions={canViewLoans ? [{ label: "View Loan", primary: true, onPress: () => viewLoan(l.id) }] : undefined}
       />
@@ -557,6 +559,8 @@ export default function CustomerDetailScreen() {
           amount={a.saleAmount ? inr(a.saleAmount) : undefined}
           details={[
             { k: "Auction date", v: hasDate(a.auctionDate) ? dmy(a.auctionDate) : "—" },
+            { k: "Expenses", v: a.saleAmount && a.auctionExpenses ? inr(a.auctionExpenses) : "—" },
+            { k: "Net proceeds", v: a.saleAmount ? inr(a.saleAmount - (a.auctionExpenses || 0)) : "—" },
             {
               k: surplus >= 0 ? "Surplus" : "Shortfall",
               v: a.saleAmount ? inr(Math.abs(surplus)) : "—",

@@ -543,6 +543,7 @@ export type ApprovalInput = {
  * deleteOrnament calls below, one ornament at a time, not through this. */
 export type UpdateLoanInput = {
   schemeId?: number; principalAmount?: number; openedDate?: string; /* YYYY-MM-DD */ overallPhotoUrl?: string; additionalInfo?: string; // additionalInfo: "" clears it
+  serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal"; // how the service charge is taken
   // how the payout of a loan already paid out was made
   cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; bankId?: number;
   // the loan's branch and the locker for its gold — only for a role that may see every branch

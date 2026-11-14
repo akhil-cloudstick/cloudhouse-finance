@@ -117,3 +117,31 @@ export function getAuctionSaleCurrent(loanId: number) {
 export function editAuctionSale(loanId: number, input: EditAuctionSaleInput, dryRun: boolean) {
   return apiRequest<unknown>(`/loans/${loanId}/auction/sale${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: toSnake(input) as Record<string, unknown> }).then((r) => toCamel<AuctionEditPreview>(r));
 }
+
+/* Surplus settlement and write-off edits / deletes, and the sale delete — the same endpoints web's
+ * services/loanService.ts calls (PATCH/DELETE /loans/:id/auction/{sale,surplus,write-off}). Every call can be a dry run. */
+export type AppliedAuctionDependent = { kind: string; id: number };
+const dryQs = (dryRun: boolean) => (dryRun ? "?dry_run=true" : "");
+const callEdit = (path: string, method: "PATCH" | "DELETE", body?: unknown) =>
+  apiRequest<unknown>(path, { method, ...(body === undefined ? {} : { body: toSnake(body) as Record<string, unknown> }) }).then((r) => toCamel<AuctionEditPreview>(r));
+
+export function deleteAuctionSale(loanId: number, applyDependents: AppliedAuctionDependent[] = [], dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/sale${dryQs(dryRun)}`, "DELETE", { applyDependents });
+}
+export function editAuctionSurplus(loanId: number, input: { disposition?: string; mode?: string; bankId?: number; settledOn?: string }, dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/surplus${dryQs(dryRun)}`, "PATCH", input);
+}
+export function deleteAuctionSurplus(loanId: number, dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/surplus${dryQs(dryRun)}`, "DELETE");
+}
+export function editAuctionWriteOff(loanId: number, paidOn: string, dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/write-off${dryQs(dryRun)}`, "PATCH", { paidOn });
+}
+export function deleteAuctionWriteOff(loanId: number, applyDependents: AppliedAuctionDependent[] = [], dryRun = false) {
+  return callEdit(`/loans/${loanId}/auction/write-off${dryQs(dryRun)}`, "DELETE", { applyDependents });
+}
+
+// Every case ever opened against a loan (web's getAuctionHistory) — the editors read the sale case from it.
+export function getAuctionHistory(loanId: number) {
+  return apiRequest<AuctionRecord[] | null>(`/loans/${loanId}/auction/history`).then((r) => r ?? []);
+}

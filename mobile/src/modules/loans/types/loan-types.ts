@@ -105,6 +105,20 @@ export type BankPledgeRecord = {
   voidedAt?: string | null;
   // Ornaments this pledge covers; empty/absent = the whole loan's gold.
   ornamentIds?: number[] | null;
+  pledgedGrossWeight?: number;
+  pledgedNetWeight?: number;
+  // Cash lines the pledge / its release booked (edit form + preview).
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number | null;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number | null;
+  // Display-only; the contract adapter leaves this key snake_case.
+  ornamentNames?: string[];
+  ornament_names?: string[];
 };
 
 // backend/internal/loan/model.go's LoanRequest (523+) — Extension or Release.
@@ -204,6 +218,8 @@ export type Loan = {
   // principal − serviceChargeAmount at disbursement.
   serviceChargeMode?: string;
   serviceChargeAmount?: number;
+  serviceChargeType?: string;
+  serviceChargeValue?: number;
   // The scheme terms frozen onto the loan.
   schemePenalRate?: number;
   schemeInterestMethod?: string;
@@ -262,6 +278,11 @@ export type Loan = {
   // "sign_initiated", "sign_complete", or "failed".
   indemnityBondSignStatus?: string;
   indemnityBondSignedUrl?: string;
+  // Pledge slip eSign (GML) — the adapter leaves these snake_case, so read either spelling.
+  pledgeSlipSignStatus?: string;
+  pledgeSlipSignedUrl?: string;
+  pledge_slip_sign_status?: string;
+  pledge_slip_signed_url?: string;
 };
 
 // One top-up on a loan — mirrors web loanService.ts's LoanTopUpView
@@ -353,6 +374,8 @@ export type SanctionStage = string;
 export type UpdateLoanInput = {
   schemeId?: number;
   principalAmount?: number;
+  /** How the service charge is taken; undefined keeps the loan's (a new scheme brings its own unless this is set). */
+  serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal";
   /** The loan's opening date (YYYY-MM-DD); undefined leaves it. The due date and interest follow it. */
   openedDate?: string;
   /** undefined leaves it alone; "" clears it. */

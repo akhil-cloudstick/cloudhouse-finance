@@ -29,6 +29,7 @@ export const ROUTE_PERMISSIONS: Record<string, RouteGate> = {
   loans: { module: "Loan_Management", key: "can_view_loan_module" },
   loan: { module: "Loan_Management", key: "can_view_loan_module" },
   newloan: { module: "Loan_Management", key: "can_create_loan" },
+  editloan: { module: "Loan_Management", key: "can_update_loan" },
   schemes: { module: "Scheme_Management", key: "can_view_scheme_module" },
   goldrates: { module: "Gold_Rate_Management", key: "can_view_gold_rate_module" },
   requests: { module: "Loan_Management", key: "can_view_loan_module" },

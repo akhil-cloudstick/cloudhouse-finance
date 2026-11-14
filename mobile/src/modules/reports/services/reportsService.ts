@@ -88,7 +88,7 @@ export const getProfitAndLoss = (f: ReportFilters) =>
 
 export const getFormG = (f: ReportFilters) =>
   apiRequest<FormGStatement>("/reports/form-g", {
-    params: { from: f.from, to: f.to, branch_id: f.branchId },
+    params: f.period ? { period: f.period, year: f.year, branch_id: f.branchId } : { from: f.from, to: f.to, branch_id: f.branchId },
   });
 
 // A report export (xlsx/pdf), downloaded straight to a file rather than through apiRequest.

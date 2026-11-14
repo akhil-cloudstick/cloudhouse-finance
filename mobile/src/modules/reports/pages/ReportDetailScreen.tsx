@@ -1,11 +1,12 @@
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import { AccRow, Buffering, C, Card, EmptyText, ExportMenu, FlatHeader, PScroll, GroupedFilter, emptyGroupedFilter, gfDate, gfValues, type GroupedFilterValue, type GFSection, Screen, SearchFilterRow,ServerFlatList, Txt, toast } from "@/common/components/ui";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { AccRow, Buffering, C, Card, EmptyText, ExportMenu, Field, FlatHeader, Input, PScroll, SelectField, GroupedFilter, gfDate, gfValues, type GroupedFilterValue, type GFSection, Screen, SearchFilterRow,ServerFlatList, Txt, toast } from "@/common/components/ui";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useTheme } from "@/common/theme/ThemeProvider";
@@ -27,22 +28,25 @@ export default function ReportDetailScreen() {
   const visible = !!report;
   // No Branch filter for a one-branch business or a branch-confined role (same rule as web).
   const showBranchFilter = useShowBranchFilter();
-  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  // Each report remembers its filters and search while moving around (web ReportView's `reports:<id>:*`), so
+  // opening a record and coming back lands on the same view. Absent a saved value, the report's default range.
+  const defaultFv = (): GroupedFilterValue => {
+    const r = report?.defaultRange?.() ?? (report?.kind === "table" ? { from: firstOfMonth(), to: todayISO() } : {});
+    return { options: {}, dates: { date: { from: r.from || undefined, to: r.to || undefined } } };
+  };
+  const [storedFv, setFv] = usePersistedState<GroupedFilterValue | null>(report ? `reports:${report.key}:filters` : null, null);
+  const fv = storedFv ?? defaultFv();
   const from = gfDate(fv, "date").from ?? "";
   const to = gfDate(fv, "date").to ?? "";
   const branchId = (fv.options["branch"] ?? []).map((o) => o.value).join(",") || undefined;
   const [printing, setPrinting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    if (report) {
-      // Table reports open on the current month, like web; the statements set their own range.
-      const r = report.defaultRange?.() ?? (report.kind === "table" ? { from: firstOfMonth(), to: todayISO() } : {});
-      // Default range seeds the Date section; Reset all clears it (like web).
-      setFv({ options: {}, dates: { date: { from: r.from || undefined, to: r.to || undefined } } });
-    }
-  }, [report]);
-
+  // Form G: a named period (quarter / year) replaces the From / To range; "" is the custom range.
+  const [period, setPeriod] = usePersistedState<string>("reports:form-g:period", "");
+  const [year, setYear] = usePersistedState<number>("reports:form-g:year", new Date().getFullYear());
+  const isFormG = report?.kind === "formg";
+  const usePeriod = isFormG && !!period;
   const isTable = report?.kind === "table";
   const totalsRef = useRef<any>(null);
   // Each group's selection goes out as its own param (comma-joined) — on the fetch and on the export.
@@ -52,10 +56,12 @@ export default function ReportDetailScreen() {
     if (v.length) extra[g.param] = v.join(",");
   }
   const extraKey = JSON.stringify(extra);
-  const filters = { from: from || undefined, to: to || undefined, branchId, extra: Object.keys(extra).length ? extra : undefined };
+  const filters = { from: usePeriod ? undefined : from || undefined, to: usePeriod ? undefined : to || undefined, branchId, extra: Object.keys(extra).length ? extra : undefined };
   const list = useServerList<any, { from?: string; to?: string; branchId?: string; extraKey: string; rk: string }>({
     key: ["reports", "table"],
     filters: { from: filters.from, to: filters.to, branchId, extraKey, rk: report?.key ?? "" },
+    persistKey: report ? `reports:${report.key}` : undefined,
+    keepSearch: true,
     enabled: visible && isTable,
     fetchPage: async (p) => {
       const page = Math.floor(p.offset / p.limit) + 1;
@@ -64,11 +70,6 @@ export default function ReportDetailScreen() {
       return { items: res.rows ?? [], hasMore: page * p.limit < (res.totalCount ?? 0), total: res.totalCount };
     },
   });
-  // Reset the search box when switching reports.
-  useEffect(() => {
-    list.setSearch("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [report?.key]);
 
   // Statements are short fixed layouts — every line in one request.
   const statement = useQuery({
@@ -77,12 +78,26 @@ export default function ReportDetailScreen() {
     enabled: visible && report?.kind === "statement",
   });
   const formG = useQuery({
-    queryKey: ["reports", "form-g", from, to, branchId],
-    queryFn: () => getFormG({ from: from || undefined, to: to || undefined, branchId }),
+    queryKey: ["reports", "form-g", usePeriod ? period : "", usePeriod ? year : "", usePeriod ? "" : from, usePeriod ? "" : to, branchId],
+    queryFn: () => getFormG(usePeriod ? { period, year, branchId } : { from: from || undefined, to: to || undefined, branchId }),
     enabled: visible && report?.kind === "formg",
   });
 
-  const range = { ...filters, q: isTable ? list.search.trim() || undefined : undefined };
+  // Form G's hand-entered figures (deposits, assets, liabilities) — never saved, they apply to the export only
+  // and reset whenever the period / range / branch changes (web FormGReportView).
+  const formGKey = `${period}|${year}|${from}|${to}|${branchId ?? ""}`;
+  const [ovr, setOvr] = useState<{ k: string; v: Record<string, string> }>({ k: "", v: {} });
+  const overrides = ovr.k === formGKey ? ovr.v : {};
+  const setOverride = (key: string, value: string) => setOvr({ k: formGKey, v: { ...overrides, [key]: value.replace(/[^0-9.]/g, "") } });
+  const formGExtra: Record<string, string> = {};
+  if (isFormG) {
+    if (usePeriod) {
+      formGExtra.period = period;
+      formGExtra.year = String(year);
+    }
+    for (const [k, v] of Object.entries(overrides)) if (v && Number(v) !== 0) formGExtra[k] = v;
+  }
+  const range = { ...filters, extra: isFormG ? formGExtra : filters.extra, q: isTable ? list.search.trim() || undefined : undefined };
   async function onExport() {
     if (!report) return;
     setExporting(true);
@@ -134,7 +149,8 @@ export default function ReportDetailScreen() {
           fetchPage: (p: { q?: string; limit: number; offset: number }) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
         }]),
         ...(report.filterGroups ?? []).map((g) => g.section),
-        { kind: "date", key: "date", label: "Date", hideFrom: report.key === "balance-sheet" },
+        // A Form G period replaces the date range.
+        ...(usePeriod ? [] : [{ kind: "date" as const, key: "date", label: "Date", hideFrom: report.key === "balance-sheet" }]),
       ]
     : [];
   const headExtra = report ? (
@@ -192,6 +208,25 @@ export default function ReportDetailScreen() {
         ) : (
           <>
             {summary}
+            {isFormG ? (
+              <Card style={{ marginHorizontal: 16, marginBottom: 12, padding: 14 }}>
+                <SelectField
+                  label="Period"
+                  value={period}
+                  options={["", "q1", "q2", "q3", "q4", "annual"]}
+                  labels={{ "": "Custom range", q1: "Q1 (Jan–Mar)", q2: "Q2 (Apr–Jun)", q3: "Q3 (Jul–Sep)", q4: "Q4 (Oct–Dec)", annual: "Annual / Full year" }}
+                  onChange={setPeriod}
+                />
+                {period ? (
+                  <SelectField
+                    label="Year"
+                    value={String(year)}
+                    options={Array.from({ length: 8 }, (_, i) => String(new Date().getFullYear() - i))}
+                    onChange={(v) => setYear(Number(v))}
+                  />
+                ) : null}
+              </Card>
+            ) : null}
             {report.kind === "formg" && formG.data ? (
               <Card style={{ marginHorizontal: 16, marginBottom: 12, padding: 14 }}>
                 <Txt style={{ fontWeight: "800", fontSize: 14 }}>{formG.data.lenderName}</Txt>
@@ -221,6 +256,7 @@ export default function ReportDetailScreen() {
                 ))}
               </Card>
             )}
+            {isFormG && formG.data ? <FormGManualFigures overrides={overrides} onChange={setOverride} stmt={formG.data} /> : null}
           </>
         )}
       </PScroll>
@@ -236,6 +272,57 @@ export default function ReportDetailScreen() {
         </>
       )}
     </Screen>
+  );
+}
+
+const DEPOSIT_ROWS: [string, string, string][] = [
+  ["Outstanding at beginning of period", "deposit_opening_count", "deposit_opening_amount"],
+  ["Received during period", "deposit_during_count", "deposit_during_amount"],
+  ["Repaid during period", "deposit_repaid_count", "deposit_repaid_amount"],
+  ["Outstanding at end of period", "deposit_closing_count", "deposit_closing_amount"],
+];
+
+type FormGManualFiguresProps = { overrides: Record<string, string>; onChange: (key: string, value: string) => void; stmt: FormGStatement };
+
+// Section 3 (deposits) and Section 4's assets / liabilities have no source ledger, so they are typed in here and
+// sent with the export as overrides (web's gold-highlighted inputs); the excess lines recompute as you type.
+function FormGManualFigures({ overrides, onChange, stmt }: FormGManualFiguresProps) {
+  const assets = Number(overrides.assets_value) || 0;
+  const liabilities = Number(overrides.liabilities_value) || 0;
+  return (
+    <Card style={{ marginHorizontal: 16, marginTop: 12, padding: 14 }}>
+      <Txt style={{ fontWeight: "800", fontSize: 14 }}>Section 3 — Deposits received</Txt>
+      <Txt style={{ fontSize: 11.5, color: C.muted, marginTop: 2, marginBottom: 8 }}>
+        There is no deposit ledger to fill this from — enter figures if applicable; they apply to the exported file only.
+      </Txt>
+      {DEPOSIT_ROWS.map(([label, countKey, amountKey]) => (
+        <View key={countKey} style={{ marginBottom: 6 }}>
+          <Txt style={{ fontSize: 12.5, fontWeight: "600" }}>{label}</Txt>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Field label="Count" style={{ flex: 1 }}>
+              <Input value={overrides[countKey] ?? ""} onChangeText={(v) => onChange(countKey, v.replace(/\D/g, ""))} keyboardType="number-pad" placeholder="0" />
+            </Field>
+            <Field label="Amount (Rs.)" style={{ flex: 1 }}>
+              <Input value={overrides[amountKey] ?? ""} onChangeText={(v) => onChange(amountKey, v)} keyboardType="decimal-pad" placeholder="0" />
+            </Field>
+          </View>
+        </View>
+      ))}
+      <Txt style={{ fontWeight: "800", fontSize: 14, marginTop: 8 }}>Section 4 — Financial position</Txt>
+      <Txt style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Maximum outstanding {inr(stmt.section4FinancialPosition.maxOutstanding)}</Txt>
+      <Field label="Value of assets at end of period" style={{ marginTop: 6 }}>
+        <Input value={overrides.assets_value ?? ""} onChangeText={(v) => onChange("assets_value", v)} keyboardType="decimal-pad" placeholder="0" />
+      </Field>
+      <Field label="Total liabilities at end of period">
+        <Input value={overrides.liabilities_value ?? ""} onChangeText={(v) => onChange("liabilities_value", v)} keyboardType="decimal-pad" placeholder="0" />
+      </Field>
+      <Txt style={{ fontSize: 12.5, color: C.muted }}>Excess of assets over liabilities: <Txt style={{ fontWeight: "700", color: C.ink }}>{inr(Math.max(0, assets - liabilities))}</Txt></Txt>
+      <Txt style={{ fontSize: 12.5, color: C.muted }}>Excess of liabilities over assets: <Txt style={{ fontWeight: "700", color: C.ink }}>{inr(Math.max(0, liabilities - assets))}</Txt></Txt>
+      <Txt style={{ fontWeight: "800", fontSize: 14, marginTop: 12 }}>Declaration</Txt>
+      <Txt style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>
+        I hereby declare that the information furnished in the above statement is true and correct to the best of my knowledge and belief. Place, date, name, signature and status are left blank in the export for manual completion.
+      </Txt>
+    </Card>
   );
 }
 
