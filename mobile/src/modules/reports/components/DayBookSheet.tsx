@@ -47,10 +47,12 @@ const monthRange = (k: string) => {
   const last = new Date(+k.slice(0, 4), +k.slice(5, 7), 0).getDate();
   return { from: `${k}-01`, to: `${k}-${String(last).padStart(2, "0")}` };
 };
-const MONTH_OPTIONS = Array.from({ length: MONTHS_BACK }, (_, i) => {
-  const k = monthKey(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1));
-  return { value: k, label: monthLabel(k) };
-});
+// Built when the sheet opens (not at module load) so a long-running app still lists the current month.
+const monthOptions = () =>
+  Array.from({ length: MONTHS_BACK }, (_, i) => {
+    const k = monthKey(new Date(new Date().getFullYear(), new Date().getMonth() - i, 1));
+    return { value: k, label: monthLabel(k) };
+  });
 
 type DayBookSheetProps = { visible: boolean; onClose: () => void };
 
@@ -58,6 +60,8 @@ export function DayBookSheet({ visible, onClose }: DayBookSheetProps) {
   const qc = useQueryClient();
   const showBranchFilter = useShowBranchFilter();
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const MONTH_OPTIONS = useMemo(() => monthOptions(), [visible]);
   const from = gfDate(fv, "date").from ?? "";
   const to = gfDate(fv, "date").to ?? "";
   const branchId = gfFirst(fv, "branch") || undefined;
@@ -72,7 +76,7 @@ export function DayBookSheet({ visible, onClose }: DayBookSheetProps) {
 
   // Each opening starts on the current month.
   useEffect(() => {
-    if (visible) setFv({ options: { month: [MONTH_OPTIONS[0]] }, dates: { date: { from: firstOfMonth(), to: todayISO() } } });
+    if (visible) setFv({ options: { month: [monthOptions()[0]] }, dates: { date: { from: firstOfMonth(), to: todayISO() } } });
   }, [visible]);
   // Back to the first page whenever the filters change.
   useEffect(() => setShown(PAGE), [from, to, branchId]);
@@ -81,7 +85,7 @@ export function DayBookSheet({ visible, onClose }: DayBookSheetProps) {
   const book = useQuery({
     queryKey: ["reports", "day-book", from, to, branchId],
     queryFn: () => getDayBook(filters),
-    enabled: visible,
+    enabled: visible && !!from && !!to,
   });
   const rows = useMemo(() => book.data?.rows ?? [], [book.data]);
   const totals = book.data?.totals;

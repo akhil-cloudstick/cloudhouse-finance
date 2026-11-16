@@ -114,6 +114,7 @@ export function toView(l: BackendLoan): LoanView {
     schemeName: l.scheme?.name || "—",
     schemeRate: l.schemeInterestRate || 0,
     schemeLtv: l.schemeLtvPercent || 0,
+    currentSchemeLtv: l.currentSchemeLtvPercent,
     schemeMethod: l.schemeInterestMethod || "—",
     schemePenal: l.schemePenalRate || 0,
     opened: l.openedDate ? l.openedDate.slice(0, 10) : "",
@@ -302,6 +303,7 @@ export async function listLoansPage(
   if (hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
   if (hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
   if (hasValue(filters.bankPledgeStatus)) params.set("bankPledgeStatus", csv(filters.bankPledgeStatus!));
+  if (hasValue(filters.bank)) params.set("bank", csv(filters.bank!));
   if (hasValue(filters.schemeId)) params.set("schemeId", csv(filters.schemeId!));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
@@ -574,7 +576,8 @@ export async function listBankPledgeHistoryPage(
   page: number,
   limit?: number,
   query?: string,
-  range?: { from?: string; to?: string }
+  range?: { from?: string; to?: string },
+  filters?: { branchId?: number[]; customerId?: number[]; bank?: string[] }
 ): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const offset = (page - 1) * pageSize;
@@ -582,6 +585,9 @@ export async function listBankPledgeHistoryPage(
   if (query) params.set("q", query);
   if (range?.from) params.set("from", range.from);
   if (range?.to) params.set("to", range.to);
+  if (filters?.branchId?.length) params.set("branchId", filters.branchId.join(","));
+  if (filters?.customerId?.length) params.set("customerId", filters.customerId.join(","));
+  if (filters?.bank?.length) params.set("bank", filters.bank.join(","));
   const res = await apiFetch<{ items: (BackendBankPledgeRecord & { loanNumber?: string; customerName?: string })[] | null; hasMore: boolean; total?: number }>(
     `/loans/bank-pledges/history?${params.toString()}`
   );

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
 import { C, EmptyText, FlatHeader, PScroll, type GFSection, ReportRow, ReportSectionLabel, Screen, SearchInput, type AccDetail, openPage, toast } from "@/common/components/ui";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { listLoansPage } from "@/modules/loans/services/loanService";
@@ -460,20 +461,6 @@ export default function ReportsScreen() {
   const [search, setSearch] = useState("");
   const router = useRouter();
   const [dayBookOpen, setDayBookOpen] = useState(false);
-  // The quick Print on a tile: the report's own default range, as a PDF straight to the print dialog.
-  const [printingKey, setPrintingKey] = useState<string | null>(null);
-  async function quickPrint(r: ReportDef) {
-    if (printingKey) return;
-    setPrintingKey(r.key);
-    try {
-      const range = r.key === "day-book" ? { from: firstOfMonth(), to: todayISO() } : r.defaultRange?.() ?? (r.kind === "table" ? { from: firstOfMonth(), to: todayISO() } : {});
-      await Print.printAsync({ uri: await downloadExport(r.key, "pdf", range) });
-    } catch (e) {
-      if (!isUserCancel(e)) toast.error("Print failed", userMessage(e, "Could not print — try again."));
-    } finally {
-      setPrintingKey(null);
-    }
-  }
 
   const canOpen = useCanOpen();
   // A "link" row (e.g. Ledger / Statement) only when its page may be opened.
@@ -506,7 +493,7 @@ export default function ReportsScreen() {
             <View key={g}>
               <ReportSectionLabel>{g}</ReportSectionLabel>
               {rows.map((r) => (
-                <ReportRow key={r.key} title={r.title} onPress={() => openReport(r)} onPrint={r.kind === "link" ? undefined : () => void quickPrint(r)} printBusy={printingKey === r.key} />
+                <ReportRow key={r.key} title={r.title} onPress={() => openReport(r)}  />
               ))}
             </View>
           );

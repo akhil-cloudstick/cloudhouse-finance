@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccGroup, AccRow, AsyncSelect, BtnRow2, C, Field, Input, PrimaryButton, Sheet, Txt, WarningBanner } from "@/common/components/ui";
+import { AccGroup, AccRow, AsyncSelect, BtnRow2, C, Field, Input, PrimaryButton, Sheet, Txt, WarningBanner, toast } from "@/common/components/ui";
 import { ApiError } from "@/common/services/httpClient";
 import { createBank, deleteBank, listBanks, mergeBanks, updateBank } from "@/modules/banks/services/bankService";
 import { useAuth } from "@/common/providers/AuthProvider";
@@ -17,7 +17,6 @@ import { balanceColor, fmtBalance } from "@/modules/banks/utils/bankBalance";
 // detail's own Bank Pledge sheet (BankPledgeSheet.tsx) — same fields, same
 // payload, previously duplicated across both.
 
-const errText = (msg: string | null) => (msg ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{msg}</Txt> : null);
 // Banks directory — list every bank with Edit/Delete, plus Add. One sheet
 // switching between list / form / delete-confirm views rather than stacked
 // sheets. Delete is a real hard delete; the backend refuses while the bank
@@ -41,7 +40,6 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
   const [ifsc, setIfsc] = useState("");
   const [accountNo, setAccountNo] = useState("");
   const [phone, setPhone] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [fe, setFe] = useState<Record<string, string>>({});
   const [branchPick, setBranchPick] = useState<{ id: number; name: string } | null>(null);
   const [blocked, setBlocked] = useState(false);
@@ -63,7 +61,6 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
     setIfsc(bank?.ifsc || "");
     setAccountNo(bank?.accountNo || "");
     setPhone(bank?.phone || "");
-    setError(null);
     setFe({});
     setBranchPick(bank?.branchId ? { id: bank.branchId, name: bank.branchName || `Branch #${bank.branchId}` } : null);
     setView({ kind: "form", bank });
@@ -96,7 +93,7 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
       refreshBanks();
       setView({ kind: "list" });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save."),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not save."),
   });
 
   const submit = (bank?: Bank) => {
@@ -106,7 +103,6 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
     if (showBranch && !branchPick) errors.branchId = "Please select the business branch this account belongs to.";
     setFe(errors);
     if (Object.keys(errors).length) return;
-    setError(null);
     save.mutate(bank);
   };
 
@@ -116,7 +112,7 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
       refreshBanks();
       setView({ kind: "list" });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not merge the banks."),
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not merge the banks."),
   });
 
   const remove = useMutation({
@@ -126,7 +122,7 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
       setView({ kind: "list" });
     },
     onError: (err) => {
-      setError(err instanceof ApiError ? err.message : "Could not delete the bank.");
+      toast.error(err instanceof ApiError ? err.message : "Could not delete the bank.");
       setBlocked(true);
     },
   });
@@ -167,7 +163,6 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
           <Input value={phone} onChangeText={(t) => setPhone(t.replace(/\D/g, "").slice(0, 10))} maxLength={10} placeholder="10-digit phone" keyboardType="number-pad" />
           {fieldErr("phone")}
         </Field>
-        {errText(error)}
         <BtnRow2>
           <PrimaryButton label="Back" variant="outline" onPress={() => setView({ kind: "list" })} disabled={save.isPending} />
           <PrimaryButton label={editing ? "Save" : "Add Bank"} onPress={() => submit(editing)} loading={save.isPending} />
@@ -183,8 +178,7 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
         <View style={{ marginTop: 10 }}>
           <WarningBanner>Delete bank permanently?</WarningBanner>
         </View>
-        {errText(error)}
-        {blocked ? <PrimaryButton label="Merge it into another bank instead" variant="outline" onPress={() => { setError(null); setMergeTarget(null); setView({ kind: "merge", bank }); }} /> : null}
+        {blocked ? <PrimaryButton label="Merge it into another bank instead" variant="outline" onPress={() => { setMergeTarget(null); setView({ kind: "merge", bank }); }} /> : null}
         <BtnRow2>
           <PrimaryButton label="Back" variant="outline" onPress={() => setView({ kind: "list" })} disabled={remove.isPending} />
           <PrimaryButton label="Delete" variant="danger" onPress={() => remove.mutate(bank)} loading={remove.isPending} />
@@ -212,7 +206,6 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
           keyOf={(b) => b.id}
           renderItem={(b) => ({ title: b.name, sub: b.branch })}
         />
-        {errText(error)}
         <BtnRow2>
           <PrimaryButton label="Back" variant="outline" onPress={() => setView({ kind: "list" })} disabled={merge.isPending} />
           <PrimaryButton label="Merge & Delete" variant="danger" onPress={() => mergeTarget && merge.mutate({ source, target: mergeTarget })} loading={merge.isPending} disabled={!mergeTarget} />
@@ -246,7 +239,7 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
               actions={[
                 ...(canLedger ? [{ label: "Ledger", onPress: () => { onClose(); openLedger("bank", b.id, b.name); } }] : []),
                 ...(canUpdate ? [{ label: "Edit", onPress: () => openForm(b) }] : []),
-                ...(canDelete ? [{ label: "Delete", danger: true, onPress: () => { setError(null); setBlocked(false); setView({ kind: "delete", bank: b }); } }] : []),
+                ...(canDelete ? [{ label: "Delete", danger: true, onPress: () => { setBlocked(false); setView({ kind: "delete", bank: b }); } }] : []),
               ]}
             />
           ))}

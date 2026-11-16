@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AccBtn, CheckItem, DateField, Field, Input, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, C, toast } from "@/common/components/ui";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
@@ -7,7 +7,7 @@ import { isFlowOff, useApprovalWorkflow } from "@/common/services/approvalWorkfl
 import { inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
-import { ErrorText } from "@/common/components/ErrorText";
+import { FieldErr } from "@/common/components/ErrorText";
 
 /** Loans that can take a top-up — mirrors the backend's TopUpLoan guard. */
 export const TOP_UP_STATUSES = ["Active", "Due Soon", "Overdue"];
@@ -44,7 +44,8 @@ export function TopUpSheet({
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [date, setDate] = useState(todayISO());
   const [reference, setReference] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
+  const submitting = useRef(false);
   const [shortfall, setShortfall] = useState(false);
   const [needsPayment, setNeedsPayment] = useState(false);
   // Staff's choice for the loan's outstanding interest/penal interest, if
@@ -57,7 +58,7 @@ export function TopUpSheet({
     setAmount("");
     setDate(todayISO());
     setReference("");
-    setError(null);
+    setTried(false);
     setShortfall(false);
     setNeedsPayment(false);
     setSettleMode("require");
@@ -72,15 +73,22 @@ export function TopUpSheet({
   const hasArrears = arrears > 0.01;
 
   const save = useMutation({
-    mutationFn: () =>
-      topUpLoan(l.id, {
-        amount: amt,
-        ...(pay?.split ?? {}),
-        bankId: pay?.bankId,
-        occurredOn: date || undefined,
-        reference: reference.trim() || undefined,
-        settleInterest: hasArrears ? settleMode : undefined,
-      }),
+    mutationFn: async () => {
+      if (submitting.current) throw new Error("__duplicate_submit__");
+      submitting.current = true;
+      try {
+        return await topUpLoan(l.id, {
+          amount: amt,
+          ...(pay?.split ?? {}),
+          bankId: pay?.bankId,
+          occurredOn: date || undefined,
+          reference: reference.trim() || undefined,
+          settleInterest: hasArrears ? settleMode : undefined,
+        });
+      } finally {
+        submitting.current = false;
+      }
+    },
     onSuccess: () => {
       invalidateLoan(qc, l.id);
       if (needsApproval) {
@@ -97,12 +105,20 @@ export function TopUpSheet({
       onClose();
     },
     onError: (e) => {
+      if (e instanceof Error && e.message === "__duplicate_submit__") return;
       const msg = apiErr(e, "Could not record the top-up — try again.");
-      setShortfall(/headroom/i.test(msg));
-      setNeedsPayment(/outstanding interest/i.test(msg));
-      setError(msg);
+      // Computed values first; the message regex is only a fallback.
+      setShortfall(headroom <= 0 || amt > headroom + 0.01 || /headroom/i.test(msg));
+      setNeedsPayment((hasArrears && settleMode === "require") || /outstanding interest/i.test(msg));
+      toast.error(msg);
     },
   });
+
+  const errs: Record<string, string> = {};
+  if (!(amt > 0)) errs.amount = "Enter the top-up amount.";
+  else if (over) errs.amount = `Can't exceed the headroom of ${inr(headroom)}.`;
+  if (amt > 0 && !pay?.ready) errs.pay = "The payment breakdown must add up to the top-up amount, with a bank for every UPI / Bank Transfer line.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   function changeAmount(v: string) {
     setAmount(v);
@@ -137,25 +153,25 @@ export function TopUpSheet({
         <Input keyboardType="decimal-pad" value={amount} onChangeText={changeAmount} placeholder="e.g. 5000" style={over ? { borderColor: C.red } : undefined} />
         {over ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Can&apos;t exceed the headroom of {inr(headroom)}.</Txt> : null}
       </Field>
+      <FieldErr m={over ? undefined : fe("amount")} />
       <DateField label="Top-up date" value={date} onChange={setDate} max={todayISO()} />
       <Field label="Payment breakdown">
         <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it is paid from)" />
       </Field>
+      <FieldErr m={fe("pay")} />
       <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={(v) => setReference(v.slice(0, 80))} />
       {shortfall && onAddOrnaments ? <AccBtn label="Add ornaments to raise the eligible amount" onPress={onAddOrnaments} style={{ marginBottom: 12 }} /> : null}
       {needsPayment && onRecordPayment ? <AccBtn label="Record Payment to clear the arrears" onPress={onRecordPayment} style={{ marginBottom: 12 }} /> : null}
       {needsPayment && !onRecordPayment ? (
         <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>Ask someone who can record loan payments to clear the arrears first.</Txt>
       ) : null}
-      <ErrorText>{error}</ErrorText>
       <PrimaryButton
         label={needsApproval ? "Submit for Approval" : "Top Up"}
         onPress={() => {
-          setError(null);
+          if (Object.keys(errs).length) return setTried(true);
           save.mutate();
         }}
         loading={save.isPending}
-        disabled={!(amt > 0) || over || !pay?.ready}
       />
     </Sheet>
   );

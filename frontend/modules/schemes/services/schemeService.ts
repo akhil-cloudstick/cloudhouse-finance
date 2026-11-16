@@ -58,6 +58,13 @@ export async function listSchemes(filters?: { q?: string; methods?: string[] }):
   return (rec || []).map(toView);
 }
 
+/* The scheme's terms as they are now (name search, then matched on id): the Edit Loan screens check the amount
+ * against its current LTV, not the one frozen on the loan. Undefined when it can't be found. */
+export async function findCurrentScheme(id: string, name: string): Promise<SchemeView | undefined> {
+  const list = await listSchemes({ q: name });
+  return list.find((s) => s.id === id);
+}
+
 /* One page of the Loan Schemes list — same search/method filters as
  * listSchemes, paged server-side ({items, hasMore, total} envelope).
  * `page` is 0-based. */

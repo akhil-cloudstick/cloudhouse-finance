@@ -360,7 +360,7 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
         // The loan runs on the terms frozen onto it, so those (not the scheme's current ones) drive the figures here.
         setSchemeObj({
           id: ln.schemeId, code: "", name: ln.schemeName, rate: ln.schemeRate, rateTiers: [], minimumDays: 0, durationMonths: 0,
-          ltv: ln.schemeLtv, ltvBased: ln.schemeLtv > 0, method: ln.schemeMethod, penal: ln.schemePenal, accrualBasis: "daily", cond: "",
+          ltv: ln.currentSchemeLtv ?? ln.schemeLtv, ltvBased: (ln.currentSchemeLtv ?? ln.schemeLtv) > 0, method: ln.schemeMethod, penal: ln.schemePenal, accrualBasis: "daily", cond: "",
           active: true, branchId: ln.branchId, branchName: ln.branchName,
           serviceChargeType: ln.serviceChargeType || "None", serviceChargeValue: ln.serviceChargeValue ?? 0,
           serviceChargeMode: added ? "AddedToPrincipal" : "WithheldFromPayout",
@@ -515,6 +515,17 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
   // full roundedEligible — defaulting to that when a charge applies would
   // prefill a figure that fails submission the moment the charge is added
   // on top).
+  // The field must never keep a figure above the ceiling: when the ceiling falls after the amount was typed (the
+  // ornaments, the rate or the scheme's LTV changed), pull the field down to it and say so — otherwise the box shows
+  // one amount while a smaller one is what actually gets saved.
+  useEffect(() => {
+    if (!ltvBased || !principalOverride.trim()) return;
+    if (+principalOverride > maxPrincipalEntry) {
+      setPrincipalOverride(String(maxPrincipalEntry));
+      setPrincipalExceedsEligible(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxPrincipalEntry, ltvBased]);
   const principal = principalOverride.trim() ? Math.min(Math.max(0, roundRupee(+principalOverride)), maxPrincipalEntry) : ltvBased ? maxPrincipalEntry : 0;
   // ---- Edit mode figures, worked the same way the Valuation card does for a new loan ----------------------------
   // The service charge comes off the Amount (Deduct) or rides on top of it (Add to loan); the principal and the payout follow.
@@ -873,6 +884,7 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
   async function submitEdit() {
     if (!editLoan) return;
     const ln = editLoan;
+    let ornamentsTouched = false;
     const s = (schemeObj && schemeObj.id === schemeId) ? schemeObj : schemes.find((x) => x.id === schemeId);
     const missing: Record<string, string> = {};
     if (!s) missing.scheme = "Please select a scheme.";
@@ -884,6 +896,8 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
     if (Object.keys(missing).length) return;
     if (validRows.some((r) => r.lessWt > r.w)) { toast("Less Wt cannot be greater than Gross Wt"); return; }
     if (!(principal > 0)) { toast("Please enter a valid loan amount"); return; }
+    // The amount typed is compared with the eligible amount here, before anything is saved.
+    if (ltvBased && roundRupee(+principalOverride || 0) > maxPrincipalEntry) { toast(`Amount cannot exceed the eligible loan amount (${fmt(maxPrincipalEntry)}).`); return; }
     if (hasCharge && payout <= 0) { toast("The service charge must be less than the amount."); return; }
     if (!openedDate) { toast("Please select the loan date"); return; }
     if (openedDate > localISO(new Date())) { toast("Loan date cannot be in the future"); return; }
@@ -918,6 +932,7 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
         }
       }
       const keptIds = new Set(rows.filter((r) => r.id != null).map((r) => r.id as number));
+      ornamentsTouched = true;
       for (const o of ln.ornaments) if (!keptIds.has(o.id)) await deleteOrnament(o.id);
       for (const r of validRows) {
         const input = { name: r.n.trim(), purity: r.p, grossWeight: r.w, deductionWeight: r.lessWt, quantity: r.q };
@@ -947,6 +962,19 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
       navigate("loan/" + ln.loanNumber);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Could not save changes. Try again.");
+      // The ornament changes were already saved before the loan update failed. Reload the loan and its rows from the
+      // server, so pressing Save again does not add the new ornaments a second time (or delete the removed ones twice).
+      if (ornamentsTouched) {
+        try {
+          const fresh = await getLoanByNumber(ln.loanNumber);
+          setEditLoan(fresh);
+          setRows(fresh.ornaments.length ? fresh.ornaments.map((o) => ({
+            id: o.id, n: o.name, p: o.purity, w: o.grossWeight, netW: o.netWeight,
+            lessWt: round3(Math.max(0, o.grossWeight - o.netWeight)), q: o.quantity,
+            ...(o.photoUrls?.length ? { imgs: o.photoUrls, saved: o.photoUrls } : {}),
+          })) : [blankOrnRow()]);
+        } catch { /* the page keeps what it has */ }
+      }
     } finally {
       setSubmitting(false);
     }

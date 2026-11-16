@@ -94,3 +94,4 @@ export * from "./Popover";
 export * from "./ToastHost";
 export * from "./GroupedFilter";
 
+export * from "./BoundedList";

@@ -31,6 +31,7 @@ import { ROLES, type Employee } from "@/modules/employees/types/employee-types";
 import { fetchRoles } from "@/modules/roles/services/roleService";
 import { BranchField, useOwnBranch } from "@/modules/cash/components/EntryFormParts";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { FieldErr } from "@/common/components/ErrorText";
 import { ApiError } from "@/common/services/httpClient";
 import { inr } from "@/common/utils/format";
 
@@ -69,7 +70,7 @@ function EmployeeFormSheet({ visible, onClose, editing }: EmployeeFormSheetProps
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(true);
   const [branch, setBranch] = useOwnBranch(null);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
 
   // Live roles (custom ones included). A user without the role-view permission falls back to the seeded
   // list; system roles (Administrator) are hidden unless the employee already holds one.
@@ -91,24 +92,23 @@ function EmployeeFormSheet({ visible, onClose, editing }: EmployeeFormSheetProps
     setPassword(editing ? "" : generatePassword());
     setShowPassword(!editing);
     setBranch(editing?.branchId ? { id: editing.branchId, name: editing.branch?.name ?? "" } : null);
-    setError(null);
+    setTried(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, editing]);
 
-  function validate(): string | null {
-    const n = name.trim();
-    if (n.length < 3 || !NAME_RE.test(n)) return "Please enter the employee's full name (letters only, at least 3 characters).";
-    if (!role || !roleOptions.includes(role)) return "Please select a role.";
-    if (!branch) return "Please select a branch.";
-    if (phone && !/^\d{10}$/.test(phone)) return "Phone number must be exactly 10 digits.";
-    const u = username.trim();
-    if (u && !USERNAME_RE.test(u)) return "Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).";
-    if (password && password.length < 8) return "Password must be at least 8 characters.";
-    return null;
-  }
+  const errs: Record<string, string> = {};
+  const nm = name.trim();
+  if (nm.length < 3 || !NAME_RE.test(nm)) errs.name = "Enter the employee's full name (letters only, at least 3 characters).";
+  if (!role || !roleOptions.includes(role)) errs.role = "Select a role.";
+  if (!branch) errs.branch = "Select a branch.";
+  if (phone && !/^\d{10}$/.test(phone)) errs.phone = "Phone number must be exactly 10 digits.";
+  const un = username.trim();
+  if (un && !USERNAME_RE.test(un)) errs.username = "Username must be at least 3 characters (letters, numbers, dots, underscores or hyphens only).";
+  if (password && password.length < 8) errs.password = "Password must be at least 8 characters.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const input = {
         name: name.trim(),
         role,
@@ -118,7 +118,10 @@ function EmployeeFormSheet({ visible, onClose, editing }: EmployeeFormSheetProps
         password: password || undefined,
       };
       if (editing) {
-        return updateEmployee(editing.id, { ...input, loansProcessed: editing.loansProcessed, collections: editing.collections, followups: editing.followups, pending: editing.pending });
+        // The backend overwrites these counters on every update (omitting them would zero them), so send the
+        // current server values, not the possibly stale copy the form was opened with.
+        const fresh = await getEmployee(editing.id).catch(() => editing);
+        return updateEmployee(editing.id, { ...input, loansProcessed: fresh.loansProcessed, collections: fresh.collections, followups: fresh.followups, pending: fresh.pending });
       }
       return createEmployee(input);
     },
@@ -128,16 +131,21 @@ function EmployeeFormSheet({ visible, onClose, editing }: EmployeeFormSheetProps
       toast.success(editing ? `${name.trim()} updated${password ? " — password changed" : ""}` : `${name.trim()} added as ${role}`);
       onClose();
     },
-    onError: (err) => setError(err instanceof ApiError && err.status < 500 ? err.message : "Something went wrong saving this employee. Please try again."),
+    onError: (err) => toast.error("Could not save employee", err instanceof ApiError && err.status < 500 ? err.message : "Something went wrong saving this employee. Please try again."),
   });
 
   return (
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Employee" : "Add Employee"} maxHeightPct={90}>
       <TextField label="Full name *" value={name} onChangeText={setName} placeholder="e.g. Arun Kumar" maxLength={120} />
+      <FieldErr m={fe("name")} />
       <TextField label="Mobile number" value={phone} onChangeText={(v) => setPhone(v.replace(/\D/g, "").slice(0, 10))} keyboardType="phone-pad" placeholder="10-digit mobile" />
+      <FieldErr m={fe("phone")} />
       <SelectField label="Role *" value={role} options={roleOptions} onChange={setRole} />
+      <FieldErr m={fe("role")} />
       <BranchField branch={branch} onChange={setBranch} />
+      <FieldErr m={fe("branch")} />
       <TextField label="Username" value={username} onChangeText={setUsername} autoCapitalize="none" placeholder="Login username" />
+      <FieldErr m={fe("username")} />
       <TextField
         label={editing ? "New password (leave blank to keep)" : "Password"}
         value={password}
@@ -146,21 +154,18 @@ function EmployeeFormSheet({ visible, onClose, editing }: EmployeeFormSheetProps
         autoCapitalize="none"
         placeholder="At least 8 characters"
       />
+      <FieldErr m={fe("password")} />
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
         <AccBtn label="Generate" onPress={() => { setPassword(generatePassword()); setShowPassword(true); }} />
         <AccBtn label={showPassword ? "Hide" : "Show"} onPress={() => setShowPassword((s) => !s)} />
       </View>
-      {error ? <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
         label={editing ? "Save Changes" : "Add Employee"}
         onPress={() => {
-          const v = validate();
-          if (v) return setError(v);
-          setError(null);
+          if (Object.keys(errs).length) return setTried(true);
           save.mutate();
         }}
         loading={save.isPending}
-        disabled={!name.trim()}
       />
     </Sheet>
   );
@@ -191,6 +196,7 @@ function EmployeeDetailSheet({
   const remove = useMutation({
     mutationFn: () => deleteEmployee(id!),
     onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ["employee", String(id)] });
       queryClient.invalidateQueries({ queryKey: ["employees"] });
       onClose();
     },
@@ -230,7 +236,7 @@ function EmployeeDetailSheet({
               sub={`What ${/^[aeiou]/i.test(e.role) ? "an" : "a"} ${e.role} can do`}
               onPress={() => {
                 onClose();
-                openPage(`/roles?role=${encodeURIComponent(e.role)}`);
+                openPage(`/roles?role=${encodeURIComponent(e.role)}&t=${Date.now()}`);
               }}
             />
           ) : null}
@@ -279,7 +285,7 @@ export default function EmployeesScreen() {
         ) : undefined
       }
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(e) => String(e.id)}

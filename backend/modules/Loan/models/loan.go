@@ -95,6 +95,8 @@ type Loan struct {
 	// PriorAccruals are the interest rows already saved since the unpaid-days count began, loaded while a
 	// Multiple-interest loan is being charged so a rate step can restate them; never sent or stored.
 	PriorAccruals              []LoanAccrual      `json:"-" gorm:"-"`
+	// The scheme's LTV as it is now (the loan keeps its own frozen one); Edit Loan checks the amount against this.
+	CurrentSchemeLTVPercent    *float64           `json:"current_scheme_ltv_percent,omitempty" gorm:"-"`
 	OutstandingInterest        float64            `json:"outstanding_interest" gorm:"-"`
 	OutstandingPenalInterest   float64            `json:"outstanding_penal_interest" gorm:"-"`
 	TotalOutstandingBalance    float64            `json:"total_outstanding_balance" gorm:"-"`

@@ -13,7 +13,9 @@ import {
   Sheet,
   SheetFooter,
   Txt,
+  toast,
 } from "@/common/components/ui";
+import { FieldErr } from "@/common/components/ErrorText";
 import { UploadField } from "@/common/components/UploadField";
 import { EXPENSE_CATEGORY_IDS_KEY } from "@/common/components/BillLink";
 import { inr, todayISO } from "@/common/utils/format";
@@ -145,7 +147,6 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
   // Uploaded "/uploads/..." URL of the bill, "" when none.
   const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
-  const [error, setError] = useState<string | null>(null);
   const bankRequired = mode === "UPI" || mode === "Bank Transfer";
 
   const isLoan = !!source && isLoanSource(source.name);
@@ -209,7 +210,7 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
       if (isLoan) qc.invalidateQueries({ queryKey: EXPENSE_CATEGORY_IDS_KEY });
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not save.")),
+    onError: (err) => toast.error(errMsg(err, "Could not save.")),
   });
 
   const bankValid = !bankRequired || !!bank;
@@ -237,7 +238,6 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
     if (!isGoldSale && Number(amount) > 0 && !payValid) errors.payments = paymentRowsError(payRows, Number(amount) || 0);
     setFe(errors);
     if (Object.keys(errors).length) return;
-    setError(null);
     m.mutate();
   }
 
@@ -322,12 +322,11 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
       <UploadField label="Bill" value={receiptImage} onChange={setReceiptImage} allowPdf={false} />
       {isGoldSale ? <ResultBox k="Profit / Loss" v={`${profit >= 0 ? "+" : "−"}${inr(Math.abs(profit))}`} tone={profit >= 0 ? "green" : "red"} /> : null}
       <Field label="Remarks">
-        <Input placeholder="Optional notes" value={remarks} onChangeText={setRemarks} />
+        <Input maxLength={150} placeholder="Optional notes (max 150 characters)" value={remarks} onChangeText={setRemarks} />
       </Field>
 
       <LoanWarning text={loanWarning} />
       {editBlocked ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>A gold sale can&apos;t be turned into another category, or the other way round.</Txt> : null}
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <SheetFooter>
         <PrimaryButton label={edit ? "Save Changes" : isGoldSale ? "Record Gold Sale" : "Add Cash"} onPress={submit} loading={m.isPending} disabled={!canSubmit} />
       </SheetFooter>
@@ -353,12 +352,21 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
   // Uploaded "/uploads/..." URL of the receipt/bill photo, "" when none.
   const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const branchId = branch?.id;
-  const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) : 0;
+  // Editing the same loan repayment: its own amount is already counted as repaid, so it is added back.
+  const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit && category?.name === edit.category ? edit.amount : 0) : 0;
   const debitExceeded = !!loanBal && (Number(amount) || 0) > owed + 0.005;
   const debitWarning = debitExceeded ? `Repayment exceeds what has been paid on ${category?.name} — only ${inr(owed)} is outstanding.` : "";
   const payValid = paymentRowsError(payRows, Number(amount) || 0) === "";
+  const errs: Record<string, string> = {};
+  if (!category) errs.category = "Select a category.";
+  if (!(Number(amount) > 0)) errs.amount = "Enter an amount greater than zero.";
+  if (!date) errs.date = "Select the date.";
+  if (Number(amount) > 0 && !payValid) errs.pay = paymentRowsError(payRows, Number(amount) || 0);
+  if (!branchId) errs.branch = "Select a branch.";
+  if (debitExceeded) errs.amount = debitWarning;
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   const m = useMutation({
     mutationFn: async () => {
@@ -383,7 +391,7 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
       qc.invalidateQueries({ queryKey: EXPENSE_CATEGORY_IDS_KEY });
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not save.")),
+    onError: (err) => toast.error(errMsg(err, "Could not save.")),
   });
   // A newly created category needs its ledger link resolvable right away.
   const createCat = async (name: string) => {
@@ -408,24 +416,27 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
         renderItem={(c) => ({ title: c.name })}
         onCreateNew={createCat}
       />
+      <FieldErr m={fe("category")} />
       <Field label="Amount">
         <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
       </Field>
+      <FieldErr m={fe("amount")} />
       <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
+      <FieldErr m={fe("date")} />
       <PaymentBreakdownFields total={Number(amount) || 0} rows={payRows} onChange={setPayRows} bankLabel="From Bank" />
+      <FieldErr m={fe("pay")} />
       <BranchField branch={branch} onChange={setBranch} />
+      <FieldErr m={fe("branch")} />
       <UploadField label="Bill" value={receiptImage} onChange={setReceiptImage} allowPdf={false} />
       <Field label="Remarks">
-        <Input placeholder="Optional notes" value={remarks} onChangeText={setRemarks} />
+        <Input maxLength={150} placeholder="Optional notes (max 150 characters)" value={remarks} onChangeText={setRemarks} />
       </Field>
       <LoanWarning text={debitWarning} />
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <SheetFooter>
         <PrimaryButton
           label={edit ? "Save Changes" : "Record Expense"}
-          onPress={() => m.mutate()}
+          onPress={() => (Object.keys(errs).length ? setTried(true) : m.mutate())}
           loading={m.isPending}
-          disabled={!category || !(Number(amount) > 0) || !date || !branchId || !payValid || debitExceeded}
         />
       </SheetFooter>
     </>
@@ -460,7 +471,7 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
   const [branch, setBranch] = useOwnBranch(branchOf(edit));
   const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const branchId = branch?.id;
 
   const loan = category && isLoanSource(category.name) ? category : null;
@@ -470,7 +481,8 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
   const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit ? edit.amount : 0) : 0;
   const loanExceeded = !!loanBal && (Number(amount) || 0) > owed + 0.005;
   const loanWarning = loanExceeded ? `Repayment exceeds what has been paid on ${category?.name} — only ${inr(owed)} is outstanding.` : "";
-  const loanReady = !!loan;
+  // A new transfer needs a real loan category row (with its details); an edit keeps working while its row is looked up.
+  const loanReady = !!loan && (loan.id > 0 || !!edit);
 
   const m = useMutation({
     mutationFn: async () => {
@@ -492,19 +504,23 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
       refreshCashQueries(qc);
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not save.")),
+    onError: (err) => toast.error(errMsg(err, "Could not save.")),
   });
 
+  const errs: Record<string, string> = {};
+  if (!category) errs.category = "Select a category.";
+  if (!date) errs.date = "Select the date.";
+  if (!fromBank) errs.fromBank = "Select the From Bank.";
+  if (!loan && !toBank) errs.toBank = "Select the To Bank.";
+  else if (!loan && toBank && fromBank && toBank.id === fromBank.id) errs.toBank = "From Bank and To Bank must be different.";
+  if (!(Number(amount) > 0)) errs.amount = "Enter an amount greater than zero.";
+  else if (loanExceeded) errs.amount = loanWarning;
+  if (!branchId) errs.branch = "Select a branch.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
+
   function submit() {
-    if (loan && !loanReady) {
-      setError("This loan has no details recorded yet — add cash from it first.");
-      return;
-    }
-    if (!loan && toBank && fromBank && toBank.id === fromBank.id) {
-      setError("From Bank and To Bank must be different.");
-      return;
-    }
-    setError(null);
+    if (Object.keys(errs).length) return setTried(true);
+    if (loan && !loanReady) return toast.error("This loan has no details recorded yet — add cash from it first.");
     m.mutate();
   }
 
@@ -525,28 +541,32 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
         renderItem={(c) => ({ title: c.name })}
         onCreateNew={(name) => createCategory("self_transfer", name)}
       />
+      <FieldErr m={fe("category")} />
       <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
+      <FieldErr m={fe("date")} />
       <Field label="Mode">
         <ChipToggle options={SELF_MODES} value={mode} onChange={setMode} />
       </Field>
       <BankPicker label="From Bank" bank={fromBank} onChange={setFromBank} />
+      <FieldErr m={fe("fromBank")} />
       {loan ? null : <BankPicker label="To Bank" bank={toBank} onChange={setToBank} />}
+      <FieldErr m={fe("toBank")} />
       <Field label="Amount">
         <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
       </Field>
+      <FieldErr m={fe("amount")} />
       <BranchField branch={branch} onChange={setBranch} />
+      <FieldErr m={fe("branch")} />
       <UploadField label="Bill" value={receiptImage} onChange={setReceiptImage} allowPdf={false} />
       <Field label="Remarks">
-        <Input placeholder="Optional notes" value={remarks} onChangeText={setRemarks} />
+        <Input maxLength={150} placeholder="Optional notes (max 150 characters)" value={remarks} onChangeText={setRemarks} />
       </Field>
       <LoanWarning text={loanWarning} />
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <SheetFooter>
         <PrimaryButton
           label={edit ? "Save Changes" : "Record Transfer"}
           onPress={submit}
           loading={m.isPending}
-          disabled={!category || !(Number(amount) > 0) || !date || !fromBank || (!loan && !toBank) || !branchId || loanExceeded}
         />
       </SheetFooter>
     </>

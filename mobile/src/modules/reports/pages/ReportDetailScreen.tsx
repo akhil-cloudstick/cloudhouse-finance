@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
-import { AccRow, Buffering, C, Card, EmptyText, ExportMenu, Field, FlatHeader, Input, PScroll, SelectField, GroupedFilter, gfDate, gfValues, type GroupedFilterValue, type GFSection, Screen, SearchFilterRow,ServerFlatList, Txt, toast } from "@/common/components/ui";
+import { AccRow, Buffering, C, Card, EmptyText, FabMenu, Field, FlatHeader, Input, PScroll, SelectField, GroupedFilter, gfDate, gfValues, type GroupedFilterValue, type GFSection, Screen, SearchFilterRow,ServerFlatList, Txt, toast } from "@/common/components/ui";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useTheme } from "@/common/theme/ThemeProvider";
@@ -154,7 +154,7 @@ export default function ReportDetailScreen() {
       ]
     : [];
   const headExtra = report ? (
-    <View style={{ paddingTop: 12, paddingBottom: 10 }}>
+    <View style={{ paddingTop: 12, paddingBottom: 16 }}>
       {isTable ? (
         <SearchFilterRow
           value={list.search}
@@ -162,17 +162,12 @@ export default function ReportDetailScreen() {
           placeholder="Search this report"
           style={{ paddingHorizontal: 16, paddingBottom: 0 }}
           filter={
-            <>
-              <GroupedFilter title="Filter report" sections={sections} value={fv} onChange={setFv} />
-              <ExportMenu busy={exporting || printing} onExcel={onExport} onPdf={onPrint} />
-            </>
+            <GroupedFilter title="Filter report" sections={sections} value={fv} onChange={setFv} />
           }
         />
       ) : (
         <View style={{ paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <GroupedFilter title="Filter report" sections={sections} value={fv} onChange={setFv} />
-          <View style={{ flex: 1 }} />
-          <ExportMenu busy={exporting || printing} onExcel={onExport} onPdf={onPrint} />
         </View>
       )}
     </View>
@@ -264,7 +259,20 @@ export default function ReportDetailScreen() {
   }
 
   return (
-    <Screen header={<FlatHeader back title={report?.title ?? "Report"} subtitle="Report details" />}>
+    <Screen
+      header={<FlatHeader back title={report?.title ?? "Report"} subtitle="Report details" />}
+      floating={
+        report ? (
+          <FabMenu
+            label="Export"
+            actions={[
+              { label: "Excel", icon: "download", onPress: onExport },
+              { label: "PDF", icon: "download", onPress: onPrint },
+            ]}
+          />
+        ) : undefined
+      }
+    >
       {!report ? <EmptyText>This report is not available.</EmptyText> : (
         <>
           {headExtra}

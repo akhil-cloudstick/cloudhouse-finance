@@ -187,7 +187,15 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 		if err != nil {
 			return err
 		}
-		if in.SanctionedAmount != nil && absMoney(fig.Sanctioned-currentSanctioned) > 0.005 {
+		// Checked on any edit that changes the sanction OR the scheme (a lower-LTV scheme can leave the same amount over
+		// the limit), against the eligible amount worked out now from the current ornaments and the scheme in force.
+		// Not on a preview (dry run): the Edit Loan screen previews before it saves the changed ornaments, so the gold
+		// on file is still the old one then. The real save is checked once the ornaments are in.
+		if !dryRun && ((in.SanctionedAmount != nil && absMoney(fig.Sanctioned-currentSanctioned) > 0.005) || in.Prepare != nil) {
+			refreshSchemeLTV(ctx, l)
+			if cur, ferr := FindByLoanID(ctx, loanID); ferr == nil {
+				recalculateTotals(l, cur)
+			}
 			if err := checkEligible(l, fig); err != nil {
 				return err
 			}

@@ -1,9 +1,9 @@
-import React, { useState } from "react";
-import { C, Field, PrimaryButton, ResultBox, Sheet, Txt, type SplitAmounts } from "@/common/components/ui";
+import React, { useEffect, useState } from "react";
+import { C, Field, PrimaryButton, ResultBox, Sheet, Txt, toast, type SplitAmounts } from "@/common/components/ui";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { inr } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
-import { ErrorText } from "@/common/components/ErrorText";
+import { FieldErr } from "@/common/components/ErrorText";
 
 type DisburseSheetProps = {
   loan: Loan;
@@ -39,6 +39,10 @@ export function DisburseSheet({
   const payout = Math.round((l.principalAmount - (l.serviceChargeAmount ?? 0)) * 100) / 100;
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const insufficient = balanceInHand != null && payout > balanceInHand + 0.005;
+  const [tried, setTried] = useState(false);
+  // A failure from the server is not about a field: raise it as a toast.
+  useEffect(() => { if (error) toast.error(error); }, [error]);
+  const payErr = insufficient ? "Not enough balance in hand — add cash to disburse." : !pay?.ready ? "The payment breakdown must add up to the amount, with a bank for every UPI / Bank Transfer line." : undefined;
 
   return (
     <Sheet visible={visible} onClose={onClose} title={`${verb} & Disburse`}>
@@ -55,8 +59,8 @@ export function DisburseSheet({
           {insufficient ? " — add cash to disburse." : ""}
         </Txt>
       ) : null}
-      <ErrorText>{error}</ErrorText>
-      <PrimaryButton label={`${verb} & Disburse ${inr(payout)}`} onPress={() => pay && onConfirm({ ...pay.split, bankId: pay.bankId })} loading={loading} disabled={insufficient || !pay?.ready} />
+      <FieldErr m={tried ? payErr : undefined} />
+      <PrimaryButton label={`${verb} & Disburse ${inr(payout)}`} onPress={() => (payErr || !pay ? setTried(true) : onConfirm({ ...pay.split, bankId: pay.bankId }))} loading={loading} />
     </Sheet>
   );
 }

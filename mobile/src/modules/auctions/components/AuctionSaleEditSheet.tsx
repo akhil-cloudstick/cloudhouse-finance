@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Buffering, DateField, Field, FieldRow, Input } from "@/common/components/ui";
@@ -23,17 +23,28 @@ export function AuctionSaleEditSheet({ auction, onClose }: Props) {
   const [preview, setPreview] = useState<AuctionEditPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const c = cur.data;
+  // Form version: a dry-run answer is only shown if the form has not changed since it was sent.
+  const ver = useRef(0);
+  const sentVer = useRef(0);
+  const previewVer = useRef(-1);
+  const seededLoan = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!auction) seededLoan.current = null;
     if (!c) return;
+    // seed once per opened auction, not on every refetch of it
+    if (seededLoan.current === loanId) return;
+    seededLoan.current = loanId;
+    ver.current += 1;
     setDate((c.saleDate || todayISO()).slice(0, 10));
     setSale(String(c.saleAmount));
     setExpenses(String(c.auctionExpenses || 0));
     setPreview(null);
     setError(null);
-  }, [c]);
+  }, [c, loanId, auction]);
 
   const touch = <T,>(set: (v: T) => void) => (v: T) => {
+    ver.current += 1;
     setPreview(null);
     setError(null);
     set(v);
@@ -63,6 +74,8 @@ export function AuctionSaleEditSheet({ auction, onClose }: Props) {
     },
     onSuccess: (res, dry) => {
       if (dry) {
+        if (sentVer.current !== ver.current) return; // the form changed while this was running
+        previewVer.current = ver.current;
         setPreview(res);
         setError(null);
         return;
@@ -73,7 +86,8 @@ export function AuctionSaleEditSheet({ auction, onClose }: Props) {
       qc.invalidateQueries({ queryKey: ["ledger"] });
       onClose();
     },
-    onError: (e) => {
+    onError: (e, dry) => {
+      if (dry && sentVer.current !== ver.current) return;
       setPreview(null);
       setError(e instanceof Error && !("status" in e) ? e.message : apiErr(e, "Could not save the change — try again."));
     },
@@ -99,6 +113,7 @@ export function AuctionSaleEditSheet({ auction, onClose }: Props) {
           bankLabel="Bank (account the buyer paid into)"
           initial={{ split: { cashAmount: c.cashAmount, upiAmount: c.upiAmount, bankTransferAmount: c.bankTransferAmount, chequeAmount: 0 }, bankId: c.bankId }}
           onChange={(v) => {
+            ver.current += 1;
             setPreview(null);
             setPay(v);
           }}
@@ -123,7 +138,11 @@ export function AuctionSaleEditSheet({ auction, onClose }: Props) {
       onSubmit={() => {
         if (!c) return;
         setError(null);
-        run.mutate(preview == null);
+        // only confirm a preview that matches the form as it is now
+        const confirm = preview != null && previewVer.current === ver.current;
+        if (preview != null && !confirm) setPreview(null);
+        sentVer.current = ver.current;
+        run.mutate(!confirm);
       }}
     />
   );

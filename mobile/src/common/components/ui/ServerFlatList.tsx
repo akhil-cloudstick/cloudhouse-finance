@@ -3,7 +3,7 @@ import { usePullRefresh } from "@/common/hooks/use-pull-refresh";
 import { FlatList, View, type StyleProp, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SheetFlatList } from "./SheetFlatList";
-import { pullRefreshControl } from "./base";
+import { C, pullRefreshControl } from "./base";
 import { EmptyText } from "./EmptyText";
 import { Buffering, ReloadBuffer } from "./Buffering";
 import { AccRowKey } from "./rowContext";
@@ -32,6 +32,8 @@ type ServerFlatListProps<T> = {
   inSheet?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   stickyHeaderIndices?: number[];
+  /** Pin `header` (search / tabs) to the top while the rows scroll beneath it. */
+  stickyHeader?: boolean;
   /** A row to scroll to once it is loaded (-1 or omitted: none). */
   focusIndex?: number;
   /** Scroll to this offset on mount (e.g. keep a tab bar in view when the list is swapped). */
@@ -57,6 +59,7 @@ export function ServerFlatList<T>({
   inSheet,
   contentStyle,
   stickyHeaderIndices,
+  stickyHeader,
   focusIndex = -1,
   initialOffset,
   scrollKey,
@@ -94,16 +97,28 @@ export function ServerFlatList<T>({
       keyExtractor={(it, i) => keyOf(it as T, i)}
       renderItem={({ item, index }) => (
         <AccRowKey.Provider value={keyOf(item as T, index)}>
-          <View style={{ paddingHorizontal: gutter, opacity: reloading ? 0.45 : 1 }}>{renderItem(item as T, index)}</View>
+          <View style={{ paddingHorizontal: gutter }}>
+            {renderItem(item as T, index)}
+            {/* Dims the row while the list reloads. Fading the row itself (view opacity) made Android draw the
+                cards' box-shadows as heavy grey slabs; a page-coloured veil over it leaves the shadows alone. */}
+            {reloading ? <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: C.bg, opacity: 0.55 }} /> : null}
+          </View>
         </AccRowKey.Provider>
       )}
       ListHeaderComponent={
-        <>
-          {header}
-          <ReloadBuffer active={reloading} />
-        </>
+        stickyHeader ? (
+          <View style={{ backgroundColor: C.bg }}>
+            {header}
+            <ReloadBuffer active={reloading} />
+          </View>
+        ) : (
+          <>
+            {header}
+            <ReloadBuffer active={reloading} />
+          </>
+        )
       }
-      stickyHeaderIndices={stickyHeaderIndices}
+      stickyHeaderIndices={stickyHeader ? [0] : stickyHeaderIndices}
       ListEmptyComponent={
         list.isLoading || list.isRefreshing ? (
           <Buffering block />

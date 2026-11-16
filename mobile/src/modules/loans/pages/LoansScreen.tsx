@@ -100,7 +100,7 @@ export default function LoansScreen() {
       // One corner button that opens upward into both actions, like Bank Pledges.
       floating={can("Loan_Management", "can_create_loan") ? <FabMenu label="Loan actions" actions={[{ label: "New Loan", icon: "plus", onPress: shell.openNewLoan }, { label: "Draft loans", icon: "doc", onPress: () => setDraftsOpen(true) }]} /> : undefined}
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(l) => String(l.id)}

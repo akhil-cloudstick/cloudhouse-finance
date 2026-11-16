@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Pressable, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { C, ConfirmSheet, PIcon, PrimaryButton, Sheet, SheetFooter, Txt, toast, type AccAction } from "@/common/components/ui";
+import { C, ConfirmSheet, PIcon, PrimaryButton, Sheet, SheetFooter, TruncText, Txt, toast, type AccAction } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { userMessage } from "@/common/services/apiErrors";
 import { billDetail } from "@/common/components/BillLink";
@@ -59,7 +59,7 @@ function EntryInfoSheet({ info, onClose, onEdit, onDelete }: EntryInfoSheetProps
 
           <Txt style={{ fontSize: 13, fontWeight: "700", marginTop: 6, marginBottom: 6 }}>Remarks</Txt>
           <View style={{ borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, minHeight: 44 }}>
-            <Txt style={{ fontSize: 13.5, color: info.remarks ? undefined : C.muted }}>{info.remarks || "No remarks were added to this entry."}</Txt>
+            <TruncText lines={4} style={{ fontSize: 13.5, color: info.remarks ? undefined : C.muted }}>{info.remarks || "No remarks were added to this entry."}</TruncText>
           </View>
 
           {info.loanEntry === "service_charge" ? (
@@ -209,7 +209,14 @@ export function useEntryActions(entryId?: number, editable?: boolean, row?: Ledg
         <PIcon name="info" color={C.brandDeep} size={16} />
       </Pressable>
     ),
-    actions: entryId && editable ? [{ label: "Edit", onPress: () => setSheet("edit") }] : [],
+    // Edit and Delete sit right on the row (Delete used to be reachable only from inside the info sheet).
+    actions:
+      entryId && editable
+        ? [
+            { label: "Edit", onPress: () => setSheet("edit") },
+            ...(canDelete ? [{ label: "Delete", danger: true, onPress: () => { setDeleteError(null); setConfirmDelete(true); } }] : []),
+          ]
+        : [],
     sheets: (
       <>
         {sheet === "info" ? (

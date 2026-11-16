@@ -16,7 +16,7 @@ import { getCashSummary } from "@/modules/cash/services/cashService";
 import { approvePersonalLoan, deletePersonalLoan, getPersonalLoan, getPersonalLoanHistoryPage, getPersonalLoanSchedulePage, listPersonalLoanApprovals, listPersonalLoanPaymentsPage, personalLoanBondUrl } from "@/modules/personal-loans/services/personalLoanService";
 import type { PersonalLoan, PersonalLoanHistory, PersonalLoanInstallment, PersonalLoanPayment, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
 import { PersonalLedgerEditSheet } from "@/modules/personal-loans/components/PersonalLedgerEditSheet";
-import { CollectSheet, CreatePersonalLoanSheet, PER, RenewSheet, errMsg } from "@/modules/personal-loans/pages/PersonalLoansScreen";
+import { CollectSheet, CreatePersonalLoanSheet, PER, RenewSheet, errMsg, invalidateMoney } from "@/modules/personal-loans/pages/PersonalLoansScreen";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import { loadErrorText } from "@/common/services/apiErrors";
 
@@ -58,7 +58,6 @@ export default function PersonalLoanDetailScreen() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [bondOpen, setBondOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   // Editing / deleting a ledger entry recalculates the loan, so each has its own grant (shared with the gold-loan ledger).
   const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
   const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
@@ -106,7 +105,6 @@ export default function PersonalLoanDetailScreen() {
     const l = loan.data;
     if (!l || bondBusy) return;
     setBondBusy(lang);
-    setError(null);
     try {
       const token = await getToken();
       const targetUri = `${FileSystem.cacheDirectory}bond-${l.loanNumber}-${lang}.pdf`;
@@ -118,7 +116,7 @@ export default function PersonalLoanDetailScreen() {
       if (result.status < 200 || result.status >= 300) throw new ApiError(result.status, "", undefined);
       await presentFile(result.uri, { mimeType: "application/pdf", title: "Personal loan bond" });
     } catch (e) {
-      setError(errMsg(e, "Could not download the bond."));
+      toast.error(errMsg(e, "Could not download the bond."));
     } finally {
       setBondBusy(null);
     }
@@ -136,7 +134,7 @@ export default function PersonalLoanDetailScreen() {
         ...(editable ? [{ label: "Edit", icon: "edit", onPress: () => setEditLoan(l) }] : []),
         ...(canUpdate && active ? [{ label: "Collect", icon: "coin", onPress: () => setCollectLoan(l) }, { label: "Renew", icon: "transfer", onPress: () => setRenewLoan(l) }] : []),
         { label: bondBusy ? "Downloading…" : "Bond", icon: "download", onPress: () => setBondOpen(true) },
-        ...(canDeleteLedger ? [{ label: "Delete", icon: "trash", onPress: () => { setError(null); setDeleteOpen(true); } }] : []),
+        ...(canDeleteLedger ? [{ label: "Delete", icon: "trash", onPress: () => { setDeleteOpen(true); } }] : []),
       ]
     : [];
 
@@ -145,13 +143,13 @@ export default function PersonalLoanDetailScreen() {
     setDeleting(true);
     try {
       await deletePersonalLoan(l.id);
-      qc.invalidateQueries({ queryKey: ["personalLoans"] });
+      invalidateMoney(qc);
       toast.success(`${l.loanNumber} deleted`);
       setDeleteOpen(false);
       router.back();
     } catch (e) {
       setDeleteOpen(false);
-      setError(errMsg(e, "Could not delete the loan."));
+      toast.error(errMsg(e, "Could not delete the loan."));
     } finally {
       setDeleting(false);
     }
@@ -193,13 +191,12 @@ export default function PersonalLoanDetailScreen() {
             approveBlockedReason={approveBlockedReason}
             decide={(input) => approvePersonalLoan(l.id, input)}
             onSaved={() => {
-              setError(null);
-              qc.invalidateQueries({ queryKey: ["personalLoans"] });
+              invalidateMoney(qc);
               qc.invalidateQueries({ queryKey: ["personalLoan", String(l.id)] });
               qc.invalidateQueries({ queryKey: ["personalLoanApprovals", String(l.id)] });
               qc.invalidateQueries({ queryKey: ["personalLoanSchedule", l.id] });
             }}
-            onError={setError}
+            onError={(m) => toast.error(m)}
           />
           {(approvals.data ?? []).map((a) => (
             <Txt key={a.id} style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
@@ -229,7 +226,6 @@ export default function PersonalLoanDetailScreen() {
         <StatusChip label={l.status} />
       </View>
       {detailsCard}
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PillTabs
         tabs={DETAIL_TABS}
         value={tab}

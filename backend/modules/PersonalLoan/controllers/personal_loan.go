@@ -680,6 +680,12 @@ func SavePersonalLoanPayment(ctx context.Context, loanID uint, branchID *uint, i
 		if err := allocatePaymentToInstallments(ctx, tx, rec.ID, amount); err != nil {
 			return err
 		}
+		// Fully settled (principal and interest): no installment may be left "Partially Paid".
+		if newOutstanding <= epsilon {
+			if err := markAllInstallmentsPaid(ctx, tx, rec.ID); err != nil {
+				return err
+			}
+		}
 		_, groupID, err := cashbook.RecordLoanPaymentCashIn(cashbook.WithTx(ctx, tx), rec.ID, rec.LoanNumber, paidAmount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, rec.BranchID, paidOn, "Personal Loan Payment", rec.CustomerID, in.BankID)
 		if err != nil {
 			return fmt.Errorf("could not record the payment in Cash-in-Hand, payment not saved: %w", err)

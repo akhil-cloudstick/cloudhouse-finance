@@ -3,13 +3,13 @@
    (violet -> magenta -> amber). */
 :root {
   --lp-bg: #ffffff;
-  --lp-tint: #f6f4fc;
-  --lp-text: #1d1b2e;
-  --lp-muted: #5c5a70;
-  --lp-line: #e4e0f2;
-  --lp-brand: #6644de;
-  --lp-brand-dark: #4f31bd;
-  --lp-grad: linear-gradient(135deg, #6644de 0%, #c61f8f 55%, #f99603 100%);
+  --lp-tint: #faf6f6;
+  --lp-text: #2b1013;
+  --lp-muted: #6b5155;
+  --lp-line: #eee0e1;
+  --lp-brand: #6e1423;
+  --lp-brand-dark: #47041f;
+  --lp-grad: linear-gradient(135deg, #47041f 0%, #8a2035 55%, #c9a24b 100%);
 }
 
 * {
@@ -129,8 +129,8 @@ h3 {
 .lp-hero {
   padding: 72px 0 56px;
   background:
-    radial-gradient(900px 360px at 85% -10%, rgba(198, 31, 143, 0.12), transparent 60%),
-    radial-gradient(700px 320px at 0% 0%, rgba(102, 68, 222, 0.14), transparent 60%);
+    radial-gradient(900px 360px at 85% -10%, rgba(201, 162, 75, 0.12), transparent 60%),
+    radial-gradient(700px 320px at 0% 0%, rgba(110, 20, 35, 0.14), transparent 60%);
 }
 
 .lp-eyebrow {
@@ -168,6 +168,454 @@ h3 {
   margin-top: 22px;
   font-size: 14px;
   color: var(--lp-muted);
+}
+
+/* Hero (dark, two-column) */
+.lp-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 84px 0 96px;
+  color: #fff;
+  background: linear-gradient(135deg, #3f061c 0%, #47041f 55%, #3a0519 100%);
+}
+
+.lp-hero-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+}
+
+.lp-hero-glow-a {
+  width: 520px;
+  height: 520px;
+  top: -160px;
+  right: -80px;
+  background: rgba(201, 162, 75, 0.35);
+}
+
+.lp-hero-glow-b {
+  width: 460px;
+  height: 460px;
+  bottom: -200px;
+  left: -120px;
+  background: rgba(168, 71, 90, 0.5);
+}
+
+.lp-hero-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 40px;
+  align-items: center;
+}
+
+.lp-hero .lp-eyebrow {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #e6c878;
+}
+
+.lp-hero h1 {
+  max-width: 600px;
+  font-size: clamp(34px, 5.2vw, 56px);
+}
+
+.lp-grad-text {
+  background: linear-gradient(90deg, #e6c878, #c9a24b);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lp-hero .lp-lead,
+.lp-hero .lp-note {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.lp-btn-light {
+  background: #fff;
+  color: #3b0d14;
+  border-color: #fff;
+}
+
+.lp-btn-light:hover {
+  background: #f7eed8;
+  color: #3b0d14;
+}
+
+.lp-btn-outline {
+  background: transparent;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.lp-btn-outline:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.lp-hero-chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 26px;
+}
+
+.lp-hero-chips li {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6c878;
+  border: 1px solid rgba(201, 162, 75, 0.45);
+  background: rgba(201, 162, 75, 0.1);
+}
+
+/* Hero visual */
+.lp-hero-visual {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.lp-phone {
+  position: relative;
+  width: 270px;
+  padding: 10px;
+  border-radius: 40px;
+  background: #1a0508;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 40px 80px rgba(0, 0, 0, 0.5), 0 0 0 6px rgba(255, 255, 255, 0.04);
+  transform: rotate(3deg);
+}
+
+.lp-phone-notch {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  width: 70px;
+  height: 18px;
+  border-radius: 999px;
+  background: #0d0715;
+  transform: translateX(-50%);
+  z-index: 2;
+}
+
+.lp-phone-screen {
+  border-radius: 30px;
+  overflow: hidden;
+  background: #fff;
+  color: var(--lp-text);
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+  background: #faf6f6;
+}
+
+/* Mirrors the app's Dashboard hero: nav -> nav2 -> brand, 135deg */
+.lp-app-hero {
+  padding-bottom: 14px;
+  background: linear-gradient(135deg, #3b0d14 0%, #6e1423 55%, #8a2035 100%);
+  color: #fff;
+}
+
+.lp-app-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 16px 8px;
+  font-size: 12px;
+}
+
+.lp-app-top div {
+  flex: 1;
+}
+
+.lp-app-top small {
+  display: block;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.lp-app-ic {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.lp-app-sum {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #2b1013;
+}
+
+.lp-app-sum span {
+  color: #7a5a5e;
+}
+
+.lp-app-actions i svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lp-app-tabs span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.lp-app-tabs i {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1.5px solid currentColor;
+}
+
+.lp-app-fab svg {
+  width: 16px;
+  height: 16px;
+}
+
+.lp-app-fab {
+  display: grid !important;
+  place-items: center;
+}
+
+.lp-app-ic-first {
+  margin-left: auto;
+}
+
+.lp-app-cash {
+  padding: 6px 16px 10px;
+}
+
+.lp-app-rates {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 12px 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lp-app-rates span small {
+  display: block;
+  font-size: 8px;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.lp-app-rates em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 10px;
+  color: #7be0a4;
+}
+
+.lp-app-seg {
+  display: flex;
+  margin: 0 12px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.lp-app-seg span {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 999px;
+  opacity: 0.8;
+}
+
+.lp-app-seg .on {
+  background: #fff;
+  color: #3b0d14;
+  opacity: 1;
+}
+
+.lp-app-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  margin-top: auto;
+  padding: 10px 6px 14px;
+  background: #fff;
+  border-top: 1px solid #eee0e1;
+  font-size: 8px;
+  color: #7a5a5e;
+}
+
+.lp-app-tabs .on {
+  color: #8a2035;
+  font-weight: 700;
+}
+
+.lp-app-fab {
+  width: 34px;
+  height: 34px;
+  margin-top: -22px;
+  border-radius: 50%;
+  background: #6e1423;
+  box-shadow: 0 6px 14px rgba(110, 20, 35, 0.45);
+}
+
+.lp-app-cash small {
+  display: block;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.lp-app-cash b {
+  font-size: 24px;
+  font-family: var(--font-display), sans-serif;
+}
+
+.lp-app-body {
+  padding: 14px 14px 18px;
+  border-radius: 22px 22px 0 0;
+  margin-top: -2px;
+  background: #fff;
+  position: relative;
+  flex: 1;
+}
+
+.lp-app-actions i {
+  display: grid;
+  place-items: center;
+}
+
+.lp-app-h {
+  display: block;
+  margin: 4px 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a2035;
+}
+
+.lp-app-actions,
+.lp-app-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.lp-app-actions span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.lp-app-actions i {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #eee0e1;
+}
+
+.lp-app-stats span {
+  padding: 10px 6px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #eee0e1;
+  font-size: 10px;
+  text-align: center;
+  color: var(--lp-muted);
+}
+
+.lp-app-stats b {
+  display: block;
+  font-size: 16px;
+  color: var(--lp-text);
+}
+
+.lp-float {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  animation: lp-bob 6s ease-in-out infinite;
+}
+
+.lp-float-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.lp-float em {
+  font-style: normal;
+  font-size: 12px;
+  color: #7be0a4;
+}
+
+.lp-float-a {
+  top: 30px;
+  left: -40px;
+}
+
+.lp-float-b {
+  bottom: 50px;
+  right: -10px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  animation-delay: -3s;
+}
+
+.lp-float-b div {
+  display: flex;
+  flex-direction: column;
+}
+
+.lp-float-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #7be0a4;
+  box-shadow: 0 0 0 5px rgba(123, 224, 164, 0.25);
+}
+
+@keyframes lp-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-float {
+    animation: none;
+  }
 }
 
 /* Sections */
@@ -331,7 +779,20 @@ h3 {
   }
 
   .lp-hero {
-    padding: 48px 0 40px;
+    padding: 48px 0 56px;
+  }
+
+  .lp-hero-row {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .lp-float-a {
+    left: 0;
+  }
+
+  .lp-float-b {
+    right: 0;
   }
 
   .lp-section {
@@ -341,4 +802,12 @@ h3 {
   .lp-nav a:not(.lp-btn) {
     display: none;
   }
+}
+
+/* Hero phone image (real app screenshot), edges faded into the hero */
+.lp-hero-phone {
+  display: block;
+  width: min(100%, 400px);
+  height: auto;
+  filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.45));
 }

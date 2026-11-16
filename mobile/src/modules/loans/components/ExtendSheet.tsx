@@ -6,7 +6,7 @@ import { createExtensionRequest } from "@/modules/loans/services/loanService";
 import { dmy, inr } from "@/common/utils/format";
 import type { Loan, LoanRequest } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
-import { ErrorText } from "@/common/components/ErrorText";
+import { FieldErr } from "@/common/components/ErrorText";
 import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
 
 type ExtendSheetProps = {
@@ -32,7 +32,7 @@ export function ExtendSheet({
   // backend change.
   const [monthsText, setMonthsText] = useState("1");
   const [detail, setDetail] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const [paying, setPaying] = useState(false);
   // Guards against a fast double-tap creating two duplicate requests (the
   // button's disabled state only lands on the next render).
@@ -42,7 +42,7 @@ export function ExtendSheet({
     if (visible) {
       setMonthsText("1");
       setDetail("");
-      setError(null);
+      setTried(false);
     }
   }, [visible]);
 
@@ -72,23 +72,21 @@ export function ExtendSheet({
     },
     onError: (e) => {
       if (e instanceof Error && e.message === "__duplicate_submit__") return;
-      setError(apiErr(e));
+      toast.error(apiErr(e));
     },
   });
 
   if (pending) {
     return (
       <Sheet visible={visible} onClose={onClose} title={`Review Extension — ${l.loanNumber}`} maxHeightPct={85}>
-        <ErrorText>{error}</ErrorText>
         <ExtensionReviewPanel
           request={pending}
           loan={l}
           onSaved={() => {
-            setError(null);
             invalidateLoan(qc, l.id);
             onClose();
           }}
-          onError={setError}
+          onError={(m) => toast.error(m)}
         />
       </Sheet>
     );
@@ -117,17 +115,16 @@ export function ExtendSheet({
           placeholder="e.g. 3"
         />
       </Field>
-      {!monthsValid && monthsText.trim() !== "" ? <ErrorText>Enter a whole number of months (1–60).</ErrorText> : null}
-      <TextField label="Reason" placeholder="e.g. customer requested extension" value={detail} onChangeText={setDetail} />
-      <ErrorText>{error}</ErrorText>
+      <FieldErr m={tried && !monthsValid ? "Enter a whole number of months (1–60)." : undefined} />
+      <TextField label="Reason" maxLength={150} placeholder="e.g. customer requested extension" value={detail} onChangeText={setDetail} />
       <PrimaryButton
         label="Confirm Extension"
         onPress={() => {
-          setError(null);
+          if (blocked) return toast.error("Pay the outstanding interest first — use Collect Payment.");
+          if (!monthsValid) return setTried(true);
           request.mutate();
         }}
         loading={request.isPending}
-        disabled={blocked || !monthsValid}
       />
     </Sheet>
   );

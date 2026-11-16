@@ -211,16 +211,13 @@ export function PTabBar({ state: viewState, emitter, navigateToTab }: BottomTabB
           }
           return (
             <Pressable key={t.route} style={s.tab} onPressIn={() => go(t.route)} accessibilityLabel={t.label}>
+              {/* One pill holds the icon and the name, so the highlight covers both. */}
               <View style={s.tabIc}>
                 <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcActive, { opacity: tabLit[i] }]} />
                 <PIcon name={t.icon} color={C.muted} />
+                <Txt style={s.tabLbl}>{t.label}</Txt>
                 <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcOverlay, { opacity: tabLit[i] }]}>
                   <PIcon name={t.icon} color={C.brandDeep} />
-                </Animated.View>
-              </View>
-              <View>
-                <Txt style={s.tabLbl}>{t.label}</Txt>
-                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: tabLit[i] }]}>
                   <Txt style={[s.tabLbl, s.tabLblActive]}>{t.label}</Txt>
                 </Animated.View>
               </View>
@@ -231,8 +228,8 @@ export function PTabBar({ state: viewState, emitter, navigateToTab }: BottomTabB
           <Pressable style={s.tab} onPressIn={openMore} accessibilityLabel="More">
             <View style={[s.tabIc, !isPrimary && s.tabIcActive]}>
               <PIcon name="dots" color={!isPrimary ? C.brandDeep : C.muted} />
+              <Txt style={[s.tabLbl, !isPrimary && s.tabLblActive]}>More</Txt>
             </View>
-            <Txt style={[s.tabLbl, !isPrimary && s.tabLblActive]}>More</Txt>
           </Pressable>
         ) : null}
       </View>

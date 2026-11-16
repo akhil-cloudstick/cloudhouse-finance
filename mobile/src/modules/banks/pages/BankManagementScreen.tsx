@@ -56,7 +56,7 @@ export default function BankManagementScreen() {
       header={<FlatHeader title="Bank Management" subtitle="Banks & net balance" />}
       floating={canManage ? <FabCorner onPress={() => { setEditBank(null); setManageOpen(true); }} label="Manage banks" /> : undefined}
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(b) => String(b.id)}

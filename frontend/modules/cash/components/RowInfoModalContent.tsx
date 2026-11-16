@@ -52,10 +52,14 @@ export function RowInfoModalContent({ row }: RowInfoModalContentProps) {
             </table></div>
           </>
         )}
-        <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Description</h4>
-        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, whiteSpace: "pre-wrap", minHeight: 40 }}>
-          {row.description || row.type || "—"}
-        </div>
+        {!(row.split && row.split.length > 0) && (
+          <>
+            <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Description</h4>
+            <div className="addl-info boxed">
+              {row.description || row.type || "—"}
+            </div>
+          </>
+        )}
         {accrualRow && (
           <p style={{ margin: "14px 0 0", fontSize: 12.5, color: "var(--muted)" }}>This charge is calculated from the loan&apos;s sanction and rate — it cannot be edited on its own.</p>
         )}

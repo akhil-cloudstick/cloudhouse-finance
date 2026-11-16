@@ -112,26 +112,48 @@ export default function LandingPage() {
 
       <main>
         <section className="lp-hero">
-          <div className="lp-wrap">
-            <p className="lp-eyebrow">Software for licensed gold lenders</p>
-            <h1>Run your gold lending business from one app.</h1>
-            <p className="lp-lead">
-              CloudHouse Finance gives lenders a staff app and a back office for customer KYC, gold
-              appraisal, loan records, vault tracking and reports, so branches stay organised and
-              nothing lives in a register.
-            </p>
-            <div className="lp-actions">
-              <a className="lp-btn" href={`mailto:${SUPPORT_EMAIL}?subject=CloudHouse%20Finance%20enquiry`}>
-                Talk to us
-              </a>
-              <a className="lp-btn lp-btn-ghost" href="#how-it-works">
-                See how it works
-              </a>
+          <div className="lp-hero-glow lp-hero-glow-a" aria-hidden="true" />
+          <div className="lp-hero-glow lp-hero-glow-b" aria-hidden="true" />
+          <div className="lp-wrap lp-hero-row">
+            <div className="lp-hero-copy">
+              <p className="lp-eyebrow">Software for licensed gold lenders</p>
+              <h1>
+                Run your gold lending business from <span className="lp-grad-text">one app.</span>
+              </h1>
+              <p className="lp-lead">
+                CloudHouse Finance gives lenders a staff app and a back office for customer KYC, gold
+                appraisal, loan records, vault tracking and reports, so branches stay organised and
+                nothing lives in a register.
+              </p>
+              <div className="lp-actions">
+                <a className="lp-btn lp-btn-light" href={`mailto:${SUPPORT_EMAIL}?subject=CloudHouse%20Finance%20enquiry`}>
+                  Talk to us
+                </a>
+                <a className="lp-btn lp-btn-outline" href="#how-it-works">
+                  See how it works
+                </a>
+              </div>
+              <ul className="lp-hero-chips" aria-label="Highlights">
+                <li>Multi-branch</li>
+                <li>Role-based access</li>
+                <li>QR vault tracking</li>
+              </ul>
+              <p className="lp-note">
+                This app is for lenders&rsquo; staff. CloudHouse does not make loans and is not open to
+                loan applicants.
+              </p>
             </div>
-            <p className="lp-note">
-              This app is for lenders&rsquo; staff. CloudHouse does not make loans and is not open to
-              loan applicants.
-            </p>
+
+            <div className="lp-hero-visual" aria-hidden="true">
+              <div className="lp-float lp-float-a">
+                <span className="lp-float-label">Gold rate today</span>
+                <strong>24K &middot; &#8377;7,420/g</strong>
+                <em>&#9650; 0.4%</em>
+              </div>
+
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="lp-hero-phone" src="/hero-phone.png" alt="" width={700} height={1050} />
+            </div>
           </div>
         </section>
 

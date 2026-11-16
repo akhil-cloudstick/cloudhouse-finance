@@ -76,7 +76,7 @@ export default function LoanRiskScreen() {
 
   return (
     <Screen header={<FlatHeader title="Loan Risk" subtitle="Risk assessment across active loans" />}>
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(r) => String(r.loanId)}

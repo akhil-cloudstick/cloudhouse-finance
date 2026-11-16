@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from "@/common/theme/colors";
 import React, { useState } from "react";
 import { View, TextInput, type TextInputInstance, type TextInputProps } from "react-native";
 import { typeScale } from "@/common/theme/typography";
@@ -41,7 +42,7 @@ export function AuthField({ label, icon, right, onFocus, onBlur, ...rest }: Fiel
           placeholderTextColor={colors.muted}
           importantForAutofill="no"
           autoComplete="off"
-          selectionColor={colors.brand}
+          selectionColor={SELECTION_COLOR}
           cursorColor={colors.brand}
           onFocus={(e) => {
             setFocused(true);

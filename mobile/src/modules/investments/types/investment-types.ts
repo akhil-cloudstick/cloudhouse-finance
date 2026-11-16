@@ -52,6 +52,9 @@ export type Investment = {
   interestWithdrawn: number;
   outstandingInterest: number;
   lastAccrualDate: string | null;
+  // Scheduled engine — interest due/earned at close and principal already returned (server-computed).
+  settlementInterest?: number;
+  principalReturned?: number;
 };
 
 export type InvestmentTransactionType = "Deposit" | "Withdrawal";

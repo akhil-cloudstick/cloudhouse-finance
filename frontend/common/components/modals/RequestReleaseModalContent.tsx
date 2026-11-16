@@ -203,8 +203,8 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
          * wireframe note on why these live figures stay out of `.notice`. */}
         <div className="kv" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>
           <div className="i"><div className="k">Minimum Amount to Release the Gold</div>
-            <div className="v" style={{ color: conditionMet ? "var(--green, #1a7f37)" : "var(--red)" }}>
-              {allSelected ? fmt(loan.settlementAmount) : conditionMet ? "₹0" : fmt(remaining)}
+            <div className="v" style={{ color: picked.size === 0 ? "var(--muted)" : conditionMet ? "var(--green, #1a7f37)" : "var(--red)" }}>
+              {picked.size === 0 ? "—" : allSelected ? fmt(loan.settlementAmount) : conditionMet ? "₹0" : fmt(remaining)}
             </div>
           </div>
         </div>

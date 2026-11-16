@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { BtnRow2, Buffering, C, PrimaryButton, Sheet, Txt, WarningBanner, openPage } from "@/common/components/ui";
+import { BoundedList, BtnRow2, Buffering, C, PIcon, PrimaryButton, Sheet, StatusChip, Txt, WarningBanner, openPage } from "@/common/components/ui";
 import { useCanOpen } from "@/common/config/routePermissions";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { listPersonalLoansForCustomer } from "@/modules/personal-loans/services/personalLoanService";
@@ -63,21 +63,25 @@ export function DeleteCustomerSheet({ visible, onClose, customer: c, loading, er
       {q.isFetching && !q.data ? <Buffering block /> : null}
       {blocked ? (
         <View style={{ marginTop: 12 }}>
-          <Txt style={{ color: C.red, fontWeight: "700", fontSize: 13, marginBottom: 4 }}>Linked records</Txt>
-          <Txt style={{ color: C.red, fontSize: 12.5, marginBottom: 6 }}>Delete or close these first, then this can be deleted.</Txt>
-          {blockers.map((b) => (
-            <View key={b.key} style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 3 }}>
-              <Txt style={{ color: C.red, fontSize: 13 }}>{b.kind} </Txt>
-              {b.path ? (
-                <Pressable onPress={() => { onClose(); openPage(b.path!); }} hitSlop={6}>
-                  <Txt style={{ color: C.red, fontSize: 13, fontWeight: "700", textDecorationLine: "underline" }}>{b.ref}</Txt>
-                </Pressable>
-              ) : (
-                <Txt style={{ color: C.red, fontSize: 13, fontWeight: "700" }}>{b.ref}</Txt>
-              )}
-              {b.status ? <Txt style={{ color: C.red, fontSize: 13 }}> ({b.status})</Txt> : null}
-            </View>
-          ))}
+          <Txt style={{ color: C.red, fontWeight: "700", fontSize: 13, marginBottom: 2 }}>Can&apos;t delete yet — {blockers.length} linked record{blockers.length === 1 ? "" : "s"}</Txt>
+          <Txt style={{ color: C.muted, fontSize: 12.5, marginBottom: 8 }}>Delete or close these first, then this can be deleted. Tap one to open it.</Txt>
+          <BoundedList rows={4} caption={`${blockers.length} record${blockers.length === 1 ? "" : "s"} — scroll to see all`}>
+            {blockers.map((b, i) => (
+              <Pressable
+                key={b.key}
+                disabled={!b.path}
+                onPress={() => { onClose(); openPage(b.path!); }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, minHeight: 58, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: C.line }}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Txt style={{ fontSize: 13.5, fontWeight: "800", color: b.path ? C.brandDeep : C.ink }}>{b.ref}</Txt>
+                  <Txt style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{b.kind}</Txt>
+                </View>
+                {b.status ? <StatusChip label={b.status} /> : null}
+                {b.path ? <PIcon name="chevright" color={C.muted} /> : null}
+              </Pressable>
+            ))}
+          </BoundedList>
         </View>
       ) : null}
       {!q.isFetching && !blocked && !q.isError ? <Txt style={{ marginTop: 10, fontSize: 12.5, color: C.muted }}>No linked records — safe to delete.</Txt> : null}

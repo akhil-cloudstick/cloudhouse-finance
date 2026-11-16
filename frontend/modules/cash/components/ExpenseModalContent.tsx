@@ -44,7 +44,7 @@ type ExpenseModalContentProps = { onSaved?: () => void; tabs?: ReactNode; edit?:
  * Mode is a payment breakdown: one or more lines (mode, amount, bank), each
  * saved as its own expense and approved together. */
 export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContentProps) {
-  const { closeModal } = useModal();
+  const { closeModal, closeAllModals } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -127,7 +127,7 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
           kind: "debit", category: cat, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
         });
         onSaved?.();
-        closeModal();
+        closeAllModals();
         toast("Expense updated");
         return;
       }

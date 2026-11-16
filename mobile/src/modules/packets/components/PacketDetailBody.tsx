@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AsyncSelect, Buffering, BtnRow2, C, Card, Field, FieldGrid, Input, MoveItem, PrimaryButton, SectionTitle, Sheet, Stepper, Txt, WarningBanner } from "@/common/components/ui";
+import { AsyncSelect, Buffering, BtnRow2, C, Card, FieldGrid, MoveItem, PrimaryButton, SectionTitle, Sheet, Stepper, Txt, WarningBanner, toast } from "@/common/components/ui";
+import { FieldErr } from "@/common/components/ErrorText";
+import { invalidateLoan } from "@/common/components/loanSheetKit";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { BankPledgeSheet } from "@/modules/loans/components/BankPledgeSheet";
@@ -29,7 +31,6 @@ const PLEDGE_INELIGIBLE = ["Closed", "Rejected", "Closure Requested", "Pending A
 const canAcceptBankPledge = (status: string, bankPledgeStatus: string) => !PLEDGE_INELIGIBLE.includes(status) && bankPledgeStatus !== "Bank Pledged";
 const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
 const g = (n?: number) => `${+(n ?? 0).toFixed(2)} g`;
-const errText = (msg: string | null) => (msg ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{msg}</Txt> : null);
 type PacketDetailBodyProps = { packetId: number; onOpenLoan: (loanId: number) => void };
 
 /** Packet detail body — used by the Packets sheet and the /packets/[id]
@@ -40,6 +41,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   const { employee, can } = useAuth();
   const canMove = can("Packet_Management", "can_update_packet");
   const canBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  const canUpdatePledge = can("Bank_Pledge_Management", "can_update_bank_pledge");
   const canViewLoans = can("Loan_Management", "can_view_loan_module");
   const key = String(packetId);
 
@@ -53,13 +55,10 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   const [changeOpen, setChangeOpen] = useState(false);
   const [pledgeBusy, setPledgeBusy] = useState(false);
   const [locker, setLocker] = useState<Locker | null>(null);
-  const [remarks, setRemarks] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [lockerTried, setLockerTried] = useState(false);
 
   useEffect(() => {
-    setError(null);
-    setLocker(null);
-    setRemarks("");
+    setLocker(null); setLockerTried(false);
   }, [packetId]);
 
   // Movement rows and the current locker carry only an id — resolve codes
@@ -74,23 +73,28 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   const lockerCode0 = (lid?: number) => (lid ? lockerLookups[lockerIds.indexOf(lid)]?.data?.code ?? `#${lid}` : undefined);
 
   const move = useMutation({
-    mutationFn: (input: { toStatus: string; lockerId?: number }) =>
-      movePacket(packetId, { ...input, employeeId: employee!.id, remarks: remarks.trim() || undefined }),
+    mutationFn: (input: { toStatus: string; lockerId?: number }) => {
+      if (!employee) throw new Error("No signed-in employee — sign in again to move packets.");
+      return movePacket(packetId, { ...input, employeeId: employee.id });
+    },
     onSuccess: (updated) => {
       setCheckInOpen(false);
       setChangeOpen(false);
       setReleaseOpen(false);
-      setRemarks("");
-      setLocker(null);
-      setError(null);
+      setLocker(null); setLockerTried(false);
       qc.setQueryData(["packet", key], updated);
       qc.invalidateQueries({ queryKey: ["packet", key] });
       qc.invalidateQueries({ queryKey: ["packets"] });
       qc.invalidateQueries({ queryKey: ["lockers"] });
       qc.invalidateQueries({ queryKey: ["locker"] });
       qc.invalidateQueries({ queryKey: ["loanPacket"] });
+      if (packet.data?.loanId) {
+        invalidateLoan(qc, packet.data.loanId);
+        qc.invalidateQueries({ queryKey: ["loan", packet.data.loanId] }); // numeric-key variant used on this page
+      }
+      qc.invalidateQueries({ queryKey: ["loans"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not record movement."),
+    onError: (err) => toast.error(err instanceof ApiError || (err instanceof Error && !employee) ? err.message : "Could not record movement."),
   });
 
   if (packet.isLoading) return <Buffering block />;
@@ -122,24 +126,37 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
   const canRelease = status === LOCKER_STORED || status === RETURNED || status === READY_FOR_RELEASE;
   const canRepledge = status === LOCKER_STORED && canBankPledge;
   async function openPledge() {
-    setError(null);
     setPledgeBusy(true);
     try {
       const loan = await getLoan(p.loanId);
       if (!canAcceptBankPledge(loan.status ?? "", loan.bankPledgeStatus ?? "")) {
-        setError("This loan can no longer be re-pledged to a bank.");
+        toast.error("This loan can no longer be re-pledged to a bank.");
         return;
       }
       qc.setQueryData(["loan", p.loanId], loan);
       setPledgeOpen(true);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
+      toast.error(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
     } finally {
       setPledgeBusy(false);
     }
   }
 
-  const hasActions = canMove && !movementLocked && (canCheckIn || canRelease || canRepledge);
+  // A packet whose gold is with a bank: the Bank Pledge sheet is where it is released (it returns the packet here as "Returned").
+  const canReleasePledge = status === BANK_PLEDGED && canUpdatePledge && !movementLocked;
+  async function openRelease() {
+    setPledgeBusy(true);
+    try {
+      qc.setQueryData(["loan", p.loanId], await getLoan(p.loanId));
+      setPledgeOpen(true);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
+    } finally {
+      setPledgeBusy(false);
+    }
+  }
+
+  const hasActions = canMove && !!employee &&!movementLocked && (canCheckIn || canRelease || canRepledge);
 
   const actionNote = movementLocked
     ? `${isAuctioned ? "The loan was auctioned" : loanStatus === "Rejected" ? "The loan was rejected" : "The loan is closed"} — no further packet movements are possible.`
@@ -149,7 +166,9 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
         ? "This packet has been released to the customer — no further actions."
         : !canMove
           ? "You don't have permission to move packets."
-          : null;
+          : !employee
+            ? "No signed-in employee — sign in again to move packets."
+            : null;
 
   return (
     <>
@@ -212,7 +231,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
         Actions
       </SectionTitle>
       {actionNote ? <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>{actionNote}</Txt> : null}
-      {errText(error)}
+      {canReleasePledge ? <PrimaryButton label="Release from Bank Pledge" variant="outline" loading={pledgeBusy} style={{ marginBottom: 14 }} onPress={openRelease} /> : null}
       {hasActions ? (
         <>
           {canCheckIn || canRepledge ? (
@@ -222,9 +241,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
                   label="Check In to Locker"
                   variant="outline"
                   onPress={() => {
-                    setError(null);
-                    setLocker(null);
-                    setRemarks("");
+                    setLocker(null); setLockerTried(false);
                     setCheckInOpen(true);
                   }}
                 />
@@ -235,7 +252,7 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
             </BtnRow2>
           ) : null}
           {status === LOCKER_STORED ? (
-            <PrimaryButton label="Change Locker" variant="outline" style={{ marginBottom: 10 }} onPress={() => { setError(null); setLocker(null); setRemarks(""); setChangeOpen(true); }} />
+            <PrimaryButton label="Change Locker" variant="outline" style={{ marginBottom: 10 }} onPress={() => { setLocker(null); setLockerTried(false); setChangeOpen(true); }} />
           ) : null}
           {canRelease ? (
             <PrimaryButton
@@ -243,8 +260,6 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
               variant="danger"
               style={{ marginBottom: 16 }}
               onPress={() => {
-                setError(null);
-                setRemarks("");
                 setReleaseOpen(true);
               }}
             />
@@ -300,20 +315,16 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
           onClear={() => setLocker(null)}
           onSelect={(l) => {
             setLocker(l);
-            setError(null);
           }}
           keyOf={(l) => l.id}
           renderItem={(l) => ({ title: `${l.code} (${l.occupied}/${l.capacity})`, sub: l.branch?.name })}
         />
-        <Field label="Remarks (optional)">
-          <Input value={remarks} onChangeText={setRemarks} placeholder="Add a note" />
-        </Field>
-        {errText(error)}
+        <FieldErr m={lockerTried && !locker ? "Select a locker." : undefined} />
+        {/* Checking in or changing a locker takes no remarks on mobile (the web form has none either). */}
         <PrimaryButton
           label={changeOpen ? "Confirm Change" : "Confirm Check-In"}
-          onPress={() => locker && move.mutate({ toStatus: LOCKER_STORED, lockerId: locker.id })}
+          onPress={() => (locker ? move.mutate({ toStatus: LOCKER_STORED, lockerId: locker.id }) : setLockerTried(true))}
           loading={move.isPending}
-          disabled={!locker}
         />
       </Sheet>
 
@@ -321,10 +332,6 @@ export function PacketDetailBody({ packetId, onOpenLoan }: PacketDetailBodyProps
 
       <Sheet visible={releaseOpen} onClose={() => setReleaseOpen(false)} title="Release Packet" maxHeightPct={60}>
         <WarningBanner>This hands {p.code}&apos;s gold back to the customer. This can&apos;t be undone.</WarningBanner>
-        <Field label="Remarks (optional)">
-          <Input value={remarks} onChangeText={setRemarks} placeholder="Add a note" />
-        </Field>
-        {errText(error)}
         <BtnRow2>
           <PrimaryButton label="Cancel" variant="outline" onPress={() => setReleaseOpen(false)} />
           <PrimaryButton label="Release Packet" variant="danger" onPress={() => move.mutate({ toStatus: RELEASED })} loading={move.isPending} />

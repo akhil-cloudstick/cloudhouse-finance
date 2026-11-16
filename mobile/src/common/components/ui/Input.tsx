@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from "@/common/theme/colors";
 import React, { useState } from "react";
 import { TextInput, type TextInputInstance, type TextInputProps } from "react-native";
 import { C } from "./base";
@@ -11,9 +12,13 @@ export function Input({ style, editable = true, ...rest }: TextInputProps & { re
   return (
     <TextInput
       placeholderTextColor={C.placeholder}
+      cursorColor={C.brand}
+      selectionColor={SELECTION_COLOR}
       autoComplete="off"
       importantForAutofill="no"
       textContentType="none"
+      autoCorrect={false}
+      spellCheck={false}
       allowFontScaling={false}
       editable={editable}
       inputAccessoryViewID={doneBarFor(rest.keyboardType)}

@@ -9,6 +9,7 @@ import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { shareMovementsPdf } from "@/common/utils/ledgerExport";
 import { inr } from "@/common/utils/format";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { NoAccess } from "@/common/components/NoAccess";
 import { useExpenseCategoryIds } from "@/common/components/LedgerList";
 import { MOVEMENT_TYPE_OPTIONS, balancesFromPages, totalsFromPages } from "@/common/components/movementLedger";
 import { MovementRow } from "@/common/components/MovementRow";
@@ -26,7 +27,10 @@ type Filters = { types: string[]; customerIds: number[]; fromDate?: string; toDa
 export default function BranchLedgerScreen() {
   const { id, label } = useLocalSearchParams<{ id: string; label?: string }>();
   const branchId = Number(id);
-  const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
+  const { can } = useAuth();
+  const canExport = can("Ledger_Export", "can_export_ledger");
+  // Same key as the Ledger button on the Branches list; /branches/[id] is otherwise only gated by the branches module.
+  const canViewLedger = can("Branch_Management", "can_view_branch_ledger");
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const [exporting, setExporting] = useState(false);
   const categoryIds = useExpenseCategoryIds();
@@ -71,7 +75,7 @@ export default function BranchLedgerScreen() {
         types: p.types,
       }),
     filters,
-    enabled: branchId > 0,
+    enabled: branchId > 0 && canViewLedger,
     fresh: true,
   });
   const balances = useMemo(() => balancesFromPages(list.pages), [list.pages]);
@@ -91,6 +95,8 @@ export default function BranchLedgerScreen() {
       setExporting(false);
     }
   }
+
+  if (!canViewLedger) return <NoAccess />;
 
   return (
     <Screen header={<FlatHeader title={label ? `${label} — Ledger` : "Branch Ledger"} subtitle="Every cash movement recorded against this branch" back />}>

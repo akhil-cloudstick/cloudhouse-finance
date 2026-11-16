@@ -24,7 +24,7 @@ import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
-import { ErrorText } from "@/common/components/ErrorText";
+import { FieldErr } from "@/common/components/ErrorText";
 import { GoldAtBankBlock } from "@/modules/auctions/components/GoldAtBankBlock";
 import { getLoan } from "@/modules/loans/services/loanService";
 import { printAuctionLetter } from "@/modules/loans/utils/loanPrint";
@@ -61,7 +61,7 @@ export function AuctionSheet({
   // Gold sitting with a bank cannot be noticed, scheduled or sold (the server rejects it too); settling is unaffected.
   const goldAtBank = l.bankPledgeStatus === "Bank Pledged";
   const aw = (k: string) => canAct && !(goldAtBank && k !== "can_settle_auction") && can("Auction_Workflow", k);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const [auctionDate, setAuctionDate] = useState(todayISO());
   const [printing, setPrinting] = useState(false);
   const [referenceNumber, setReferenceNumber] = useState("");
@@ -73,11 +73,11 @@ export function AuctionSheet({
   const [decisionRemarks, setDecisionRemarks] = useState("");
 
   const ok = () => {
-    setError(null);
+    setTried(false);
     invalidateLoan(qc, l.id);
     qc.invalidateQueries({ queryKey: ["auctionHistory"] });
   };
-  const onError = (e: unknown) => setError(apiErr(e));
+  const onError = (e: unknown) => toast.error(apiErr(e));
   const id = l.id;
 
   const eligible = useMutation({ mutationFn: () => markAuctionEligible(id), onSuccess: ok, onError });
@@ -123,6 +123,19 @@ export function AuctionSheet({
   });
 
   const decisionReq = pendingDecision(rec);
+  // Every missing mandatory input, keyed by field; shown under the field once the stage's button is pressed.
+  const errs: Record<string, string> = {};
+  if (!decision) errs.decision = "Select a decision.";
+  if (decisionReq?.kind === "Shortfall" && !decisionRemarks.trim()) errs.decisionRemarks = "Enter the remarks.";
+  if (!auctionDate) errs.auctionDate = "Pick the auction date.";
+  if (!(Number(saleAmount) > 0)) errs.saleAmount = "Enter the sale amount.";
+  if (Number(expenses) > Number(saleAmount) && Number(saleAmount) > 0) errs.expenses = "Auction expenses cannot be more than the sale amount.";
+  if (Number(saleAmount) > 0 && !salePay?.ready) errs.salePay = "The payment breakdown must add up to the sale amount, with a bank for every UPI / Bank Transfer line.";
+  if (!disposition) errs.disposition = "Select the surplus disposition.";
+  if (disposition === "RecordedAsIncome" && !dispositionRemarks.trim()) errs.dispositionRemarks = "Enter the remarks.";
+  if (!refundOk) errs.refund = refundPay && refundModes.length > 1 ? "Refund the surplus in one payment mode — Cash, UPI or Bank Transfer." : "The refund breakdown must add up to the surplus, with a bank for UPI / Bank Transfer.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
+  const gate = (keys: string[], go: () => void) => () => (keys.some((k) => errs[k]) ? setTried(true) : go());
   // While an escalation is open the pipeline is frozen server-side.
   const frozen = !!decisionReq;
   // Who may decide is the flow's own "Auction Workflow" permission; with the
@@ -165,7 +178,6 @@ export function AuctionSheet({
           ) : aw("can_mark_loan_auction_eligible") ? (
             <>
               <NoticeBanner>This loan has defaulted and can be moved into the auction pipeline.</NoticeBanner>
-              <ErrorText>{error}</ErrorText>
               <PrimaryButton label="Mark Auction Eligible" onPress={() => eligible.mutate()} loading={eligible.isPending} />
             </>
           ) : (
@@ -205,18 +217,18 @@ export function AuctionSheet({
                       labels={DECISION_LABELS}
                     />
                   </Field>
+                  <FieldErr m={fe("decision")} />
                   <TextField
                     label={`Remarks${decisionReq.kind === "Shortfall" ? " *" : ""}`}
                     value={decisionRemarks}
                     onChangeText={setDecisionRemarks}
                     placeholder="Reason for this decision"
                   />
-                  <ErrorText>{error}</ErrorText>
+                  <FieldErr m={fe("decisionRemarks")} />
                   <PrimaryButton
                     label="Record Decision"
-                    onPress={() => decide.mutate(decisionReq.id)}
+                    onPress={gate(["decision", "decisionRemarks"], () => decide.mutate(decisionReq.id))}
                     loading={decide.isPending}
-                    disabled={!decision || (decisionReq.kind === "Shortfall" && !decisionRemarks.trim())}
                     style={{ marginBottom: 12 }}
                   />
                 </>
@@ -236,7 +248,6 @@ export function AuctionSheet({
               <Field label="Channel">
                 <Txt style={{ fontSize: 13.5 }}>WhatsApp — sent automatically</Txt>
               </Field>
-              <ErrorText>{error}</ErrorText>
               <PrimaryButton label="Issue Notice" onPress={() => notice.mutate()} loading={notice.isPending} />
             </>
           ) : null}
@@ -245,10 +256,10 @@ export function AuctionSheet({
           {!frozen && aw("can_schedule_auction") && rec.stage === "NoticeIssued" ? (
             <>
               <DateField label="Auction date" value={auctionDate} onChange={setAuctionDate} min={todayISO()} />
+              <FieldErr m={fe("auctionDate")} />
               <TextField label="Reference number" value={referenceNumber} onChangeText={setReferenceNumber} placeholder="Optional" />
               {/* same fields as the Auction Flow sheet and web: date + reference number */}
-              <ErrorText>{error}</ErrorText>
-              <PrimaryButton label="Schedule Auction" onPress={() => schedule.mutate()} loading={schedule.isPending} disabled={!auctionDate} />
+              <PrimaryButton label="Schedule Auction" onPress={gate(["auctionDate"], () => schedule.mutate())} loading={schedule.isPending} />
             </>
           ) : null}
 
@@ -256,9 +267,10 @@ export function AuctionSheet({
             <>
               <ResultBox k="Auction amount (debt to cover)" v={inr(l.totalOutstandingBalance ?? 0)} />
               <TextField label="Sale amount" keyboardType="decimal-pad" value={saleAmount} onChangeText={setSaleAmount} placeholder="0" />
+              <FieldErr m={fe("saleAmount")} />
               <TextField label="Auction expenses" keyboardType="decimal-pad" value={expenses} onChangeText={setExpenses} placeholder="0" />
               <SplitPaymentInput total={Math.max(0, Number(saleAmount) || 0)} onChange={setSalePay} bankLabel="Bank (account proceeds landed in)" />
-              {Number(expenses) > Number(saleAmount) && Number(saleAmount) > 0 ? <ErrorText>Auction expenses cannot be more than the sale amount.</ErrorText> : null}
+              <FieldErr m={fe("expenses") ?? fe("salePay")} />
               {Number(saleAmount) > 0 ? (
                 <NoticeBanner>
                   {(() => {
@@ -267,8 +279,7 @@ export function AuctionSheet({
                   })()}
                 </NoticeBanner>
               ) : null}
-              <ErrorText>{error}</ErrorText>
-              <PrimaryButton label="Record Sale" onPress={() => sale.mutate()} loading={sale.isPending} disabled={!(Number(saleAmount) > 0) || Number(expenses) > Number(saleAmount) || !salePay?.ready} />
+              <PrimaryButton label="Record Sale" onPress={gate(["saleAmount", "expenses", "salePay"], () => sale.mutate())} loading={sale.isPending} />
             </>
           ) : null}
 
@@ -292,10 +303,11 @@ export function AuctionSheet({
                       labels={{ RefundedToCustomer: "Refund to customer", RecordedAsIncome: "Record as income" }}
                     />
                   </Field>
+                  <FieldErr m={fe("disposition")} />
                   {disposition === "RefundedToCustomer" ? (
                     <>
                       <SplitPaymentInput total={rec.surplusPayableAmount ?? Math.max(rec.surplusShortfall ?? 0, 0)} onChange={setRefundPay} bankLabel="Bank (account it is paid from)" />
-                      {refundPay && refundModes.length > 1 ? <ErrorText>Refund the surplus in one payment mode — Cash, UPI or Bank Transfer.</ErrorText> : null}
+                      <FieldErr m={fe("refund")} />
                     </>
                   ) : null}
                   <TextField
@@ -304,12 +316,11 @@ export function AuctionSheet({
                     onChangeText={setDispositionRemarks}
                     placeholder="Reason / reference"
                   />
-                  <ErrorText>{error}</ErrorText>
+                  <FieldErr m={fe("dispositionRemarks")} />
                   <PrimaryButton
                     label="Settle"
-                    onPress={() => settle.mutate()}
+                    onPress={gate(["disposition", "dispositionRemarks", "refund"], () => settle.mutate())}
                     loading={settle.isPending}
-                    disabled={!disposition || (disposition === "RecordedAsIncome" && !dispositionRemarks.trim()) || !refundOk}
                   />
                 </>
               ) : !balanceDue && !frozen ? (

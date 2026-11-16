@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -23,6 +23,7 @@ import {
   Stepper,
   Txt,
   WarningBanner,
+  toast,
   type SplitAmounts,
 } from "@/common/components/ui";
 import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
@@ -134,7 +135,6 @@ export default function LoanDetailScreen() {
   useRefetchOnFocus(loan.refetch, auction.refetch, requests.refetch, packetQuery.refetch, topUps.refetch);
 
   const [open, setOpen] = useState<SheetKey>(null);
-  const [error, setError] = useState<string | null>(null);
   const [recordTab, setRecordTab] = useState<RecordTab>("overview");
   // Which pending top-up the review sheet is showing.
   const [reviewId, setReviewId] = useState<number | null>(null);
@@ -179,12 +179,11 @@ export default function LoanDetailScreen() {
       }
     },
     onSuccess: () => {
-      setError(null);
       setOpen(null);
       invalidateLoan(qc, loanId);
     },
     onError: (e) => {
-      setError(apiErr(e));
+      toast.error(apiErr(e));
       // A timed-out request may still have been applied server-side — refresh so the screen shows the truth.
       qc.invalidateQueries({ queryKey: ["loan", String(loanId)] });
     },
@@ -196,7 +195,7 @@ export default function LoanDetailScreen() {
       qc.invalidateQueries({ queryKey: ["loans"] });
       router.back();
     },
-    onError: (e) => setError(apiErr(e)),
+    onError: (e) => toast.error(apiErr(e)),
   });
 
   const header = (
@@ -264,7 +263,6 @@ export default function LoanDetailScreen() {
   const tenure = monthsBetween(l.openedDate, l.dueDate);
 
   function go(k: SheetKey) {
-    setError(null);
     setOpen(k);
   }
 
@@ -278,14 +276,12 @@ export default function LoanDetailScreen() {
   }
 
   function afterReview() {
-    setError(null);
     setOpen(null);
     invalidateLoan(qc, loanId);
   }
 
   function approveCurrent() {
     if (!pendingStage) return;
-    setError(null);
     if (isFinalSanction) return setOpen("disburse");
     doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved" });
   }
@@ -408,12 +404,6 @@ export default function LoanDetailScreen() {
           ]}
         />
 
-        {error && open === null ? (
-          <View style={{ marginHorizontal: 18 }}>
-            <WarningBanner>{error}</WarningBanner>
-          </View>
-        ) : null}
-
         {l.status === "Rejected" ? (
           <View style={{ marginHorizontal: 18 }}>
             <WarningBanner>
@@ -496,10 +486,7 @@ export default function LoanDetailScreen() {
               {l.additionalInfo ? (
                 <>
                   <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 10 }}>Additional information</Txt>
-                  <Pressable onPress={() => setOpen("info")} accessibilityRole="button" accessibilityLabel="Open additional information">
-                    <Txt numberOfLines={2} style={{ fontSize: 13, color: C.ink, marginTop: 2 }}>{l.additionalInfo}</Txt>
-                    <Txt style={{ fontSize: 11, fontWeight: "700", color: C.brandDeep, marginTop: 2 }}>Tap to read</Txt>
-                  </Pressable>
+                  <Txt style={{ fontSize: 13, color: C.ink, marginTop: 2 }}>{l.additionalInfo}</Txt>
                 </>
               ) : null}
               {l.overallPhotoUrl ? (
@@ -560,11 +547,6 @@ export default function LoanDetailScreen() {
       </PScroll>
 
       {/* ---- Actions ---- */}
-      <Sheet visible={open === "info"} onClose={() => setOpen(null)} title="Additional information" maxHeightPct={50}>
-        <ScrollView style={{ maxHeight: 66, marginTop: 8 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-          <Txt style={{ fontSize: 13.5, lineHeight: 22, color: C.ink }}>{l.additionalInfo}</Txt>
-        </ScrollView>
-      </Sheet>
       <Sheet visible={open === "actions"} onClose={() => setOpen(null)} title="Loan Actions">
         {(() => {
           const items: React.ReactNode[] = [];
@@ -597,7 +579,7 @@ export default function LoanDetailScreen() {
           }
           if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: editLoanBlocked || "Scheme, principal, and ornament details", onPress: () => { if (!editLoanBlocked) go("edit"); } });
           if (pendingStage && canActOnStage) add("docs", { icon: "doc", title: "Loan Documents", sub: "Statement, bond & eSign", onPress: () => go("documents") });
-          if (can("Bank_Pledge_Management", "can_view_bank_pledge_module")) add("bank", {
+          if (l.status !== "Rejected" && can("Bank_Pledge_Management", "can_view_bank_pledge_module")) add("bank", {
             icon: "shield",
             title: "Bank Pledge",
             sub: l.bankPledges?.some((p) => p.status === "Active") ? "Pledged to a bank — release, delete or view history" : "Repledge to a bank · view history",
@@ -630,7 +612,6 @@ export default function LoanDetailScreen() {
           remarks={{ label: "Reason (optional)", placeholder: "Why is this loan being rejected?" }}
           confirmLabel="Reject Loan"
           loading={doApprove.isPending}
-          error={open === "reject" ? error : null}
           onConfirm={(remarks) => doApprove.mutate({ stage: pendingStage, action: "Rejected", remarks: remarks || undefined })}
         />
       ) : null}
@@ -642,7 +623,6 @@ export default function LoanDetailScreen() {
         message={`This permanently deletes loan ${l.loanNumber} and every record tied to it — payments, ornaments, approvals, requests, auctions, bank pledges, packets and reminders. This cannot be undone.`}
         confirmLabel="Delete Permanently"
         loading={doHardDelete.isPending}
-        error={open === "delete" ? error : null}
         onConfirm={() => doHardDelete.mutate()}
       />
       <ExtendSheet loan={l} pending={pendingExtension} visible={open === "extend"} onClose={() => setOpen(null)} />
@@ -657,14 +637,12 @@ export default function LoanDetailScreen() {
           visible={open === "disburse"}
           onClose={() => setOpen(null)}
           loading={doApprove.isPending}
-          error={open === "disburse" ? error : null}
           verb={isVerifyStage ? "Verify" : "Approve"}
           onConfirm={(payment) => doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved", ...payment })}
         />
       ) : null}
       <Sheet visible={open === "topupReview" && !!reviewTopUp} onClose={() => setOpen(null)} title={`Review Top-up — ${l.loanNumber}`} maxHeightPct={85}>
-        {error && open === "topupReview" ? <WarningBanner>{error}</WarningBanner> : null}
-        {reviewTopUp ? <TopUpReviewPanel loan={l} topUp={reviewTopUp} onSaved={afterReview} onError={setError} /> : null}
+        {reviewTopUp ? <TopUpReviewPanel loan={l} topUp={reviewTopUp} onSaved={afterReview} onError={(m) => toast.error(m)} /> : null}
       </Sheet>
     </Screen>
   );

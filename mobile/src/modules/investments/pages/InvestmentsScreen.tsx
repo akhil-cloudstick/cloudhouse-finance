@@ -7,12 +7,12 @@ import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listInvestorsPage } from "@/modules/investments/services/investorService";
-import { ActionGroup } from "@/common/components/ActionGroup";
 import { addCashToInvestment, createInvestment, editInvestment, createInvestmentPlan, listInvestmentPlans, listInvestmentPlansPage, deleteInvestmentPlan, listInvestmentsPage, markPayoutPaid, matureInvestment, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
 import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
+import { FieldErr } from "@/common/components/ErrorText";
 import { userMessage } from "@/common/services/apiErrors";
 
 // Investments — prototype #header-investments + #page-investments and the
@@ -83,25 +83,25 @@ export default function InvestmentsScreen() {
       }
       floating={
         // One corner button that opens upward into both actions.
-        canCreate || canUpdate ? (
+        (
           <FabMenu
             label="Investment actions"
             actions={[
+              { label: "Investors", icon: "user", onPress: () => router.push("/investments/investors" as never) },
               ...(canCreate ? [{ label: "New Investment", icon: "plus", onPress: () => setCreateOpen(true) }] : []),
               ...(canUpdate ? [{ label: "Plans", icon: "layers", onPress: () => setPlansOpen(true) }] : []),
             ]}
           />
-        ) : null
+        )
       }
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(i) => String(i.id)}
         emptyText={list.search || anyFilter ? "No investments match your search." : "No investments yet."}
         header={
           <View style={{ paddingTop: 12 }}>
-            <ActionGroup actions={[{ key: "investors", label: "Investors", icon: "user", onPress: () => router.push("/investments/investors" as never) }]} style={{ marginHorizontal: 16, marginBottom: 10 }} />
             <SearchFilterRow
               value={list.search}
               onChangeText={list.setSearch}
@@ -199,7 +199,7 @@ function PlansSheet({ visible, onClose }: PlansSheetProps) {
           </View>
         }
       >
-        <ServerFlatList
+        <ServerFlatList stickyHeader
           list={list}
           items={list.items}
           inSheet
@@ -245,25 +245,27 @@ type PlanFormSheetProps = { form: PlanForm | null; setForm: (f: PlanForm | null)
 
 function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
   const qc = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const canDeletePlan = useAuth().can("Investment_Management", "can_delete_investment");
-  useEffect(() => { setError(null); setConfirmDel(false); }, [form?.id, form === null]);
+  useEffect(() => { setTried(false); setConfirmDel(false); }, [form?.id, form === null]);
 
-  function validate(f: PlanForm): string | null {
-    if (!f.name.trim()) return "Please enter a plan name.";
+  const planErrs = (f: PlanForm | null): Record<string, string> => {
+    const e: Record<string, string> = {};
+    if (!f) return e;
+    if (!f.name.trim()) e.name = "Enter a plan name.";
     const rate = Number(f.interestRatePercent);
-    if (f.interestRatePercent.trim() === "" || isNaN(rate) || rate < 0) return "Interest rate must be 0 or more.";
+    if (f.interestRatePercent.trim() === "" || isNaN(rate) || rate < 0) e.rate = "Interest rate must be 0 or more.";
     const tenure = Number(f.tenureMonths);
-    if (!tenure || tenure <= 0) return "Tenure must be greater than 0.";
-    if (f.engine === "Schedule") {
+    if (!tenure || tenure <= 0) e.tenure = "Tenure must be greater than 0.";
+    else if (f.engine === "Schedule") {
       const step = FREQ_STEP_MONTHS[f.payoutFrequency] ?? 1;
-      if (tenure % step !== 0) return `Tenure months must divide evenly by ${f.payoutFrequency}'s ${step}-month step.`;
+      if (tenure % step !== 0) e.tenure = `Tenure months must divide evenly by ${f.payoutFrequency}'s ${step}-month step.`;
     }
-    return null;
-  }
+    return e;
+  };
 
-  const save = useMutation({
+    const save = useMutation({
     mutationFn: () => {
       const f = form!;
       const input: CreatePlanInput = {
@@ -283,7 +285,7 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
       qc.invalidateQueries({ queryKey: ["investmentPlans"] });
       setForm(null);
     },
-    onError: (err) => setError(errMsg(err, "Could not save the plan — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not save the plan — try again.")),
   });
 
   const del = useMutation({
@@ -294,11 +296,13 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
     },
     onError: (err) => {
       setConfirmDel(false);
-      setError(errMsg(err, "Could not delete the plan — try again."));
+      toast.error(errMsg(err, "Could not delete the plan — try again."));
     },
   });
 
   const f = form;
+  const pe = planErrs(f);
+  const fe = (k: string) => (tried ? pe[k] : undefined);
   return (
     <Sheet visible={!!form} onClose={() => setForm(null)} title={f?.id ? "Edit Investment Plan" : "Add Investment Plan"} maxHeightPct={92}>
       {f ? (
@@ -306,12 +310,14 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
           <Field label="Plan name">
             <Input placeholder="e.g. Gold Saver Bond" value={f.name} onChangeText={(v) => setForm({ ...f, name: v })} />
           </Field>
+          <FieldErr m={fe("name")} />
           <Field label="Interest rate type">
             <ChipToggle options={["Simple", "Compound"] as const} value={f.interestRateType} onChange={(v) => setForm({ ...f, interestRateType: v })} />
           </Field>
           <Field label="Interest rate (% p.a.)">
             <Input keyboardType="decimal-pad" placeholder="e.g. 9.5" value={f.interestRatePercent} onChangeText={(v) => setForm({ ...f, interestRatePercent: v })} />
           </Field>
+          <FieldErr m={fe("rate")} />
           <Field label="Payout engine">
             <ChipToggle
               options={["Schedule", "Live"] as const}
@@ -337,10 +343,10 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
               <Input keyboardType="decimal-pad" placeholder="e.g. 25000" value={f.minPrincipal} onChangeText={(v) => setForm({ ...f, minPrincipal: v })} />
             </Field>
           </FieldRow>
+          <FieldErr m={fe("tenure")} />
           <Field label="Status">
             <ChipToggle options={["Active", "Inactive"] as const} value={f.isActive ? "Active" : "Inactive"} onChange={(v) => setForm({ ...f, isActive: v === "Active" })} />
           </Field>
-          {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
           {f.id && canDeletePlan ? (
             <>
               {confirmDel ? <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>Delete the plan {f.name}? A plan already used by an investment can&apos;t be deleted — mark it inactive instead.</Txt> : null}
@@ -357,9 +363,7 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
             label="Save Plan"
             loading={save.isPending}
             onPress={() => {
-              const v = validate(f);
-              if (v) return setError(v);
-              setError(null);
+              if (Object.keys(pe).length) return setTried(true);
               save.mutate();
             }}
           />
@@ -383,7 +387,7 @@ export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCrea
   const [plan, setPlan] = useState<InvestmentPlan | null>(null);
   const [principal, setPrincipal] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -391,7 +395,7 @@ export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCrea
       setPlan(investment?.plan ?? null);
       setPrincipal(investment ? String(investment.principalAmount) : "");
       setStartDate(investment ? investment.startDate.slice(0, 10) : "");
-      setError(null);
+      setTried(false);
     }
   }, [visible, investment, presetCustomer]);
 
@@ -416,17 +420,16 @@ export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCrea
       }
       onCreated(inv);
     },
-    onError: (err) => setError(errMsg(err, "Could not create the investment — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not create the investment — try again.")),
   });
 
-  function validate(): string | null {
-    if (!editing && !customer) return "Please select an investor.";
-    if (!plan) return "Please select an investment plan.";
-    if (!principalNum || principalNum <= 0) return "Please enter the principal amount.";
-    if ((!editing || amountChanged) && !pay?.ready) return "The payment breakdown must add up to the principal, with a bank for every UPI / Bank Transfer line.";
-    if (principalNum < plan.minPrincipal) return `Principal must be at least ${inr(plan.minPrincipal)} for this plan.`;
-    return null;
-  }
+  const errs: Record<string, string> = {};
+  if (!editing && !customer) errs.customer = "Select an investor.";
+  if (!plan) errs.plan = "Select an investment plan.";
+  if (!principalNum || principalNum <= 0) errs.principal = "Enter the principal amount.";
+  else if (plan && principalNum < plan.minPrincipal) errs.principal = `Principal must be at least ${inr(plan.minPrincipal)} for this plan.`;
+  if ((!editing || amountChanged) && !pay?.ready) errs.pay = "The payment breakdown must add up to the principal, with a bank for every UPI / Bank Transfer line.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   return (
     <Sheet visible={visible} onClose={onClose} title={investment ? `Edit ${investment.investmentNumber}` : "Create Investment"} maxHeightPct={88}>
@@ -447,6 +450,7 @@ export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCrea
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
       )}
+      <FieldErr m={fe("customer")} />
       <Field label="Investment plan">
         {plans.isLoading ? (
           <Buffering />
@@ -456,15 +460,18 @@ export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCrea
           <ThemeDropdown<InvestmentPlan> value={plan} options={planOptions} onChange={setPlan} labelOf={planLabel} keyOf={(p) => p.id} placeholder="Select a plan" />
         )}
       </Field>
+      <FieldErr m={fe("plan")} />
       <Field label="Principal amount">
         <Input keyboardType="decimal-pad" placeholder={plan ? `Min ${inr(plan.minPrincipal)}` : "e.g. 100000"} value={principal} onChangeText={setPrincipal} />
       </Field>
+      <FieldErr m={fe("principal")} />
       {editing ? (
         <Field label="Start date">
           <DateField value={startDate} max={todayISO()} onChange={setStartDate} />
         </Field>
       ) : null}
-      {principalNum > 0 && (!editing || amountChanged) ? <SplitPaymentInput total={principalNum} onChange={setPay} bankLabel="Bank (account it landed in)" /> : null}
+      {!editing || amountChanged ? <SplitPaymentInput total={principalNum} onChange={setPay} bankLabel="Bank (account it landed in)" /> : null}
+      <FieldErr m={fe("pay")} />
       <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
         <FieldGrid
           items={[
@@ -475,14 +482,11 @@ export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCrea
           ]}
         />
       </Card>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
         label={editing ? "Save Changes" : "Create Investment"}
         loading={submit.isPending}
         onPress={() => {
-          const v = validate();
-          if (v) return setError(v);
-          setError(null);
+          if (Object.keys(errs).length) return setTried(true);
           submit.mutate();
         }}
       />
@@ -507,12 +511,10 @@ export function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
-  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (visible) {
       setAmount("");
       setReference("");
-      setError(null);
     }
   }, [visible]);
   const m = useMutation({
@@ -521,7 +523,7 @@ export function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not add cash — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not add cash — try again.")),
   });
   return (
     <Sheet visible={visible} onClose={onClose} title={`Add Cash — ${inv.investmentNumber}`} maxHeightPct={88}>
@@ -531,9 +533,8 @@ export function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
       </Field>
       <SplitPaymentInput total={Number(amount) || 0} onChange={setPay} />
       <Field label="Reference">
-        <Input placeholder="Optional" value={reference} onChangeText={setReference} />
+        <Input maxLength={150} placeholder="Optional (max 150 characters)" value={reference} onChangeText={setReference} />
       </Field>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Add Cash" onPress={() => m.mutate()} loading={m.isPending} disabled={!amount || Number(amount) <= 0 || !pay?.ready} />
     </Sheet>
   );
@@ -546,26 +547,26 @@ export function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [principal, setPrincipal] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
-  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (visible) {
       setFrom("Interest");
       setInterest("");
       setPrincipal("");
       setReference("");
-      setError(null);
     }
   }, [visible]);
   const interestAmount = from === "Principal" ? 0 : Number(interest || 0);
   const principalAmount = from === "Interest" ? 0 : Number(principal || 0);
-  const m = useMutation({
+  const overInterest = interestAmount > (inv.outstandingInterest || 0) + 0.01;
+  const overPrincipal = principalAmount > (inv.outstandingPrincipal || 0) + 0.01;
+  const m =useMutation({
     mutationFn: () =>
       withdrawFromInvestment(inv.id, { interestAmount, principalAmount, reference: reference.trim() || undefined, ...(pay?.split ?? {}), bankId: pay?.bankId } as Parameters<typeof withdrawFromInvestment>[1]),
     onSuccess: () => {
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not withdraw — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not withdraw — try again.")),
   });
   return (
     <Sheet visible={visible} onClose={onClose} title={`Withdraw — ${inv.investmentNumber}`} maxHeightPct={90}>
@@ -578,19 +579,20 @@ export function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
       {from !== "Principal" ? (
         <Field label="Interest amount">
           <Input keyboardType="decimal-pad" placeholder="₹" value={interest} onChangeText={setInterest} />
+          {overInterest ? <Txt style={{ fontSize: 12, color: C.red, marginTop: 4 }}>Exceeds the outstanding interest ({inr(inv.outstandingInterest)}).</Txt> : null}
         </Field>
       ) : null}
       {from !== "Interest" ? (
         <Field label="Principal amount">
           <Input keyboardType="decimal-pad" placeholder="₹" value={principal} onChangeText={setPrincipal} />
+          {overPrincipal ? <Txt style={{ fontSize: 12, color: C.red, marginTop: 4 }}>Exceeds the outstanding principal ({inr(inv.outstandingPrincipal)}).</Txt> : null}
         </Field>
       ) : null}
       <SplitPaymentInput total={interestAmount + principalAmount} onChange={setPay} />
       <Field label="Reference">
-        <Input placeholder="Optional" value={reference} onChangeText={setReference} />
+        <Input maxLength={150} placeholder="Optional (max 150 characters)" value={reference} onChangeText={setReference} />
       </Field>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Confirm Withdrawal" onPress={() => m.mutate()} loading={m.isPending} disabled={interestAmount + principalAmount <= 0 || !pay?.ready} />
+      <PrimaryButton label="Confirm Withdrawal" onPress={() => m.mutate()} loading={m.isPending} disabled={interestAmount + principalAmount <= 0 || overInterest || overPrincipal || !pay?.ready} />
     </Sheet>
   );
 }
@@ -602,15 +604,17 @@ export function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) 
   const [principal, setPrincipal] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   // A Live investment pays principal plus interest out on Close.
-  const payable = (inv.outstandingPrincipal || 0) + (inv.outstandingInterest || 0);
-  const needsPayout = inv.engine === "Live" && act === "Close" && payable > 0;
-  const [error, setError] = useState<string | null>(null);
+  // A scheduled one owes the principal it still holds plus the settlement interest (same as web).
+  const payable =
+    inv.engine === "Live"
+      ? (inv.outstandingPrincipal || 0) + (inv.outstandingInterest || 0)
+      : Math.max(0, inv.principalAmount - (inv.principalReturned || 0)) + (inv.settlementInterest || 0);
+  const needsPayout = act === "Close" && (inv.engine === "Live" || payable > 0);
   useEffect(() => {
     if (visible) {
       setAct("Close");
       setPlan(null);
       setPrincipal(inv.outstandingPrincipal ? String(inv.outstandingPrincipal) : "");
-      setError(null);
     }
   }, [visible]);
   const plans = useQuery({ queryKey: ["investmentPlans", "active"], queryFn: () => listInvestmentPlans(true), enabled: visible && act === "Renew" });
@@ -626,7 +630,7 @@ export function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) 
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not apply the maturity decision — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not apply the maturity decision — try again.")),
   });
   return (
     <Sheet visible={visible} onClose={onClose} title={`Close / Renew — ${inv.investmentNumber}`} maxHeightPct={90}>
@@ -646,7 +650,6 @@ export function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) 
         <Input keyboardType="decimal-pad" placeholder="₹" value={principal} onChangeText={setPrincipal} editable={act === "Renew"} />
       </Field>
       {needsPayout ? <SplitPaymentInput total={payable} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Confirm" onPress={() => m.mutate()} loading={m.isPending} disabled={(act === "Renew" && (!plan || !principal)) || (needsPayout && !pay?.ready)} />
     </Sheet>
   );
@@ -659,20 +662,18 @@ type PayInterestSheetProps = { inv: Investment; visible: boolean; onClose: () =>
 export function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetProps) {
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const pending = useQuery({ queryKey: ["investmentPendingInterest", inv.id], queryFn: () => getPendingInterest(inv.id), enabled: visible, staleTime: 0 });
   const months = pending.data ?? [];
   useEffect(() => {
     if (visible) {
-      setError(null);
       setAmount("");
     }
   }, [visible]);
   // Start from the oldest unpaid month once the list arrives.
   useEffect(() => {
-    if (visible && months.length && !amount) setAmount(String(months[0].amount));
+    if (visible && months.length) setAmount((cur) => cur || String(months[0].amount));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, months.length]);
+  }, [visible, pending.data]);
 
   const amt = Number(amount) || 0;
   // How many whole months the typed amount covers (a part-month is not allowed).
@@ -692,7 +693,7 @@ export function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestS
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not record the interest payment — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not record the interest payment — try again.")),
   });
   return (
     <Sheet visible={visible} onClose={onClose} title={`Pay Interest — ${inv.investmentNumber}`} maxHeightPct={90}>
@@ -717,7 +718,6 @@ export function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestS
           </Txt>
           {amt > 0 && covered > 0 && !exact ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>Not whole months — {inr(sum)} covers {covered}.</Txt> : null}
           <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it is paid from)" />
-          {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
           <PrimaryButton label="Pay Interest" onPress={() => m.mutate()} loading={m.isPending} disabled={!exact || !pay?.ready} />
         </>
       )}
@@ -730,10 +730,8 @@ type MarkPaidSheetProps = { inv: Investment; payout: InvestmentPayout | null; on
 // Mark a scheduled payout paid — picks the payment mode for the full amount.
 export function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (payout) {
-      setError(null);
     }
   }, [payout]);
   const m = useMutation({
@@ -742,7 +740,7 @@ export function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetPro
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not mark the payout paid — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not mark the payout paid — try again.")),
   });
   return (
     <Sheet visible={!!payout} onClose={onClose} title={`Mark Payout Paid — #${payout?.sequenceNo ?? ""}`} maxHeightPct={88}>
@@ -757,7 +755,6 @@ export function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetPro
         </Card>
       ) : null}
       {payout ? <SplitPaymentInput total={payout.amount} onChange={setPay} /> : null}
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Mark Paid" onPress={() => m.mutate()} loading={m.isPending} disabled={!pay?.ready} />
     </Sheet>
   );

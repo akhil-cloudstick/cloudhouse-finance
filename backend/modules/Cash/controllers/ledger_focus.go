@@ -21,6 +21,9 @@ type ledgerFocus struct {
 	// ref, when set, is the unique row identity "<kind>:<id>" (see ledgerRef) the user followed: only that
 	// entry's rows are focused, whatever else shares its date and amount.
 	ref string
+	// loan, when set, is the loan number of the loan page the user came from: with no exact ref, only rows of that
+	// loan are focused, because two loans can share a date and an amount.
+	loan string
 }
 
 // matchesPayment reports whether r is a row of the focused loan payment.
@@ -43,6 +46,7 @@ func LedgerFocus() echo.MiddlewareFunc {
 						f.paymentID = uint(pid)
 					}
 					f.ref = ref
+					f.loan = strings.TrimSpace(c.QueryParam("focus_loan"))
 					c.SetRequest(req.WithContext(context.WithValue(req.Context(), ledgerFocusKey{}, f)))
 				}
 			}

@@ -188,6 +188,9 @@ export function openPrintableTab(html: string): void {
 }
 
 export function openPrintWindow(title: string, body: string, onBlocked: (msg: string) => void) {
+  // Documents built elsewhere (the server's slip / statement styles) carry their own @page margin, which brings the
+  // browser's date / title header and footer back. Drop those rules: this window sets a zero page margin itself.
+  body = body.replace(/@page[^{]*{[^}]*}/g, "");
   // Resolved per call, not at module load: the colour belongs to whichever
   // business is signed in, and this module is imported once for all of them.
   const C = printColors();
@@ -219,7 +222,7 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
      * normal flow element instead, its line would render lower than the
      * Borrower's identical (image-less) line beside it, since each .sig
      * div sizes independently. */
-    .lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px;height:auto}
+    .lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:115px;height:auto}
     .muted{color:${C.muted};font-size:12.5px}
     /* Long text (descriptions, remarks, additional info) wraps inside its box and continues on the next line. */
     body{overflow-wrap:anywhere;word-break:break-word}

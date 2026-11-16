@@ -19,6 +19,7 @@ import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { listInvestmentsPage } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment } from "@/modules/investments/types/investment-types";
 import { CreateInvestorModalContent } from "@/modules/investments/components/CreateInvestorModalContent";
+import { NewInvestmentModalContent } from "@/modules/investments/components/NewInvestmentModalContent";
 import { useAuth } from "@/common/providers/AuthProvider";
 
 const PAGE_SIZE = 10;
@@ -155,6 +156,7 @@ export function InvestorsModalContent() {
                 investor={c}
                 open={openId === c.id}
                 onToggle={() => setOpenId(openId === c.id ? null : c.id)}
+                onAddInvestment={canCreateInvestor ? () => openChildModal(<NewInvestmentModalContent presetInvestor={c} onSaved={() => { closeModal(); setReloadTick((n) => n + 1); }} />) : undefined}
                 onEdit={canEditInvestor ? () => openChildModal(<CreateInvestorModalContent edit={c} onCreated={() => { closeModal(); toast("Investor updated"); setReloadTick((n) => n + 1); }} />) : undefined}
                 onDelete={canDeleteInvestor ? () => {
                   // Investments still held block the delete; they are listed as links and the list refreshes by itself.
@@ -196,9 +198,9 @@ export function InvestorsModalContent() {
   );
 }
 
-type InvestorRowsProps = { investor: CustomerView; open: boolean; onToggle: () => void; onEdit?: () => void; onDelete?: () => void };
+type InvestorRowsProps = { investor: CustomerView; open: boolean; onToggle: () => void; onAddInvestment?: () => void; onEdit?: () => void; onDelete?: () => void };
 
-function InvestorRows({ investor, open, onToggle, onEdit, onDelete }: InvestorRowsProps) {
+function InvestorRows({ investor, open, onToggle, onAddInvestment, onEdit, onDelete }: InvestorRowsProps) {
   return (
     <>
       <tr className="click" onClick={onToggle} aria-expanded={open}>
@@ -207,6 +209,7 @@ function InvestorRows({ investor, open, onToggle, onEdit, onDelete }: InvestorRo
         <td data-label="Branch">{investor.branchName || "—"}</td>
         <td className="td-chev" style={{ whiteSpace: "nowrap" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+            {onAddInvestment && <button type="button" title="New investment" aria-label="New investment" onClick={(e) => { e.stopPropagation(); onAddInvestment(); }} style={{ border: 0, background: "none", cursor: "pointer", padding: 4, color: "var(--brand-deep)", display: "inline-flex", alignItems: "center" }}><Icon name="plus" /></button>}
             {onEdit && <button type="button" title="Edit investor" aria-label="Edit investor" onClick={(e) => { e.stopPropagation(); onEdit(); }} style={{ border: 0, background: "none", cursor: "pointer", padding: 4, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}><Icon name="edit" /></button>}
             {onDelete && <button type="button" title="Delete investor" aria-label="Delete investor" onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ border: 0, background: "none", cursor: "pointer", padding: 4, color: "var(--red)", display: "inline-flex", alignItems: "center" }}><Icon name="trash" /></button>}
             <Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .15s", verticalAlign: "middle" }} />

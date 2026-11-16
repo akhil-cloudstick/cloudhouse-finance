@@ -58,7 +58,7 @@ type SelfTransferModalContentProps = { onSaved?: () => void; defaultBranchId?: n
  * credit on To Bank. A loan category has no To Bank: the transfer is a
  * repayment, debited from From Bank and credited on that loan's ledger. */
 export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit }: SelfTransferModalContentProps) {
-  const { closeModal } = useModal();
+  const { closeModal, closeAllModals } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -154,7 +154,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
           branchId, occurredOn: date, remarks: remarks.trim(),
         });
         onSaved?.();
-        closeModal();
+        closeAllModals();
         toast("Self transfer updated");
         return;
       }

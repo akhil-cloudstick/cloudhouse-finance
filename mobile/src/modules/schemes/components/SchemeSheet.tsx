@@ -155,7 +155,16 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
       };
       if (!scheme) return createScheme(input);
       const saved = await updateScheme(scheme.id, input);
-      if ((status === "Active") !== scheme.isActive) return toggleSchemeActive(scheme.id);
+      if ((status === "Active") !== scheme.isActive) {
+        try {
+          return await toggleSchemeActive(scheme.id);
+        } catch (e) {
+          // The edits are already saved — only the Active/Inactive switch failed.
+          qc.invalidateQueries({ queryKey: ["schemes"] });
+          qc.invalidateQueries({ queryKey: ["scheme", String(scheme.id)] });
+          throw new Error(`Your changes were saved, but the status could not be changed${e instanceof ApiError ? `: ${e.message}` : "."}`);
+        }
+      }
       return saved;
     },
     onSuccess: () => {
@@ -163,7 +172,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
       if (scheme) qc.invalidateQueries({ queryKey: ["scheme", String(scheme.id)] });
       onClose();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save."),
+    onError: (err) => setError(err instanceof Error ? err.message : "Could not save."),
   });
 
   const chargeSet = chargeType !== "None";

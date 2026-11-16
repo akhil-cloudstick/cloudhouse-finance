@@ -121,7 +121,7 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
 
   return (
     <>
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={shownItems}
         keyOf={(l) => String(l.id)}
@@ -218,7 +218,7 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
 
   return (
     <>
-    <ServerFlatList
+    <ServerFlatList stickyHeader
       list={list}
       items={list.items}
       keyOf={(r) => String(r.id)}

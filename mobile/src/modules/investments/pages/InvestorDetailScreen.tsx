@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccRow, Buffering, C, ConfirmSheet, EmptyText, FieldGrid, FlatHeader, PrimaryButton, Screen, SectionTitle, ServerFlatList, Sheet, StatusChip, Txt, toast } from "@/common/components/ui";
-import { ActionGroup, type GroupAction } from "@/common/components/ActionGroup";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BlockerListSheet } from "@/common/components/BlockerListSheet";
+import { AccRow, Buffering, ConfirmSheet, EmptyText, FabMenu, FieldGrid, FlatHeader, Screen, SectionTitle, ServerFlatList, toast, type FabMenuAction } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
@@ -15,7 +15,7 @@ import { getInvestor, hardDeleteInvestor } from "@/modules/investments/services/
 import type { Investment } from "@/modules/investments/types/investment-types";
 import { dmy, inr } from "@/common/utils/format";
 
-// Investor page — the investor's details, one grouped action bar (Edit / Add investment / Delete) and the
+// Investor page — the investor's details, one grouped corner button (Edit / Add investment / Delete) and the
 // investments they hold.
 export default function InvestorDetailScreen() {
   const { id: idParam } = useLocalSearchParams<{ id: string }>();
@@ -41,11 +41,16 @@ export default function InvestorDetailScreen() {
   });
 
   // Investments still on file block the delete — listed here (tap to open one) instead of failing after the tap.
-  const blockers = useQuery({
+  const BLOCKER_PAGE = 15;
+  const blockers = useInfiniteQuery({
     queryKey: ["investments", "blockers", id],
-    queryFn: () => listInvestmentsPage({ customerId: id, limit: 50, offset: 0 }).then((r) => r.items ?? []),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => listInvestmentsPage({ customerId: id, limit: BLOCKER_PAGE, offset: pageParam as number }).then((r) => ({ items: r.items ?? [], total: r.total ?? (r.items ?? []).length, hasMore: !!r.hasMore })),
+    getNextPageParam: (last, all) => (last.hasMore ? all.length * BLOCKER_PAGE : undefined),
     enabled: deleteOpen && id > 0,
   });
+  const blockerItems = blockers.data?.pages.flatMap((p) => p.items) ?? [];
+  const blockerTotal = blockers.data?.pages[0]?.total ?? blockerItems.length;
 
   const remove = useMutation({
     mutationFn: () => hardDeleteInvestor(id),
@@ -57,10 +62,11 @@ export default function InvestorDetailScreen() {
     onError: (e) => setDeleteError(e instanceof ApiError ? e.message : "Could not delete the investor — try again."),
   });
 
-  const actions: GroupAction[] = [
-    ...(canEdit ? [{ key: "edit", label: "Edit investor", icon: "edit" as const, onPress: () => setEditOpen(true) }] : []),
-    ...(canCreate ? [{ key: "add", label: "Add investment", icon: "plus" as const, onPress: () => setAddOpen(true) }] : []),
-    ...(canDelete ? [{ key: "delete", label: "Delete", icon: "alert" as const, danger: true, onPress: () => { setDeleteError(null); setDeleteOpen(true); } }] : []),
+  // One grouped corner button (bottom-right) holding Edit / Add investment / Delete.
+  const actions: FabMenuAction[] = [
+    ...(canEdit ? [{ label: "Edit Investor", icon: "edit", onPress: () => setEditOpen(true) }] : []),
+    ...(canCreate ? [{ label: "Add Investment", icon: "plus", onPress: () => setAddOpen(true) }] : []),
+    ...(canDelete ? [{ label: "Delete Investor", icon: "alert", onPress: () => { setDeleteError(null); setDeleteOpen(true); } }] : []),
   ];
 
   const header = inv ? (
@@ -79,7 +85,6 @@ export default function InvestorDetailScreen() {
           { k: "IFSC", v: inv.bankIfsc || "—" },
         ]}
       />
-      <ActionGroup actions={actions} style={{ marginBottom: 6 }} />
       <SectionTitle flush style={{ marginTop: 8 }}>Investments</SectionTitle>
     </View>
   ) : null;
@@ -113,7 +118,10 @@ export default function InvestorDetailScreen() {
     );
 
   return (
-    <Screen header={<FlatHeader back title={inv ? inv.name : "Investor"} subtitle="Investor details" />}>
+    <Screen
+      header={<FlatHeader back title={inv ? inv.name : "Investor"} subtitle="Investor details" />}
+      floating={inv && actions.length ? <FabMenu label="Investor actions" actions={actions} /> : undefined}
+    >
       {body}
       {inv ? (
         <>
@@ -127,18 +135,18 @@ export default function InvestorDetailScreen() {
               router.push(`/investments/${created.id}` as never);
             }}
           />
-          <Sheet visible={deleteOpen && !!blockers.data?.length} onClose={() => setDeleteOpen(false)} title="Can't Delete Yet" maxHeightPct={70}>
-            <Txt style={{ fontSize: 12.5, color: C.muted, marginVertical: 10 }}>Close and delete these investments first, then come back — {inv.name} still holds:</Txt>
-            {(blockers.data ?? []).map((b) => (
-              <Pressable key={b.id} onPress={() => { setDeleteOpen(false); router.push(`/investments/${b.id}` as never); }} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.line }}>
-                <Txt style={{ fontSize: 13, fontWeight: "700", color: C.brandDeep, textDecorationLine: "underline" }}>{b.investmentNumber}</Txt>
-                <StatusChip label={b.status} />
-              </Pressable>
-            ))}
-            <PrimaryButton label="Close" variant="outline" style={{ marginTop: 14 }} onPress={() => setDeleteOpen(false)} />
-          </Sheet>
+          <BlockerListSheet
+            visible={deleteOpen && blockerItems.length > 0}
+            onClose={() => setDeleteOpen(false)}
+            message={`${inv.name} still holds ${blockerTotal} investment${blockerTotal === 1 ? "" : "s"}.`}
+            items={blockerItems.map((b) => ({ key: String(b.id), title: b.investmentNumber, status: b.status, onPress: () => { setDeleteOpen(false); router.push(`/investments/${b.id}` as never); } }))}
+            total={blockerTotal}
+            hasMore={!!blockers.hasNextPage}
+            loadingMore={blockers.isFetchingNextPage}
+            onLoadMore={() => blockers.fetchNextPage()}
+          />
           <ConfirmSheet
-            visible={deleteOpen && !blockers.data?.length}
+            visible={deleteOpen && !blockerItems.length}
             onClose={() => setDeleteOpen(false)}
             title="Delete Investor Permanently"
             danger

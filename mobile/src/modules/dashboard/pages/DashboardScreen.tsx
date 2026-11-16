@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, type ScrollViewInstance } from "react-native";
+import { Keyboard, View, type ScrollViewInstance } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { swipe } from "@/common/components/ui/swipeStore";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   AccBtn,
   AccGroup,
@@ -35,6 +35,8 @@ import {
   useShell,
   openPage,
 } from "@/common/components/ui";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { PCONTENT_BOTTOM, tabBarLift } from "@/common/theme/layout";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { TENANT_MODULES } from "@/common/config/tenantModules";
@@ -78,6 +80,18 @@ export default function DashboardScreen() {
   // runs once the page has been left and has slid away (a swipe shows the Dashboard sliding back
   // in before it takes focus, so resetting on return would be seen); returning sooner cancels it.
   const scrollRef = useRef<ScrollViewInstance>(null);
+  // The gold loan calculator sits at the very bottom of the page, so the keyboard used to cover it.
+  // While the keyboard is up the page gets that much extra room below, so it can scroll past the keyboard.
+  const insets = useSafeAreaInsets();
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (e) => setKbHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKbHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const collapseRange = heroCollapseRange();
   const leaveReset = useRef<ReturnType<typeof setTimeout> | null>(null);
   useFocusEffect(
@@ -104,7 +118,7 @@ export default function DashboardScreen() {
   const rate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate });
   const canViewReminders = can("Reminder_Management", "can_view_reminder_module");
   const todayReminders = useQuery({
-    queryKey: ["reminders", "today-count"],
+    queryKey: ["reminders", "today-count", todayISO()],
     queryFn: () => listCalendarEventsPage({ limit: 1, offset: 0, from: todayISO(), to: todayISO() }),
     enabled: canViewReminders,
   });
@@ -155,6 +169,9 @@ export default function DashboardScreen() {
         underHeader
         scrollY={heroScroll}
         scrollRef={scrollRef}
+        // PScroll already pads for the floating tab bar, which is hidden while the keyboard is up: swap that
+        // padding for the keyboard's own height plus a small margin, so the calculator rests just above it.
+        extraBottom={kbHeight ? kbHeight + 24 - (PCONTENT_BOTTOM + tabBarLift(insets.bottom)) : 0}
         onScroll={(e) => noteHeroScroll(e.nativeEvent.contentOffset.y)}
         // The hero never rests half-collapsed (a half-collapsed header bobbed when switching
         // pages): a scroll that stops inside the hero's collapse distance glides to fully open or
@@ -205,7 +222,8 @@ export default function DashboardScreen() {
             <Card>{summary.isLoading ? <Buffering /> : <Sparkline data={(s?.cashFlow7d ?? []).map((d) => d.net)} />}</Card>
 
             <SectionTitle>Gold loan calculator</SectionTitle>
-            <Calculator k24={rate.data?.k24 ?? r24} />
+            {/* After the keyboard is up and the page has made room, bring the calculator into view. */}
+            <Calculator k24={rate.data?.k24 ?? r24} onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300)} />
           </>
         ) : (
           <ActivityFeed />
@@ -225,10 +243,12 @@ function NeedsAttention() {
     initialPageParam: 0,
     queryFn: ({ pageParam }) => listNeedsAttentionPage({ offset: pageParam, limit: NEEDS_ATTENTION_PAGE_SIZE, kind }),
     getNextPageParam: (last, all) => (last.hasMore ? all.length * NEEDS_ATTENTION_PAGE_SIZE : undefined),
+    // Switching tabs keeps the previous tab's counts on screen (every page carries all three) instead of blanking them.
+    placeholderData: keepPreviousData,
   });
   useRefetchOnFocus(query.refetch);
   const first = query.data?.pages[0];
-  const items = useMemo(() => query.data?.pages.flatMap((p) => p.items ?? []) ?? [], [query.data]);
+  const items = useMemo(() => (query.isPlaceholderData ? [] : query.data?.pages.flatMap((p) => p.items ?? []) ?? []), [query.data, query.isPlaceholderData]);
   const wf = useApprovalWorkflow();
   // Approval items carry their workflow flow (gold loan sanction by default)
   // and the raw pending value — shown as the configured stage label.
@@ -266,7 +286,7 @@ function NeedsAttention() {
       <SectionTitle>Needs attention</SectionTitle>
       <Card style={{ padding: 12 }}>
         <FilterChipRow options={ATTENTION_TABS} value={kind} onChange={setKind} labels={labels} />
-        {query.isLoading || (query.isFetching && !query.isFetchingNextPage && items.length === 0) ? (
+        {query.isLoading || query.isPlaceholderData || (query.isFetching && !query.isFetchingNextPage && items.length === 0) ? (
           <Buffering block />
         ) : items.length === 0 ? (
           <EmptyText>Nothing needs attention right now.</EmptyText>
@@ -383,9 +403,9 @@ function usePurityOptions(): PurityOpt[] {
   }, [standards.data]);
 }
 
-type CalculatorProps = { k24: number };
+type CalculatorProps = { k24: number; onFocus?: () => void };
 
-function Calculator({ k24 }: CalculatorProps) {
+function Calculator({ k24, onFocus }: CalculatorProps) {
   const [weight, setWeight] = useState("");
   const purities = usePurityOptions();
   const [purityKey, setPurityKey] = useState("22K");
@@ -399,7 +419,7 @@ function Calculator({ k24 }: CalculatorProps) {
   return (
     <Card>
       <Field label="Gold weight (grams)">
-        <Input keyboardType="decimal-pad" placeholder="18.5" value={weight} onChangeText={setWeight} />
+        <Input keyboardType="decimal-pad" placeholder="18.5" value={weight} onChangeText={setWeight} onFocus={onFocus} />
       </Field>
       <FieldRow>
         <Field label="Purity">

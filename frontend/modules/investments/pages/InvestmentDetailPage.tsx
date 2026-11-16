@@ -379,7 +379,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
                   {canAddCash && item("plus", "Add Cash", openAddCash)}
                   {canWithdraw && item("coin", "Withdraw", openWithdraw)}
                   {closeAction && item("check", closeAction.label, closeAction.run)}
-                  {canEdit && item("edit", "Edit", () => () => openModal(<NewInvestmentModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true))}
+                  {canEdit && item("edit", "Edit", () => openModal(<NewInvestmentModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true))}
                   {canDelete && item("trash", "Delete", openDelete, true)}
                 </div>
               )}

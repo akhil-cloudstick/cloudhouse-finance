@@ -661,7 +661,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
               <thead><tr><th>Date</th><th>Ornament Type</th><th className="num">Sold For</th><th className="num">Cost</th><th className="num">Profit / Loss</th><th>Mode</th><th>Bank</th>{showBranch && <th>Branch</th>}<th>Remarks</th></tr></thead>
               <tbody>
                 {goldSales.length
-                  ? goldSales.map((g) => <GoldSaleRow key={g.id} g={g} />)
+                  ? goldSales.map((g) => <GoldSaleRow key={g.id} g={g} onChanged={refresh} />)
                   : <tr><td colSpan={showBranch ? 9 : 8} className="empty">No gold sales recorded yet. Use &quot;Add Cash&quot; with the Gold Sale source.</td></tr>}
               </tbody>
             </table>
