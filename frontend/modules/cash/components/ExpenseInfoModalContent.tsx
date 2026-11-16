@@ -35,7 +35,7 @@ export function ExpenseInfoModalContent({ e, showBranch, onEdit }: Props) {
           <div className="i"><div className="k">Status</div><div className="v"><StatusChip status={e.status} /></div></div>
         </div>
         <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Additional Information</h4>
-        <div className="addl-info" style={{ whiteSpace: "pre-wrap", border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, minHeight: 40 }}>
+        <div className="addl-info boxed">
           {remarks || <span style={{ color: "var(--muted)" }}>—</span>}
         </div>
         <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Bill / Receipt</h4>

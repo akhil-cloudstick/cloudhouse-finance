@@ -52,7 +52,11 @@ export function SheetScrollView(props: ScrollViewProps) {
       // the sheet following the same drag fought each other (jitter).
       overScrollMode="never"
       scrollEventThrottle={16}
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      // Android "on-drag" closed the keyboard on the first scroll touch, the sheet then
+      // resized under the finger and the next section could not be reached. Keep it open
+      // there (tap a non-input area / the sheet's drag-down closes it); iOS keeps its
+      // interactive dismiss, which only acts when dragging down over the keyboard.
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
       {...props}
       scrollEnabled={held ? false : props.scrollEnabled}
       onScrollBeginDrag={(e) => {

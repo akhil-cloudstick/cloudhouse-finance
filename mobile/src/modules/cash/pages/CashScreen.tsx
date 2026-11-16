@@ -1,6 +1,6 @@
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import React, { useEffect, useMemo, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -20,6 +20,7 @@ import {
   type GFSection,
   type GroupedFilterValue,
   FilterButton,
+  PIcon,
   PillTabs,
   Screen,
   SearchFilterRow,
@@ -169,6 +170,7 @@ export default function CashScreen() {
   // The tiles show one day: today unless another date is picked (web's summary date picker).
   const realToday = todayISO();
   const [summaryDate, setSummaryDate] = usePersistedState<string>("cash:summary-date", "");
+  const [summaryOpen, setSummaryOpen] = usePersistedState<boolean>("cash:summary-open", true);
   const day = summaryDate && summaryDate <= realToday ? summaryDate : realToday;
   const isToday = day === realToday;
   const summary = useQuery({ queryKey: ["cash-summary", "ledger", day], queryFn: () => getCashSummary(undefined, day) }).data;
@@ -176,6 +178,11 @@ export default function CashScreen() {
     <View style={{ paddingTop: 14 }}>
       {summary ? (
         <Card style={{ marginBottom: 12 }}>
+          <Pressable onPress={() => setSummaryOpen(!summaryOpen)} accessibilityRole="button" accessibilityLabel={summaryOpen ? "Collapse summary" : "Expand summary"} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: summaryOpen ? 10 : 0 }}>
+            <Txt style={{ fontSize: 13, fontWeight: "700", color: C.ink }}>{summaryOpen ? "Summary" : `Summary · Balance ${inr((summary.cashInHand || 0) + (summary.bankBalance || 0))}`}</Txt>
+            <View style={{ transform: [{ rotate: summaryOpen ? "180deg" : "0deg" }] }}><PIcon name="chevdown" color={C.muted} /></View>
+          </Pressable>
+          {summaryOpen ? (<>
           <DateField label="Summary date" value={day} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} />
           <FieldGrid
             items={[
@@ -188,6 +195,7 @@ export default function CashScreen() {
               { k: "BANK BALANCE", v: inr(summary.bankBalance || 0), color: C.ink },
             ]}
           />
+          </>) : null}
         </Card>
       ) : null}
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />

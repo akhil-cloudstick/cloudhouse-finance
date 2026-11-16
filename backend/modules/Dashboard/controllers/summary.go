@@ -375,7 +375,7 @@ func getLoanStats(ctx context.Context, branchScope *uint) (*LoanStats, error) {
 		Amt float64
 	}
 	bq := config.DB.WithContext(ctx).Model(&loanModels.BankPledgeRecord{}).
-		Select("COUNT(*) AS cnt, COALESCE(SUM(bank_pledge_records.pledged_amount), 0) AS amt").
+		Select("COUNT(DISTINCT bank_pledge_records.loan_id) AS cnt, COALESCE(SUM(bank_pledge_records.pledged_amount), 0) AS amt").
 		Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
 		Where("bank_pledge_records.status = ?", loanModels.BankPledgeStatusRecordActive)
 	if branchScope != nil {

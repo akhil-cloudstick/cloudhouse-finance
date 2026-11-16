@@ -22,7 +22,13 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   split: /payment|breakdown|bank|cheque|upi/i, investor: /investor|customer/i, plan: /plan/i, principal: /principal|amount/i,
 };
 
-type NewInvestmentModalContentProps = { onSaved: () => void; /** Set to correct this investment instead of opening a new one (only before any payout or interest). */ investment?: BackendInvestment };
+type NewInvestmentModalContentProps = {
+  onSaved: () => void;
+  /** Set to correct this investment instead of opening a new one (only before any payout or interest). */
+  investment?: BackendInvestment;
+  /** Opens a new investment already assigned to this investor (name shown, not changeable). */
+  presetInvestor?: CustomerView;
+};
 
 /* "New Investment" — a modal (not a page) launched from Investments.tsx's
  * "+ New Investment" button, mirroring personal-loans/components/
@@ -31,15 +37,16 @@ type NewInvestmentModalContentProps = { onSaved: () => void; /** Set to correct 
  * rate/frequency/tenure onto the Investment and generates the full payout
  * schedule in one step (see backend/internal/investment/service.go's
  * CreateInvestment). */
-export function NewInvestmentModalContent({ onSaved, investment }: NewInvestmentModalContentProps) {
+export function NewInvestmentModalContent({ onSaved, investment, presetInvestor }: NewInvestmentModalContentProps) {
   const editing = !!investment;
+  const locked = editing || !!presetInvestor;
   const canCreateCustomer = useAuth().can("Investment_Management", "can_create_investment");
   const { closeModal } = useModal();
   const toast = useToast();
 
-  const [customerId, setCustomerId] = useState<number | undefined>(investment?.customerId);
-  const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(investment?.branchId);
-  const [customerLabel, setCustomerLabel] = useState(investment ? `${investment.customer.name} (${investment.customer.code})` : "");
+  const [customerId, setCustomerId] = useState<number | undefined>(investment?.customerId ?? (presetInvestor ? +presetInvestor.id : undefined));
+  const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(investment?.branchId ?? presetInvestor?.branchId);
+  const [customerLabel, setCustomerLabel] = useState(investment ? `${investment.customer.name} (${investment.customer.code})` : presetInvestor ? `${presetInvestor.name} (${presetInvestor.code})` : "");
   const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
   const [planId, setPlanId] = useState<number | "">(investment?.planId ?? "");
   const [principal, setPrincipal] = useState(investment ? String(investment.principalAmount) : "");
@@ -139,7 +146,7 @@ export function NewInvestmentModalContent({ onSaved, investment }: NewInvestment
       <div className="hd"><h3>{investment ? `Edit ${investment.investmentNumber}` : "New Investment"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="frow"><div className={fe.investor ? "has-err" : undefined}><label className="f">Investor *</label>
-          {editing ? <input className="inp" value={customerLabel} disabled readOnly /> : <SearchableSelect<CustomerView>
+          {locked ? <input className="inp" value={customerLabel} disabled readOnly /> : <SearchableSelect<CustomerView>
             value={customerLabel}
             onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); }}
             fetchFn={searchInvestorsPage}

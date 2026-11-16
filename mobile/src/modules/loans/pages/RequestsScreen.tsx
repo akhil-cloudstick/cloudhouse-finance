@@ -32,7 +32,8 @@ import {
   type DocLang,
 } from "@/modules/loans/utils/loanPrint";
 import { ApiError } from "@/common/services/httpClient";
-import { dmy } from "@/common/utils/format";
+import { dmy, todayISO } from "@/common/utils/format";
+import { invalidateLoan } from "@/common/components/loanSheetKit";
 import type { LoanRequest } from "@/modules/loans/types/loan-types";
 import { useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { ExtensionReviewPanel } from "@/modules/loans/components/ExtensionReviewPanel";
@@ -84,13 +85,19 @@ export default function RequestsScreen() {
   }, [deepId]);
   // There is no GET /loans/requests/:id — page through (server-side, 50 at a
   // time) until the request turns up, narrowed by loanId when provided.
+  // Also used when the opened request drops out of the (status-filtered) list after an approve/reject,
+  // so the open sheet keeps showing it (fresh from the server, or the last copy seen meanwhile).
+  const fromList = selectedId != null ? (list.items.find((r) => r.id === selectedId) ?? null) : null;
+  // Snapshot of the request as it was when opened (fallback until the fresh copy arrives).
+  const [lastSeen, setLastSeen] = useState<LoanRequest | null>(null);
+  const lookupLoanId = deepLoanId ?? (lastSeen && lastSeen.id === selectedId ? lastSeen.loanId : undefined);
   const deep = useQuery({
-    queryKey: ["loanRequests", "deep", deepId, deepLoanId],
-    enabled: !!deepId && selectedId === deepId,
+    queryKey: ["loanRequests", "deep", selectedId, lookupLoanId],
+    enabled: selectedId != null && !fromList,
     queryFn: async () => {
       for (let offset = 0; offset < 1000; offset += 50) {
-        const page = await listLoanRequestsPage({ loanId: deepLoanId, limit: 50, offset });
-        const hit = (page.items ?? []).find((r) => r.id === deepId);
+        const page = await listLoanRequestsPage({ loanId: lookupLoanId, limit: 50, offset });
+        const hit = (page.items ?? []).find((r) => r.id === selectedId);
         if (hit) return hit;
         if (!page.hasMore) break;
       }
@@ -98,7 +105,7 @@ export default function RequestsScreen() {
     },
   });
 
-  const selected = (selectedId != null ? list.items.find((r) => r.id === selectedId) : null) ?? (selectedId != null && deep.data?.id === selectedId ? deep.data : null);
+  const selected = fromList ?? (selectedId != null && deep.data?.id === selectedId ? deep.data : null) ?? (selectedId != null && lastSeen?.id === selectedId ? lastSeen : null);
 
   // Release review needs the loan's live outstanding balance.
   const loanForSelected = useQuery({
@@ -137,13 +144,14 @@ export default function RequestsScreen() {
   function refreshAfterSave() {
     qc.invalidateQueries({ queryKey: ["loanRequests"] });
     qc.invalidateQueries({ queryKey: ["loan"] });
+    if (selected) invalidateLoan(qc, selected.loanId);
   }
 
   const count = groupedFilterCount(fv);
 
   return (
     <Screen header={<FlatHeader title="Extension & Release" subtitle="Loan extensions & gold release" />}>
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(r) => String(r.id)}
@@ -177,7 +185,7 @@ export default function RequestsScreen() {
                     { k: "Type", v: r.isPartial ? "Partial release" : "Full release" },
                     { k: "Date", v: dmy(r.requestedAt) },
                   ];
-          const paymentOverdue = !!r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && new Date(r.paymentDueDate) < new Date();
+          const paymentOverdue = !!r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && r.paymentDueDate.slice(0, 10) < todayISO();
           return (
             <AccRow
               defaultOpen={i === 0}
@@ -196,9 +204,9 @@ export default function RequestsScreen() {
                         disabled: downloading !== null,
                         onPress: () => setDownloadFor(r),
                       },
-                      { label: "View", onPress: () => setSelectedId(r.id) },
+                      { label: "View", onPress: () => { setLastSeen(r); setSelectedId(r.id); } },
                     ]
-                  : [{ label: "Review Request", primary: true, onPress: () => setSelectedId(r.id) }]
+                  : [{ label: "Review Request", primary: true, onPress: () => { setLastSeen(r); setSelectedId(r.id); } }]
               }
             />
           );

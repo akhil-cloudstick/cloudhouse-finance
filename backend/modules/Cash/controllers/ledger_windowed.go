@@ -5,6 +5,7 @@ import (
 	"cloudhouse/backend/config"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -75,6 +76,16 @@ func signedLedgerAmount(r ledgerSourceRow) float64 {
 // focusMatches is focusRowIndex split in two: the first row on the focus date
 // with the focus amount, and the first row with the amount on any date.
 func focusMatches(rows []ledgerSourceRow, f ledgerFocus) (exact, fallback int) {
+	// Prefer the rows of the loan the user came from; only when none of them matches fall back to any loan's.
+	if f.loan != "" && f.ref == "" && f.paymentID == 0 {
+		if e, fb := focusMatchesIn(rows, f, true); e >= 0 || fb >= 0 {
+			return e, fb
+		}
+	}
+	return focusMatchesIn(rows, f, false)
+}
+
+func focusMatchesIn(rows []ledgerSourceRow, f ledgerFocus, onlyLoan bool) (exact, fallback int) {
 	exact, fallback = -1, -1
 	same := func(a float64) bool { return a-f.amount < 0.005 && f.amount-a < 0.005 }
 	for i, r := range rows {
@@ -105,6 +116,9 @@ func focusMatches(rows []ledgerSourceRow, f ledgerFocus) (exact, fallback int) {
 			continue
 		}
 		if r.Memo || !same(r.Amount) {
+			continue
+		}
+		if onlyLoan && !strings.EqualFold(r.LoanNumber, f.loan) {
 			continue
 		}
 		if exact < 0 && f.date != "" && r.Date.Format("2006-01-02") == f.date {

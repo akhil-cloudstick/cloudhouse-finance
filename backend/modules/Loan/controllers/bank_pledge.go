@@ -374,8 +374,8 @@ func getBankPledgeHistory(ctx context.Context, loanID uint, branchID *uint) ([]m
 	return findBankPledgeHistoryByLoanID(ctx, loanID)
 }
 
-func listBankPledgeHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
-	return findAllHistory(ctx, branchID, query, from, to, limit, offset)
+func listBankPledgeHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int, pf pledgeListFilter) ([]BankPledgeHistoryRow, int64, error) {
+	return findAllHistory(ctx, branchID, query, from, to, limit, offset, pf)
 }
 
 func listBankPledgesForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
@@ -515,7 +515,14 @@ func findBankPledgeHistoryByLoanID(ctx context.Context, loanID uint) ([]models.B
 	return pledges, err
 }
 
-func findAllHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
+// pledgeListFilter is the Bank Pledge page's extra filters: any of the branches, customers and banks given.
+type pledgeListFilter struct {
+	BranchIDs   []uint
+	CustomerIDs []uint
+	Banks       []string
+}
+
+func findAllHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int, pf pledgeListFilter) ([]BankPledgeHistoryRow, int64, error) {
 	var pledges []BankPledgeHistoryRow
 	q := config.DB.
 		WithContext(ctx).Model(&models.BankPledgeRecord{}).
@@ -527,6 +534,15 @@ func findAllHistory(ctx context.Context, branchID *uint, query string, from, to 
 		Where("bank_pledge_records.status <> ?", models.BankPledgeStatusRecordActive)
 	if branchID != nil {
 		q = q.Where("loans.branch_id = ?", *branchID)
+	}
+	if len(pf.BranchIDs) > 0 {
+		q = q.Where("loans.branch_id IN ?", pf.BranchIDs)
+	}
+	if len(pf.CustomerIDs) > 0 {
+		q = q.Where("loans.customer_id IN ?", pf.CustomerIDs)
+	}
+	if len(pf.Banks) > 0 {
+		q = q.Where("bank_pledge_records.bank_name IN ?", pf.Banks)
 	}
 	if query != "" {
 		like := "%" + query + "%"
@@ -746,14 +762,15 @@ func ListBankPledgeHistory(c echo.Context) error {
 		return nil
 	}
 	page, limit, offset := common.PageParams(c)
+	pf := pledgeListFilter{BranchIDs: parseUintCSV(c.QueryParam("branch_id")), CustomerIDs: parseUintCSV(c.QueryParam("customer_id")), Banks: splitCSV(c.QueryParam("bank"))}
 	if limit > 0 {
-		recs, total, err := listBankPledgeHistory(ctx, branchID, query, from, to, limit, offset)
+		recs, total, err := listBankPledgeHistory(ctx, branchID, query, from, to, limit, offset, pf)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessPage(c, page, limit, total, recs)
 	}
-	recs, _, err := listBankPledgeHistory(ctx, branchID, query, from, to, 0, 0)
+	recs, _, err := listBankPledgeHistory(ctx, branchID, query, from, to, 0, 0, pf)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

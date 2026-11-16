@@ -140,7 +140,7 @@ export function InvestmentLedgerEditSheet({ investmentId, row: r, mode, live, mi
       {isPayout ? <Txt style={{ fontSize: 11.5, color: C.muted, marginBottom: 10 }}>The amount of a payout is fixed by the schedule. To change it, delete this entry and pay the payout again.</Txt> : null}
       {!isPayout && kind !== "opening" ? (
         <Field label="Reference">
-          <Input value={reference} onChangeText={touch(setReference)} />
+          <Input maxLength={150} value={reference} onChangeText={touch(setReference)} />
         </Field>
       ) : null}
       <View style={{ marginBottom: 12 }}>

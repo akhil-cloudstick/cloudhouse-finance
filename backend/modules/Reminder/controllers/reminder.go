@@ -360,10 +360,6 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		if due.Before(interestTo) {
 			interestTo = due
 		}
-		// an occurrence is shown only once its interest exists: nothing has accrued for a month that has not run
-		if now.Before(interestTo) {
-			interestTo = now
-		}
 		for _, occ := range unsettledInterestOccurrences(l.OpenedDate, from, interestTo, due, interestPaid[l.ID]) {
 			events = append(events, models.CalendarEvent{
 				Date:         occ.Format("2006-01-02"),

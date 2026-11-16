@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Buffering, C, ChipToggle, DateField, Field, Txt } from "@/common/components/ui";
@@ -56,11 +56,15 @@ function EntrySheet({ target, onClose }: Props) {
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [preview, setPreview] = useState<AuctionEditPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
-
+  // Form version: a dry-run answer is only shown if the form has not changed since it was sent.
+  const ver = useRef(0);
+  const sentVer = useRef(0);
+  const previewVer = useRef(-1);
 
   const touch =
     <T,>(set: (v: T) => void) =>
     (v: T) => {
+      ver.current += 1;
       setPreview(null);
       setError(null);
       set(v);
@@ -87,6 +91,8 @@ function EntrySheet({ target, onClose }: Props) {
     },
     onSuccess: (res, dry) => {
       if (dry) {
+        if (sentVer.current !== ver.current) return; // the form changed while this was running
+        previewVer.current = ver.current;
         setPreview(res);
         setError(null);
         return;
@@ -99,14 +105,18 @@ function EntrySheet({ target, onClose }: Props) {
       qc.invalidateQueries({ queryKey: ["ledger"] });
       onClose();
     },
-    onError: (e) => {
+    onError: (e, dry) => {
+      if (dry && sentVer.current !== ver.current) return;
       setPreview(null);
       setError(e instanceof Error && !("status" in e) ? e.message : apiErr(e, "Could not save the change — try again."));
     },
   });
 
+  const needsHistory = !!target && mode === "edit" && kind === "write-off";
   const form =
-    mode === "edit" && kind !== "sale" && !record && kind === "surplus" ? (
+    needsHistory && !hist.data ? (
+      hist.isError ? null : <Buffering block />
+    ) : mode === "edit" && kind !== "sale" && !record && kind === "surplus" ? (
       hist.isError ? null : <Buffering block />
     ) : kind === "write-off" ? (
       <DateField label="Write-off date *" value={date} onChange={touch(setDate)} max={todayISO()} />
@@ -122,6 +132,7 @@ function EntrySheet({ target, onClose }: Props) {
               total={surplusAmount}
               bankLabel="Bank (account it is paid from)"
               onChange={(v) => {
+                ver.current += 1;
                 setPreview(null);
                 setPay(v);
               }}
@@ -169,8 +180,13 @@ function EntrySheet({ target, onClose }: Props) {
       busy={run.isPending}
       onSubmit={() => {
         if (needsRecord && !record) return;
+        if (needsHistory && !hist.data) return; // the recorded date has not loaded yet
         setError(null);
-        run.mutate(preview == null);
+        // only confirm a preview that matches the form as it is now
+        const confirm = preview != null && previewVer.current === ver.current;
+        if (preview != null && !confirm) setPreview(null);
+        sentVer.current = ver.current;
+        run.mutate(!confirm);
       }}
     />
   );

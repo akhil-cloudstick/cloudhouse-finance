@@ -87,6 +87,7 @@ export function MovementRow({
           : []),
         ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!, focus)} /> }] : []),
         ...(m.status ? [{ k: "Status", v: m.status }] : []),
+        ...(m.remarks ? [{ k: "Remarks", v: m.remarks }] : []),
         ...billDetail(m.receiptImage),
       ]}
     />

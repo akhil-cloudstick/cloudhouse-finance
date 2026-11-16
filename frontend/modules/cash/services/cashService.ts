@@ -285,6 +285,7 @@ function goldSaleToView(g: BackendGoldSale): GoldSaleView {
     bankId: g.bankId ?? undefined,
     bankName: g.bankRef?.name,
     remarks: g.remarks,
+    cashMovementId: g.cashMovementId ?? undefined,
   };
 }
 
@@ -341,6 +342,8 @@ function partyRangeParams(range?: PartyDateRange): URLSearchParams {
     if (range.focusPayment) params.set("focusPayment", String(range.focusPayment));
     // The unique row identity (kind:id) followed — beats date + amount for every row type.
     if (range.focusRef) params.set("focusRef", range.focusRef);
+    // The loan the user came from: another loan can share the date and amount.
+    if (range.focusLoan) params.set("focusLoan", range.focusLoan);
   }
   return params;
 }

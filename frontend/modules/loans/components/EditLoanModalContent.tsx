@@ -19,7 +19,7 @@ import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornamen
 import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
 import { InterestChangesTable, type InterestChangeView } from "@/modules/loans/components/InterestChangesTable";
 import { GoldReleaseDependents, goldChoicesOf } from "@/modules/loans/components/GoldReleaseDependents";
-import { type LedgerEditDependent, type LedgerFollowingEntry, previewLoanEdit, updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
+import { type LedgerEditDependent, type LedgerFollowingEntry, previewLoanEdit, listTopUps, updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
 import { uploadFile } from "@/modules/customers/services/customerService";
 import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
 import { SafeImage } from "@/common/components/ui/SafeImage";
@@ -68,7 +68,8 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 
   const [schemeId, setSchemeId] = useState(loan.schemeId); // string, matches SchemeView.id
   const [schemeLabel, setSchemeLabel] = useState(`${loan.schemeName}`);
-  const [schemeLtv, setSchemeLtv] = useState(loan.schemeLtv);
+  // The scheme's LTV now (what the server checks the amount against), not the one frozen on the loan.
+  const [schemeLtv, setSchemeLtv] = useState(loan.currentSchemeLtv ?? loan.schemeLtv);
   // the newly picked scheme's service charge terms (null while the loan's own scheme is kept)
   const [schemeObj, setSchemeObj] = useState<SchemeView | null>(null);
   // How the service charge is taken: kept from the loan, or reset to the new scheme's own when the scheme is switched.
@@ -208,7 +209,19 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     : useNew ? (chargeType === "Flat" ? chargeValue : 0) : loan.serviceChargeAmount;
   const hasCharge = !!chargeType && chargeType !== "None";
   const principalTotal = amountNum > 0 ? Math.round((hasCharge && chargeMode === "AddedToPrincipal" ? amountNum + serviceCharge : amountNum) * 100) / 100 : loan.principal;
-  const newSanctioned = (loan.sanctionedAmount || loan.principal) + (principalTotal - loan.principal);
+  // The amount the loan started with is its principal less the top-ups paid out since — the same figure the server
+  // works from. Until the top-ups load, the stored sanction stands in for it.
+  const [topUpSum, setTopUpSum] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listTopUps(loan.numericId)
+      .then((ups) => { if (!cancelled) setTopUpSum(roundRupee(ups.filter((t) => t.status === "Active").reduce((s, t) => s + t.amount, 0))); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [loan.numericId]);
+  const newSanctioned = topUpSum !== null
+    ? principalTotal - topUpSum
+    : (loan.sanctionedAmount || loan.principal) + (principalTotal - loan.principal);
   const modeChanged = hasCharge && chargeMode !== loanChargeMode;
   // A switched scheme brings its own mode on the server, so the chosen one is always sent along with it.
   const sendMode = hasCharge && (modeChanged || schemeId !== loan.schemeId);

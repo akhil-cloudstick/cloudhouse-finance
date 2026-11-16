@@ -342,8 +342,8 @@ export function FilterPanel({
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, minWidth: 0 }}>
-      <div className="dp" ref={boxRef}>
-        <button type="button" className={size === "sm" ? "btn ghost sm" : "btn ghost"} onClick={() => setOpen((o) => !o)} title="Filters" aria-label="Filters">
+      <div className="dp" ref={boxRef} style={{ display: "inline-flex", alignItems: "center" }}>
+        <button type="button" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", ...(size === "sm" ? { height: 31 } : {}) }} className={size === "sm" ? "btn ghost sm" : "btn ghost"} onClick={() => setOpen((o) => !o)} title="Filters" aria-label="Filters">
           <Icon name="filter" />
           {activeCount > 0 && <span className="filter-badge">{activeCount}</span>}
         </button>

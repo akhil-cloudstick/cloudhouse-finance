@@ -2,14 +2,15 @@
 
 import { fmt, fmtDate } from "@/common/utils/format";
 import { TruncText } from "@/common/components/ui/TruncText";
+import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { type GoldSaleView } from "@/modules/cash/types/cash-types";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 
-type GoldSaleRowProps = { g: GoldSaleView };
+type GoldSaleRowProps = { g: GoldSaleView; onChanged?: () => void };
 
-export function GoldSaleRow({ g }: GoldSaleRowProps) {
+export function GoldSaleRow({ g, onChanged }: GoldSaleRowProps) {
   const showBranch = useShowBranch();
   return (
     <tr>
@@ -23,7 +24,7 @@ export function GoldSaleRow({ g }: GoldSaleRowProps) {
       <td data-label="Mode">{modeCellFor(g.mode)}</td>
       <td data-label="Bank">{g.bankId ? <LedgerRefLink kind="bank" id={g.bankId} label={g.bankName || "Bank"} /> : "—"}</td>
       {showBranch && <td data-label="Branch">{g.branch}</td>}
-      <td data-label="Remarks"><TruncText text={g.remarks} /></td>
+      <td data-label="Remarks"><TruncText text={g.remarks} maxWidth={120} /><LedgerEntryActions entryId={g.cashMovementId} onChanged={onChanged} /></td>
     </tr>
   );
 }

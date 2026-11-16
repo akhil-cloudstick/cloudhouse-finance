@@ -268,7 +268,7 @@ const st = StyleSheet.create({
   headTitle: { fontWeight: "700", fontSize: 15, flexShrink: 1 },
   reset: { fontSize: 13, fontWeight: "700", color: C.brand },
   tabsScroll: { flexGrow: 0, flexShrink: 0 },
-  tabs: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12, gap: 8 },
+  tabs: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, gap: 8 },
   tab: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#fff", borderWidth: 1, borderColor: C.line },
   tabOn: { backgroundColor: C.brandDeep, borderColor: C.brandDeep },
   tabTxt: { fontSize: 12.5, fontWeight: "700", color: C.muted },

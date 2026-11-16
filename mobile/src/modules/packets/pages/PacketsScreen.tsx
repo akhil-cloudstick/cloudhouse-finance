@@ -231,7 +231,7 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
 
   return (
     <>
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(p) => String(p.id)}
@@ -319,7 +319,7 @@ function LockersTab({ header, onOpen }: LockersTabProps) {
 
   return (
     <>
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(l) => String(l.id)}

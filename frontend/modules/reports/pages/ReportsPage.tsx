@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { Icon } from "@/common/components/Icon";
 import { useToast } from "@/common/components/ToastProvider";
+import { useModal } from "@/common/components/ModalProvider";
+import { ExportFormatModal, type ExportKind } from "@/modules/reports/components/ExportMenu";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtW, fmtDate } from "@/common/utils/format";
 import { FormGReportView } from "@/modules/reports/components/FormGReportView";
@@ -632,6 +634,7 @@ export function reportTitleFromSlug(slug?: string): string | undefined {
 
 export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }) {
   const toast = useToast();
+  const { openModal } = useModal();
   const smallScreen = useIsSmallScreen();
   const { hasModule, singleBranch } = useBranding();
   // Single-branch plan: tile descriptions drop their branch wording.
@@ -664,9 +667,13 @@ export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }
     return <ReportView key={active.id} config={active} onBack={() => setActiveId(null)} />;
   }
 
-  async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE | typeof DAY_BOOK_TILE) { return singleFlight("reports:print:"+r.id, async () => {
+  function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE | typeof DAY_BOOK_TILE) {
     e.stopPropagation();
     if (r.id === "ledger-export") { setActiveId("ledger-export"); return; }
+    openModal(<ExportFormatModal onPick={(kind) => runPrint(r, kind)} />);
+  }
+
+  async function runPrint(r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE | typeof DAY_BOOK_TILE, kind: ExportKind) { return singleFlight("reports:print:"+r.id, async () => {
     setPrintingId(r.id);
     try {
       // Form G defaults to the last 3 months everywhere else in this view
@@ -677,7 +684,7 @@ export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }
       // the date range), just with that 3-month default instead of
       // firstOfMonth().
       const range = r.id === "form-g" ? { from: subMonths(today(), 3), to: today() } : { from: firstOfMonth(), to: today() };
-      await exportReport(r.id === "form-g" || r.id === "day-book" ? r.id : (r as ReportConfig).exportKey, "pdf", range);
+      await exportReport(r.id === "form-g" || r.id === "day-book" ? r.id : (r as ReportConfig).exportKey, kind, range);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Print failed.");
     } finally {

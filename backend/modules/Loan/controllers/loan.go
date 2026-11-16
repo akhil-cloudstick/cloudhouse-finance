@@ -163,6 +163,8 @@ type LoanFilter struct {
 	BankPledgeStatus   string
 	// Set instead of BankPledgeStatus when more than one pledge status is picked.
 	BankPledgeStatuses []string
+	// Names of the banks an active pledge must be with (any of them) — the Bank Pledge page's bank filter.
+	PledgeBanks []string
 	DueToday           bool
 	OnlyDefaulted      bool
 	Servicing          string
@@ -741,6 +743,7 @@ func updateLoanFields(ctx context.Context, loanID uint, in UpdateLoanInput) (*mo
 	if err != nil {
 		return nil, err
 	}
+	refreshSchemeLTV(ctx, l)
 	recalculateTotals(l, ornaments)
 	capped := l.PrincipalAmount
 	if l.ServiceChargeMode == commonModels.ServiceChargeModeAddedToPrincipal && l.ServiceChargeValue > 0 {
@@ -1042,6 +1045,7 @@ func recalculateAndSave(ctx context.Context, l *models.Loan) (*models.Loan, erro
 	if err != nil {
 		return nil, err
 	}
+	refreshSchemeLTV(ctx, l)
 	recalculateTotals(l, ornaments)
 	if err := persistLoan(ctx, l); err != nil {
 		return nil, err
@@ -1478,7 +1482,14 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		q = q.Where("(loans.bank_pledge_status <> ? OR (NOT EXISTS (SELECT 1 FROM bank_pledge_records bp WHERE bp.loan_id = loans.id AND bp.status = ? AND bp.ornament_ids = 'null') AND EXISTS (SELECT 1 FROM ornaments o WHERE o.loan_id = loans.id AND o.released_at IS NULL AND NOT EXISTS (SELECT 1 FROM bank_pledge_records bp2 WHERE bp2.loan_id = loans.id AND bp2.status = ? AND bp2.ornament_ids::jsonb @> to_jsonb(o.id)))))", models.BankPledgeStatusPledged, models.BankPledgeStatusRecordActive, models.BankPledgeStatusRecordActive)
 		q = q.Where("loans.status NOT IN ?", models.BankPledgeIneligibleStatuses)
 	}
-	if f.BankPledgeStatus != "" {
+	if len(f.PledgeBanks) > 0 {
+		q = q.Where("EXISTS (SELECT 1 FROM bank_pledge_records bp_bank WHERE bp_bank.loan_id = loans.id AND bp_bank.status = ? AND bp_bank.bank_name IN ?)", models.BankPledgeStatusRecordActive, f.PledgeBanks)
+	}
+	if f.BankPledgeStatus == models.BankPledgeStatusPledged {
+		// "Pledged" means the loan has an active pledge record — the loan's own status column can lag behind the
+		// records, which made this list and the dashboard's Bank-Pledged card disagree.
+		q = q.Where("EXISTS (SELECT 1 FROM bank_pledge_records bp_act WHERE bp_act.loan_id = loans.id AND bp_act.status = ?)", models.BankPledgeStatusRecordActive)
+	} else if f.BankPledgeStatus != "" {
 		q = q.Where("loans.bank_pledge_status = ?", f.BankPledgeStatus)
 	}
 	if len(f.BankPledgeStatuses) > 0 {
@@ -1519,9 +1530,9 @@ func FindLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) 
 	base := preloadAll(config.DB.
 		WithContext(ctx)).Model(&models.Loan{})
 	if f.BankPledgeStatus == models.BankPledgeStatusPledged {
-		base = base.
-			Joins("JOIN bank_pledge_records ON bank_pledge_records.loan_id = loans.id AND bank_pledge_records.status = ?", models.BankPledgeStatusRecordActive).
-			Order("bank_pledge_records.pledge_date desc, bank_pledge_records.id desc")
+		// One row per loan — a join on the pledge records would repeat a loan with two active pledges and make the
+		// rows disagree with the page count and the dashboard card.
+		base = base.Order(clause.Expr{SQL: "(SELECT MAX(bpo.pledge_date) FROM bank_pledge_records bpo WHERE bpo.loan_id = loans.id AND bpo.status = ?) desc, loans.id desc", Vars: []interface{}{models.BankPledgeStatusRecordActive}})
 	} else {
 		base = base.Order("loans.opened_date desc, loans.id desc")
 	}
@@ -1606,7 +1617,7 @@ func FindOpenForCalendar(ctx context.Context) ([]models.Loan, error) {
 		Preload("Customer", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id", "name", "code")
 		}).
-		Where("status IN ?", []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue}).
+		Where("status IN ?", []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue, models.StatusClosureRequested, models.StatusAuctionEligible}).
 		Find(&loans).Error
 	return loans, err
 }
@@ -1686,6 +1697,7 @@ func ListLoans(c echo.Context) error {
 	} else {
 		f.CustomerIDs = ids
 	}
+	f.PledgeBanks = splitCSV(c.QueryParam("bank"))
 	f.AuctionStages = splitCSV(c.QueryParam("auction_stage"))
 	if ids := parseUintCSV(c.QueryParam("scheme_id")); len(ids) == 1 {
 		f.SchemeID = ids[0]

@@ -46,10 +46,25 @@ export function recordPayment(
 export type LedgerLoanSummary = { principal: number; interest: number; penalInterest: number; fee: number; total: number; status: string };
 /** Offered when a repayment edit reopens a closed loan: the packet can go back to the status it had before. */
 export type PacketReversalOffer = { packetId: number; code: string; currentStatus: string; previousStatus: string; lockerId?: number };
+/** A later payment that no longer fits once an earlier one is edited: what it can still be (0 = it would be removed). */
+export type LedgerFollowingEntry = { id: number; paidOn: string; type?: string; reference?: string; current: number; suggested: number; needsChange?: boolean; needs_change?: boolean };
+/** What a gold release did that this edit may undo; only "partial_release" is offered here (the packet has its own offer). */
+export type LedgerEditDependent = { kind: string; description: string; current: string; suggested: string; warning?: string };
 export type LedgerEditPreview = {
   before: LedgerLoanSummary; after: LedgerLoanSummary; dryRun: boolean;
   packet?: PacketReversalOffer; packetReversed?: boolean; packetError?: string;
+  following?: LedgerFollowingEntry[]; dependents?: LedgerEditDependent[];
 };
+
+/** Body keys the app's key map does not know about are sent in their wire (snake_case) form. */
+function wireBody<T extends { adjustFollowing?: { id: number; amount: number }[]; restorePartialRelease?: boolean }>(input: T) {
+  const { adjustFollowing, restorePartialRelease, ...rest } = input;
+  return {
+    ...rest,
+    ...(adjustFollowing?.length ? { adjust_following: adjustFollowing } : {}),
+    ...(restorePartialRelease ? { restore_partial_release: true } : {}),
+  };
+}
 
 export function editLedgerPayment(
   loanId: number,
@@ -69,14 +84,16 @@ export function editLedgerPayment(
     discountMode?: string; // Discount rows only
     reason?: string;
     reversePacket?: boolean; // also put the packet back to its previous status (see PacketReversalOffer)
+    restorePartialRelease?: boolean; // also undo the partial release listed in the preview's dependents
+    adjustFollowing?: { id: number; amount: number }[]; // amounts chosen for the later payments that no longer fit
   },
   dryRun = false
 ) {
-  return apiRequest<LedgerEditPreview>(`/loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+  return apiRequest<LedgerEditPreview>(`/loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: wireBody(input) });
 }
 
-export function deleteLedgerPayment(loanId: number, paymentId: number, dryRun = false, reason?: string, reversePacket = false) {
-  return apiRequest<LedgerEditPreview>(`/loans/${loanId}/payments/${paymentId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}), ...(reversePacket ? { reverse_packet: "true" } : {}) })}`, { method: "DELETE" });
+export function deleteLedgerPayment(loanId: number, paymentId: number, dryRun = false, reason?: string, reversePacket = false, restorePartial = false) {
+  return apiRequest<LedgerEditPreview>(`/loans/${loanId}/payments/${paymentId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}), ...(reversePacket ? { reverse_packet: "true" } : {}), ...(restorePartial ? { restore_partial_release: "true" } : {}) })}`, { method: "DELETE" });
 }
 
 /* --- Top-up edit / delete — same two-step preview / confirm as a payment edit. */
@@ -92,12 +109,14 @@ export function editLoanTopUp(
     bankId?: number;
     reference?: string;
     reason?: string;
+    restorePartialRelease?: boolean;
+    adjustFollowing?: { id: number; amount: number }[];
   },
   dryRun = false
 ) {
-  return apiRequest<LedgerEditPreview>(`/loans/${loanId}/top-ups/${topUpId}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+  return apiRequest<LedgerEditPreview>(`/loans/${loanId}/top-ups/${topUpId}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: wireBody(input) });
 }
 
-export function deleteLoanTopUp(loanId: number, topUpId: number, dryRun = false, reason?: string) {
-  return apiRequest<LedgerEditPreview>(`/loans/${loanId}/top-ups/${topUpId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, { method: "DELETE" });
+export function deleteLoanTopUp(loanId: number, topUpId: number, dryRun = false, reason?: string, restorePartial = false) {
+  return apiRequest<LedgerEditPreview>(`/loans/${loanId}/top-ups/${topUpId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}), ...(restorePartial ? { restore_partial_release: "true" } : {}) })}`, { method: "DELETE" });
 }

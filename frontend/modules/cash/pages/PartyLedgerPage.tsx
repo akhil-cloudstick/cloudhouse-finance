@@ -146,7 +146,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
     const target = focusPending.current ? ledgerFocusTarget("party") : null;
     const range = {
       fromDate: fromDate || undefined, toDate: toDate || undefined, search: search || undefined,
-      ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment, focusRef: target.ref } : {}),
+      ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment, focusRef: target.ref, focusLoan: target.loan } : {}),
     };
     const call =
       kind === "bank" ? getBankLedger(numericId, page, { ...range, modes: modeValues }, pageSize)

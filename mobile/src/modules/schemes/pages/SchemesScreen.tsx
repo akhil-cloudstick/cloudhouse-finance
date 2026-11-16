@@ -86,7 +86,7 @@ export default function SchemesScreen() {
         ) : undefined
       }
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(sc) => String(sc.id)}

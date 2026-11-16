@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { LayoutAnimation, Linking, Pressable, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
   Avatar,
+  BoundedList,
   Buffering,
   C,
   Card,
@@ -85,7 +86,7 @@ const KYC_FIELDS: Record<string, "photoUrl" | "identityProofUrl" | "addressProof
 };
 
 /** One KYC document row: eye icon to view (Replace lives in the viewer); "Add" picks a file inline when empty. */
-function KycDoc({ customer, label, url, canUpdate }: { customer: Customer; label: string; url?: string | null; canUpdate: boolean }) {
+function KycDoc({ customer: customerProp, label, url, canUpdate }: { customer: Customer; label: string; url?: string | null; canUpdate: boolean }) {
   const qc = useQueryClient();
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -98,6 +99,8 @@ function KycDoc({ customer, label, url, canUpdate }: { customer: Customer; label
       if (!file) return;
       setBusy(true);
       const newUrl = await uploadFile(file);
+      // Rebuild the full-replace body from the latest saved record, not the (possibly stale) prop.
+      const customer = await getCustomer(customerProp.id);
       const x = customer as Customer & Record<string, any>;
       await updateCustomer(customer.id, {
         name: customer.name, phone: customer.phone, dob: customer.dob ? String(customer.dob).slice(0, 10) : undefined, address: customer.address || undefined,
@@ -111,7 +114,7 @@ function KycDoc({ customer, label, url, canUpdate }: { customer: Customer; label
         bankAccountName: x.bankAccountName || undefined, bankAccountNumber: x.bankAccountNumber || undefined, bankIfsc: x.bankIfsc || undefined,
       });
       qc.invalidateQueries({ queryKey: ["customers"] });
-      qc.invalidateQueries({ queryKey: ["customer", String(customer.id)] });
+      qc.invalidateQueries({ queryKey: ["customer", String(customerProp.id)] });
       toast.success("Saved", `${label} updated`);
     } catch (e) {
       toast.error("Upload failed", e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Try again.");
@@ -372,12 +375,20 @@ type LoanRequestPickerProps = { customerId: number; visible: boolean; onClose: (
 /** Extension / Release for one of this customer's open loans — pick which, then it opens on that loan (web's picker). */
 function LoanRequestPicker({ customerId, visible, onClose }: LoanRequestPickerProps) {
   const [kind, setKind] = useState<"extend" | "release">("extend");
-  const loans = useQuery({
+  const PICK_PAGE = 15;
+  const loans = useInfiniteQuery({
     queryKey: ["customer-open-loans", customerId],
-    queryFn: () => listLoansPage({ customerId, limit: 50, offset: 0 }),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => listLoansPage({ customerId, limit: PICK_PAGE, offset: pageParam as number }).then((r) => ({ items: r.items ?? [], total: r.total ?? (r.items ?? []).length, hasMore: !!r.hasMore })),
+    getNextPageParam: (last, all) => (last.hasMore ? all.length * PICK_PAGE : undefined),
     enabled: visible,
   });
-  const open = (loans.data?.items ?? []).filter((l) => !/closed|rejected|released/i.test(l.status ?? ""));
+  const open0 = (loans.data?.pages.flatMap((p) => p.items) ?? []);
+  const open = open0.filter((l) => !/closed|rejected|released/i.test(l.status ?? ""));
+  // Closed loans are filtered out, so a page can leave the box too short to scroll: keep fetching until it fills.
+  useEffect(() => {
+    if (visible && loans.hasNextPage && !loans.isFetchingNextPage && open.length < 4) void loans.fetchNextPage();
+  }, [visible, loans.hasNextPage, loans.isFetchingNextPage, open.length]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sheet visible={visible} onClose={onClose} title="Extension / Release" maxHeightPct={75}>
       <Field label="Request">
@@ -388,7 +399,13 @@ function LoanRequestPicker({ customerId, visible, onClose }: LoanRequestPickerPr
       ) : open.length === 0 ? (
         <EmptyText>No open loans for this customer.</EmptyText>
       ) : (
-        open.map((l, i) => (
+        <BoundedList
+          rows={4}
+          onEndReached={loans.hasNextPage && !loans.isFetchingNextPage ? () => loans.fetchNextPage() : undefined}
+          loadingMore={loans.isFetchingNextPage}
+          caption={`${open.length} open loan${open.length === 1 ? "" : "s"}${loans.hasNextPage ? " — scroll for more" : ""}`}
+        >
+        {open.map((l, i) => (
           <SheetListItem
             key={l.id}
             first={i === 0}
@@ -400,9 +417,10 @@ function LoanRequestPicker({ customerId, visible, onClose }: LoanRequestPickerPr
               openPage(`/loans/${l.id}?action=${kind}`);
             }}
           />
-        ))
+        ))}
+        </BoundedList>
       )}
-    </Sheet>
+</Sheet>
   );
 }
 

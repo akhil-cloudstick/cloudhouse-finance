@@ -1646,6 +1646,15 @@ button.fi-trigger {
   box-sizing: border-box
 }
 
+/* Download button in the ledger header: compact (the .hd:has(.search) rule
+ * pins it to 34px, which made it look oversized next to the filter icon). */
+.hd .cash-filter-row .btn.ghost.sm {
+  height: 31px;
+  padding: 0 10px;
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
 .dp-trigger {
   display: flex;
   align-items: center;
@@ -4946,9 +4955,16 @@ table.tbl td {
 .charge-method-select,
 .charge-method-select .dp,
 .charge-method-select .dp-trigger {
-  width: 170px;
-  max-width: 170px;
+  width: 170px !important;
+  min-width: 170px !important;
+  max-width: 170px !important;
   box-sizing: border-box;
+}
+
+/* The label stays put at the left edge; only its own text is clipped, never the box. */
+.charge-method-select .dp-trigger {
+  justify-content: space-between;
+  text-align: left;
 }
 
 .loans-date-sep {
@@ -9129,9 +9145,24 @@ html.has-titlebar .modal-bg {
   position: relative;
 }
 
+/* Ledger / register tables: tighter gaps between columns, and the last cell that holds the info icon keeps a
+ * clear gutter for it, so the icon is never cut off by the card edge. */
+.tbl.ledger-amt th,
+.tbl.ledger-amt td,
+.tbl.ledger-nowrap th,
+.tbl.ledger-nowrap td {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.tbl td:last-child:has(> .ledger-info),
+.tbl.ledger-nowrap td:last-child:has(> .ledger-info) {
+  padding-right: 42px !important;
+}
+
 .ledger-info {
   position: absolute;
-  right: 2px;
+  right: 12px;
   top: 50%;
   transform: translateY(-50%);
   display: inline-flex;
@@ -10564,6 +10595,8 @@ table.tbl.lockers-tbl th {
   scrollbar-width: none;
   -ms-overflow-style: none
 }
+
+.addl-info.boxed { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; min-height: 40px }
 
 .addl-info::-webkit-scrollbar {
   display: none

@@ -792,6 +792,10 @@ func enrichLoan(ctx context.Context, l *models.Loan) {
 	l.TotalPaid = totalPaid
 	enrichStatusFlags(l, time.Now())
 	l.ApprovalWarning = sanctionWarning(ctx, l)
+	if sch, err := common.FindSchemeByID(ctx, l.SchemeID); err == nil {
+		v := sch.LTVPercent
+		l.CurrentSchemeLTVPercent = &v
+	}
 }
 
 func refreshServicingStatus(l *models.Loan, asOf time.Time) bool {

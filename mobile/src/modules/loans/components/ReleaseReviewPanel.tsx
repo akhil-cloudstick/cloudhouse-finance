@@ -223,7 +223,9 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
       setDiscount("0");
       setDiscountReason("");
       setReference("");
-      setPrefilledFor(null);
+      // Clear the amount and keep the request marked as prefilled: re-prefilling from the
+      // pre-refetch (stale) balance could let a second tap collect the same money again.
+      setAmount("");
       onSaved();
     },
     onError: reportError,
@@ -338,16 +340,21 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
         keyboardType="numeric"
         value={charges}
         onChangeText={setCharges}
-        onBlur={() => saveVerification.mutate({ charges: +charges || 0 })}
-        editable={canDecide && canVerifyChecklist && isPending && canRecordPayment}
+        onBlur={() => {
+          if ((+charges || 0) !== (request.charges || 0)) saveVerification.mutate({ charges: +charges || 0 });
+        }}
+        editable={canDecide && canVerifyChecklist && isPending && canRecordPayment && !request.locked}
       />
       <TextField
         label="Verification notes"
+        maxLength={150}
         placeholder="Notes from physical verification"
         value={notes}
         onChangeText={setNotes}
-        onBlur={() => saveVerification.mutate({ verificationNotes: notes })}
-        editable={canDecide && canVerifyChecklist && isPending}
+        onBlur={() => {
+          if (notes !== (request.verificationNotes || "")) saveVerification.mutate({ verificationNotes: notes });
+        }}
+        editable={canDecide && canVerifyChecklist && isPending && !request.locked}
       />
 
       <View style={sawGoldDisabled ? { opacity: 0.6 } : null}>

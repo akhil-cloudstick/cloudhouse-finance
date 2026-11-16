@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Buffering, C, CenterModal, ChipToggle, DateField, Field, GrmTabs, Input, PrimaryButton, ReviewWarning, ServerFlatList, Txt, WarningBanner, toast } from "@/common/components/ui";
+import { Buffering, C, CenterModal, ChipToggle, DateField, Field, GrmTabs, Input, PrimaryButton, ReviewWarning, ServerFlatList, Txt, toast } from "@/common/components/ui";
 import { Chevron } from "@/common/components/ui/Chevron";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { latestGoldRate, listGoldRatesPage, publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
@@ -10,6 +10,7 @@ import { dmy, inr, todayISO } from "@/common/utils/format";
 import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/common/utils/purity";
 import type { GoldRate } from "@/modules/gold-rates/types/gold-rate-types";
 import { userMessage } from "@/common/services/apiErrors";
+import { FieldErr } from "@/common/components/ErrorText";
 import { s } from "./shellModalsShared";
 
 // ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const [rates, setRates] = useState<Record<Karat, string>>({ 24: "", 22: "", 18: "" });
   const [fin, setFin] = useState<Record<Karat, string>>({ 24: String(FINENESS_24K), 22: savedFineness(22, now[24], now[22]), 18: savedFineness(18, now[24], now[18]) });
   const [lastEdited, setLastEdited] = useState<Karat | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   // History: only one day's rates are expanded at a time.
   const [openRate, setOpenRate] = useState<GoldRate["id"] | null>(null);
   // The day the rate is for — today unless another day is picked; the same rate may be saved for any day.
@@ -97,7 +98,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
       18: k24 > 0 ? String(rateForFineness(k24, +f18)) : "",
     });
     setLastEdited(null);
-    setError(null);
+    setTried(false);
   };
 
   useEffect(() => {
@@ -115,7 +116,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   };
 
   const editRate = (k: Karat, v: string) => {
-    setError(null);
+    setTried(false);
     setLastEdited(k);
     if (k !== 24) {
       setMode("Manual");
@@ -138,7 +139,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const editFineness = (k: Karat, v: string) => {
     if (k === 24) return;
     const c = clampFineness(v);
-    setError(null);
+    setTried(false);
     setFin((f) => ({ ...f, [k]: c }));
     if (!(+c > 0)) return;
     setRates((r) => (+r[24] > 0 ? { ...r, [k]: String(rateForFineness(+r[24], +c)) } : r));
@@ -155,7 +156,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
     22: lastEdited === 22 && bad2224,
     18: lastEdited === 18 && (bad1822 || bad1824),
   };
-  const hierarchyMsg = bad2224 ? "22K is priced above 24K." : bad1822 ? "18K is priced above 22K." : bad1824 ? "18K is priced above 24K." : null;
+  const hierarchyMsg = bad2224 ? "22K above 24K." : bad1822 ? "18K above 22K." : bad1824 ? "18K above 24K." : null;
 
   const history = useServerList<GoldRate>({
     key: ["gold-rates", "history"],
@@ -178,7 +179,7 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
       toast.success("Gold rate updated", `${jobs.map((j) => `${j.karat}K ${inr(j.rate)}`).join(" · ")} per gram`);
       onClose();
     },
-    onError: (e: Error) => setError(userMessage(e, "Could not save the rate — try again.")),
+    onError: (e: Error) => toast.error(userMessage(e, "Save failed.")),
   });
 
   const canPublish = n[24] > 0 && n[22] > 0 && n[18] > 0;
@@ -207,7 +208,8 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
                 </View>
               ))}
             </View>
-            <DateField label="Rate date" value={rateDate} onChange={(v) => { setRateDate(v); setError(null); }} />
+            <DateField label="Rate date" value={rateDate} onChange={setRateDate} />
+            {tried && !rateDate ? <FieldErr m="Pick the date this rate is for." /> : null}
             <Field label="Mode">
               <ChipToggle options={["Auto", "Manual"] as const} value={mode} onChange={switchMode} />
             </Field>
@@ -227,14 +229,14 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
                     <Input keyboardType="decimal-pad" value={rates[k]} onChangeText={(v) => editRate(k, v)} style={invalid[k] ? { borderColor: C.red } : undefined} />
                   </Field>
                 </View>
+                <FieldErr m={tried && !(n[k] > 0) ? `Enter the ${k}K rate.` : undefined} />
               </View>
             ))}
-            {hierarchyMsg ? <ReviewWarning>{`Price hierarchy looks wrong: ${hierarchyMsg} You can still save if this is intended.`}</ReviewWarning> : null}
-            {error ? <WarningBanner>{error}</WarningBanner> : null}
+            {hierarchyMsg ? <ReviewWarning>{hierarchyMsg}</ReviewWarning> : null}
           </ScrollView>
           {/* Sticky footer — the fields scroll, the button stays put. */}
           <View style={s.modalFooter}>
-            <PrimaryButton label="Save New Rate" onPress={() => save.mutate()} loading={save.isPending} disabled={!canPublish} />
+            <PrimaryButton label="Save New Rate" onPress={() => (canPublish && rateDate ? save.mutate() : setTried(true))} loading={save.isPending} />
           </View>
           </View>
         )

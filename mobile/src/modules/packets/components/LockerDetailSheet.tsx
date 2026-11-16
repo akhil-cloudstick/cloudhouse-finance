@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { View } from "react-native";
-import { AccBtn, SearchInput, ActItem, Buffering, C, Card, FieldGrid, PrimaryButton, SectionTitle, Sheet, Txt } from "@/common/components/ui";
+import { AccBtn, SearchInput, ActItem, Buffering, C, Card, FieldGrid, PrimaryButton, SectionTitle, Sheet, Txt, toast } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { deleteLocker, getLocker } from "@/modules/lockers/services/lockerService";
 import { listPacketsPage } from "@/modules/packets/services/packetService";
 import { PAGE_SIZE } from "@/common/hooks/use-server-list";
 import type { Locker } from "@/modules/lockers/types/locker-types";
-import { lockerStatus, errText } from "./lockerHelpers";
+import { lockerStatus } from "./lockerHelpers";
 
 type LockerDetailSheetProps = {
   locker: Locker | null;
@@ -30,12 +30,10 @@ export function LockerDetailSheet({
   const canUpdate = can("Locker_Management", "can_update_locker");
   const canDelete = can("Locker_Management", "can_delete_locker");
   const id = locker?.id ?? 0;
-  const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
-    setError(null);
     setConfirmDelete(false);
     setQ("");
   }, [id, visible]);
@@ -66,7 +64,7 @@ export function LockerDetailSheet({
     },
     onError: (err) => {
       setConfirmDelete(false);
-      setError(err instanceof ApiError ? err.message : "Could not delete.");
+      toast.error(err instanceof ApiError ? err.message : "Could not delete.");
     },
   });
 
@@ -108,7 +106,6 @@ export function LockerDetailSheet({
             )}
             {packets.isFetchingNextPage ? <Buffering /> : packets.hasNextPage ? <AccBtn label="Load more" onPress={() => packets.fetchNextPage()} style={{ marginVertical: 8 }} /> : null}
           </Card>
-          {errText(error)}
           {canUpdate ? <PrimaryButton label="Edit Locker" variant="outline" style={{ marginTop: 2 }} onPress={() => onEdit(l)} /> : null}
           {canDelete ? (
             <PrimaryButton

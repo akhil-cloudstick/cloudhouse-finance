@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { DefaultTheme, Slot, ThemeProvider as NavThemeProvider, useRouter, useSegments } from "expo-router";
-import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
+import { QueryClientProvider, focusManager } from "@tanstack/react-query";
+import { queryClient } from "@/common/services/queryClient";
 import { useFonts } from "@expo-google-fonts/ibm-plex-sans/useFonts";
 import { IBMPlexSans_400Regular } from "@expo-google-fonts/ibm-plex-sans/400Regular";
 import { IBMPlexSans_500Medium } from "@expo-google-fonts/ibm-plex-sans/500Medium";
@@ -18,6 +19,7 @@ import { SheetHost } from "@/common/components/ui/SheetHost";
 import { ToastHost } from "@/common/components/ui/ToastHost";
 import { PrintProgressHost } from "@/common/components/ui/PrintProgressHost";
 import { CameraPermissionHost } from "@/common/components/ui/CameraPermission";
+import { FilePromptHost } from "@/common/components/ui/FilePrompt";
 import { KeyboardDoneBar } from "@/common/components/ui/KeyboardDoneBar";
 import { AnimatedSplash } from "@/common/components/ui/AnimatedSplash";
 import { AuthProvider, useAuth } from "@/common/providers/AuthProvider";
@@ -35,8 +37,6 @@ SplashScreen.preventAutoHideAsync();
 // Password to Login, where the keyboard closing can stretch it out) shows
 // this app's own background instead of stock white. A no-op on iOS/web.
 SystemUI.setBackgroundColorAsync(colors.bg).catch(() => {});
-
-const queryClient = new QueryClient();
 
 // Without this every navigator (the Tabs container, each module Stack's
 // card) falls back to React Navigation's stock light theme — a grey
@@ -126,6 +126,7 @@ function RootNavigation() {
       <ToastHost />
       <PrintProgressHost />
       <CameraPermissionHost />
+      <FilePromptHost />
       <KeyboardDoneBar />
     </View>
   );

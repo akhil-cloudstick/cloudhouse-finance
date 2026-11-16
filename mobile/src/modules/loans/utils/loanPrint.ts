@@ -357,11 +357,11 @@ async function packetLabelParts(l: Loan): Promise<{ css: string; html: string; u
 }
 
 /** Mobile port of frontend/modules/loans/utils/printAuctionLetter.ts: the final notice sent before a public auction. */
-export async function printAuctionLetter(l: Loan, auctionDate?: string | null) {
+export async function printAuctionLetter(l: Loan, auctionDate?: string | null, noticeDate?: string | null) {
   const venue = `${printBrand().legalName || BRAND.legalName}, Head Office`;
   const ornaments = l.ornaments ?? [];
   const body = `${brandHeader()}
-    <p class="muted">Ref: CHGF/AUC/${esc(l.loanNumber.replace("LN-", ""))} · Date: ${dmy(todayISO())}</p>
+    <p class="muted">Ref: CHGF/AUC/${esc(l.loanNumber.replace("LN-", ""))} · Date: ${dmy(noticeDate ? noticeDate.slice(0, 10) : todayISO())}</p>
     <p><b>To,</b><br>${esc(l.customer?.name ?? "—")}</p>
     <p><b>Subject: Final notice — public auction of gold ornaments pledged against loan ${esc(l.loanNumber)}</b></p>
     <p>Dear Sir/Madam,</p>

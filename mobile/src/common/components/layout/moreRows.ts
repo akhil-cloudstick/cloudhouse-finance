@@ -2,7 +2,6 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { routeEnabled } from "@/common/config/tenantModules";
 import { routeAllowed } from "@/common/config/routePermissions";
-import { FEATURES } from "@/common/config/features";
 
 // ---------------------------------------------------------------------------
 // More (prototype #more-modal) + the modules the prototype doesn't list.
@@ -29,8 +28,8 @@ const MORE_ROWS: MoreRow[] = [
   { key: "bank-management", route: "bank-management", title: "Bank Management", sub: "Banks & net balance", icon: "coin" },
   { key: "roles", route: "roles", title: "Roles & Permissions", sub: "What each role can do", icon: "shield" },
   { key: "support", route: "support", title: "Support", sub: "Contact our support team", icon: "headset" },
-  // Shown only with EXPO_PUBLIC_ENABLE_PLAN_UPGRADE on (filtered below).
-  { key: "billing", route: "billing", title: "Billing & Plan", sub: "Your plan, branch limit & upgrades", icon: "card" },
+  // Billing & Plan (read-only plan card).
+  { key: "billing", route: "billing", title: "Billing & Plan", sub: "Your plan and its status", icon: "card" },
 ];
 /** The More rows this user may open; the tab bar hides More when it's empty. */
 export function useMoreRows(): MoreRow[] {
@@ -39,7 +38,6 @@ export function useMoreRows(): MoreRow[] {
   return MORE_ROWS.filter(
     (r) =>
       (r.route ? routeAllowed(r.route, can) : (r.perms ?? []).some(([m, k]) => can(m, k))) &&
-      (!r.route || routeEnabled(r.route, hasModule)) &&
-      (r.key !== "billing" || FEATURES.planUpgrade)
+      (!r.route || routeEnabled(r.route, hasModule))
   );
 }

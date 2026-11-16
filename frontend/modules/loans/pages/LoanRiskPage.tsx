@@ -130,7 +130,7 @@ export function LoanRiskPage() {
               textAlign: "left",
               border: riskLevel.split(",").includes(level) ? `1px solid var(--${RISK_CHIP[level]})` : undefined,
             }}
-            onClick={() => setRiskLevel((cur) => { const set = cur ? cur.split(",") : []; return (set.includes(level) ? set.filter((x) => x !== level) : [...set, level]).join(","); })}
+            onClick={() => setRiskLevel((cur) => (cur === level ? "" : level))}
             title={`Show only ${RISK_LABEL[level]} loans`}
           >
             <div className="l">{RISK_LABEL[level]}</div>

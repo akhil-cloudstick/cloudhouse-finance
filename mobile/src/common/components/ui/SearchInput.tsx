@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from "@/common/theme/colors";
 import { useState } from "react";
 import { Pressable, TextInput, View, type StyleProp, type ViewStyle } from "react-native";
 import { textStyle } from "@/common/theme/typography";
@@ -28,6 +29,8 @@ export function SearchInput({
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={C.placeholder}
+        cursorColor={C.brand}
+        selectionColor={SELECTION_COLOR}
         autoComplete="off"
         importantForAutofill="no"
         textContentType="none"

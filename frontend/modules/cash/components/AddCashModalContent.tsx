@@ -76,7 +76,7 @@ type AddCashModalContentProps = { onSaved?: () => void; defaultBranchId?: number
  * The built-in "Gold Sale" source (see GOLD_SALE) swaps in the gold-sale
  * fields — ornament type, cost, branch, remarks — and records a gold sale. */
 export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: AddCashModalContentProps) {
-  const { closeModal } = useModal();
+  const { closeModal, closeAllModals } = useModal();
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -190,7 +190,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
           mode, bankId: bankRequired ? +bankId : undefined, receiptImage, ...costPaid,
         });
         onSaved?.();
-        closeModal();
+        closeAllModals();
         toast("Gold sale updated");
         return;
       }
@@ -240,7 +240,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
           kind: "cash_in", category: source, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
         });
         onSaved?.();
-        closeModal();
+        closeAllModals();
         toast("Cash-in updated");
         return;
       }

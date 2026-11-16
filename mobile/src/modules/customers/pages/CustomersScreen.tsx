@@ -58,7 +58,7 @@ export default function CustomersScreen() {
       }
       floating={canCreate ? <FabCorner onPress={() => setRegisterOpen(true)} label="Register customer" /> : undefined}
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(c) => String(c.id)}

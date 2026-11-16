@@ -1,19 +1,21 @@
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import React, { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { AccRow, AsyncSelect, gfDate, Buffering, C, Card, ChipToggle, FabCorner, Field, FieldGrid, GroupedFilter, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue, FieldRow, FlatHeader, Input, PrimaryButton, Screen, SearchFilterRow, ServerFlatList, Sheet, Txt, WarningBanner, toast } from "@/common/components/ui";
 import { chainFor, isFlowOff, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { getCashSummary } from "@/modules/cash/services/cashService";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
-import { listCustomers } from "@/modules/customers/services/customerService";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { createPersonalLoan, editPersonalLoan, listPersonalLoansPage, previewRenewal, recordPersonalLoanPayment, renewPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
 import { type Frequency, type InterestType, type PersonalLoan } from "@/modules/personal-loans/types/personal-loan-types";
 import { inr } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
+import { FieldErr } from "@/common/components/ErrorText";
 import { userMessage } from "@/common/services/apiErrors";
 
 // Personal Loans — prototype #header-personalloans + #page-personalloans and
@@ -40,6 +42,11 @@ const filterSections = (approvalOn: boolean): GFSection[] => [
   },
   { kind: "date", key: "date", label: "Date" },
 ];
+
+// Personal-loan money movements also change the till, bank balances and ledgers.
+export function invalidateMoney(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of ["personalLoans", "cash-summary", "ledger", "cash-movements", "banks"]) qc.invalidateQueries({ queryKey: [key] });
+}
 
 export const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 
@@ -80,7 +87,7 @@ export default function PersonalLoansScreen() {
       header={<FlatHeader title="Personal Loans" subtitle="Non-gold loans & collections" />}
       floating={canCreate ? <FabCorner onPress={() => setCreateOpen(true)} label="Create personal loan" /> : null}
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(l) => String(l.id)}
@@ -144,7 +151,9 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
   const editing = !!loan;
   // Tenant's "personal_loan" flow on → the loan is created "Pending
   // Approval" and only disbursed once its final stage approves it.
-  const needsApproval = !editing && !isFlowOff(useApprovalWorkflow(), "personal_loan");
+  // The hook is called on every render (never behind `!editing`), so the hook order never changes.
+  const approvalWorkflow = useApprovalWorkflow();
+  const needsApproval = !editing && !isFlowOff(approvalWorkflow, "personal_loan");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
   const [addingCustomer, setAddingCustomer] = useState(false);
@@ -160,7 +169,7 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
   const [penalRate, setPenalRate] = useState("");
   const [graceDays, setGraceDays] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -173,7 +182,7 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
       setDisburse(loan?.fullDisbursement ? "Full amount" : "Withhold interest");
       setPenalRate(loan && !penalIsDefault(loan) && loan.penalInterestRate ? String(loan.penalInterestRate) : "");
       setGraceDays(loan?.gracePeriodDays ? String(loan.gracePeriodDays) : "");
-      setError(null);
+      setTried(false);
     }
   }, [visible, loan]);
 
@@ -191,6 +200,17 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
 
   // Editing keeps how the customer was paid unless the amount changes (then a new breakdown is needed); the server checks the till.
   const amountChanged = !!loan && Math.abs(disbursedAmount - loan.disbursedAmount) >= 0.005;
+
+  // Branch balance in hand — skipped when approval is needed (nothing is paid out yet), when editing, or without cash access.
+  const canViewCash = useAuth().can("Cash_Management", "can_view_cash_module");
+  const balance = useQuery({
+    queryKey: ["cash-summary", "pl-create", customer?.branchId],
+    queryFn: () => getCashSummary(customer!.branchId),
+    enabled: visible && !editing && !needsApproval && canViewCash && !!customer?.branchId,
+    retry: false,
+  });
+  const balanceInHand = balance.data?.expectedCash ?? null;
+  const insufficient = !editing && !needsApproval && balanceInHand !== null && disbursedAmount > balanceInHand + 0.005;
 
   const submit = useMutation({
     mutationFn: () =>
@@ -221,7 +241,7 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
         bankId: pay?.bankId,
       }),
     onSuccess: (saved) => {
-      qc.invalidateQueries({ queryKey: ["personalLoans"] });
+      invalidateMoney(qc);
       if (editing) {
         qc.invalidateQueries({ queryKey: ["personalLoan"] });
         qc.invalidateQueries({ queryKey: ["personalLoanSchedule"] });
@@ -229,18 +249,19 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
       } else if (saved.status === "Pending Approval") toast.success("Personal loan submitted for approval", `${saved.loanNumber} — disbursed once approved`);
       onCreated(saved);
     },
-    onError: (err) => setError(errMsg(err, "Could not create the loan — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not create the loan — try again.")),
   });
 
-  function validate(): string | null {
-    if (!editing && !customer) return "Please select a customer.";
-    if (!principalNum || principalNum <= 0) return "Please enter the principal amount.";
-    if (!tenureNum || tenureNum <= 0) return "Please enter the number of installments.";
-    if (interestValueNum < 0) return "Interest value must not be negative.";
-    if (interestAmount >= principalNum) return "Interest amount must be less than the principal amount.";
-    if ((!editing || amountChanged) && disbursedAmount > 0 && !pay?.ready) return "The disbursement breakdown must add up to the amount the customer gets, with a bank for every UPI / Bank Transfer line.";
-    return null;
-  }
+  const errs: Record<string, string> = {};
+  if (!editing && !customer) errs.customer = "Select a customer.";
+  if (!principalNum || principalNum <= 0) errs.principal = "Enter the principal amount.";
+  if (!tenureNum || tenureNum <= 0) errs.tenure = "Enter the number of installments.";
+  if (interestValue.trim() === "") errs.interest = "Enter the interest value.";
+  else if (interestValueNum < 0) errs.interest = "Interest value must not be negative.";
+  else if (interestAmount >= principalNum) errs.interest = "Interest amount must be less than the principal amount.";
+  if (insufficient) errs.pay = "Insufficient balance in hand to disburse this loan.";
+  else if ((!editing || amountChanged) && disbursedAmount > 0 && !pay?.ready) errs.pay = "The disbursement breakdown must add up to the amount the customer gets, with a bank for every UPI / Bank Transfer line.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   return (
     <Sheet visible={visible} onClose={onClose} title={loan ? `Edit ${loan.loanNumber}` : "Create Personal Loan"} maxHeightPct={92}>
@@ -253,7 +274,7 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
         label="Customer"
         placeholder="Search existing customer by name, ID or phone"
         queryKey={["customers", "picker"]}
-        fetcher={(q) => listCustomers(q || undefined)}
+        fetcher={async (q) => (await listCustomersPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
         selectedLabel={customer ? `${customer.name} · ${customer.code ?? ""}` : undefined}
         onClear={() => setCustomer(null)}
         onSelect={setCustomer}
@@ -261,6 +282,7 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
       )}
+      <FieldErr m={fe("customer")} />
       {!loan && canCreateCustomer && !customer ? (
         <Pressable onPress={() => setAddingCustomer(true)} hitSlop={6} style={{ marginTop: -6, marginBottom: 12 }} accessibilityRole="button">
           <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.brandDeep }}>+ Add new customer</Txt>
@@ -269,15 +291,18 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
       <Field label="Principal amount">
         <Input keyboardType="decimal-pad" placeholder="e.g. 15000" value={principal} onChangeText={setPrincipal} />
       </Field>
+      <FieldErr m={fe("principal")} />
       <Field label="Number of installments">
         <Input keyboardType="number-pad" placeholder="e.g. 100" value={tenureCount} onChangeText={setTenureCount} />
       </Field>
+      <FieldErr m={fe("tenure")} />
       <Field label="Interest type">
         <ChipToggle options={["Flat", "Percentage"] as const} value={interestType} onChange={setInterestType} />
       </Field>
       <Field label={interestType === "Flat" ? "Interest value (₹)" : "Interest value (%)"}>
         <Input keyboardType="decimal-pad" placeholder={interestType === "Flat" ? "e.g. 1500" : "e.g. 2"} value={interestValue} onChangeText={setInterestValue} />
       </Field>
+      <FieldErr m={fe("interest")} />
       <Field label="Collection frequency">
         <ChipToggle options={FREQS} value={frequency} onChange={setFrequency} />
       </Field>
@@ -293,6 +318,7 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
         </Field>
       </FieldRow>
       {disbursedAmount > 0 && (!editing || amountChanged) ? <SplitPaymentInput total={disbursedAmount} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
+      <FieldErr m={fe("pay")} />
       <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
         <FieldGrid
           items={[
@@ -303,14 +329,11 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
           ]}
         />
       </Card>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
         label={editing ? "Save Changes" : needsApproval ? "Submit for Approval" : "Create & Disburse"}
         loading={submit.isPending}
         onPress={() => {
-          const v = validate();
-          if (v) return setError(v);
-          setError(null);
+          if (Object.keys(errs).length) return setTried(true);
           submit.mutate();
         }}
       />
@@ -335,20 +358,25 @@ export function CollectSheet({ loan, onClose }: CollectSheetProps) {
   const qc = useQueryClient();
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [reference, setReference] = useState("");
-  const [description, setDescription] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const outstanding = loan ? roundRupee(loan.outstandingAmount) : 0;
+  // How many installments are being paid: a count sets amount = count × installment (capped at what is owed); editing the amount clears it.
+  const [count, setCount] = useState("");
+  const maxInstallments = loan && loan.installmentAmount > 0 ? Math.max(1, Math.min(loan.tenureCount || Infinity, Math.ceil(outstanding / loan.installmentAmount))) : 1;
+  const onCount = (raw: string) => {
+    let v = raw.replace(/[^0-9]/g, "");
+    if (v !== "" && +v > maxInstallments) v = String(maxInstallments);
+    if (v !== "" && +v < 1) v = "1";
+    setCount(v);
+    if (loan && +v > 0) setAmount(String(roundRupee(Math.min(+v * loan.installmentAmount, outstanding))));
+  };
 
   useEffect(() => {
     if (loan) {
       const o = roundRupee(loan.outstandingAmount);
       const d = roundRupee(Math.min(loan.installmentAmount, o));
       setAmount(d > 0 ? String(d) : "");
+      setCount(d > 0 ? "1" : "");
       setPay(null);
-      setReference("");
-      setDescription("");
-      setError(null);
     }
   }, [loan]);
 
@@ -366,8 +394,6 @@ export function CollectSheet({ loan, onClose }: CollectSheetProps) {
         bankTransferAmount: sp.split.bankTransferAmount,
         chequeAmount: sp.split.chequeAmount,
         bankId: sp.bankId,
-        reference: reference || undefined,
-        description: description || undefined,
       });
     },
     onSuccess: () => {
@@ -375,10 +401,10 @@ export function CollectSheet({ loan, onClose }: CollectSheetProps) {
       qc.invalidateQueries({ queryKey: ["personalLoan", String(id)] });
       qc.invalidateQueries({ queryKey: ["personalLoanSchedule", id] });
       qc.invalidateQueries({ queryKey: ["personalLoanPayments", id] });
-      qc.invalidateQueries({ queryKey: ["personalLoans"] });
+      invalidateMoney(qc);
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not record the payment — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not record the payment — try again.")),
   });
 
   return (
@@ -388,18 +414,16 @@ export function CollectSheet({ loan, onClose }: CollectSheetProps) {
           Outstanding balance: {inr(outstanding)}  ·  Balance after payment: {inr(Math.max(0, outstanding - amt))}
         </Txt>
       ) : null}
-      <Field label="Amount">
-        <Input keyboardType="decimal-pad" value={amount} onChangeText={setAmount} placeholder="₹" />
-      </Field>
+      <FieldRow>
+        <Field label="No. of installments" style={{ flex: 1 }}>
+          <Input keyboardType="number-pad" value={count} onChangeText={onCount} placeholder="e.g. 1" />
+        </Field>
+        <Field label="Amount" style={{ flex: 1 }}>
+          <Input keyboardType="decimal-pad" value={amount} onChangeText={(v) => { setAmount(v); setCount(""); }} placeholder="₹" />
+        </Field>
+      </FieldRow>
       {overCap ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>Amount cannot exceed the outstanding balance of {inr(outstanding)}.</Txt> : null}
       {loan && amt > 0 ? <SplitPaymentInput key={loan.id} total={amt} onChange={setPay} /> : null}
-      <Field label="Reference">
-        <Input placeholder="Optional" value={reference} onChangeText={setReference} />
-      </Field>
-      <Field label="Description">
-        <Input placeholder="Optional" value={description} onChangeText={setDescription} />
-      </Field>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Confirm Payment" onPress={() => collect.mutate()} loading={collect.isPending} disabled={!ready} />
     </Sheet>
   );
@@ -418,7 +442,6 @@ export function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
   const [frequency, setFrequency] = useState<Frequency>("Daily");
   const [tenure, setTenure] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (loan) {
@@ -427,7 +450,6 @@ export function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
       setInterestValue(String(loan.interestValue));
       setFrequency(loan.frequency);
       setTenure(String(loan.tenureCount));
-      setError(null);
     }
   }, [loan]);
 
@@ -440,6 +462,7 @@ export function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
     queryKey: ["personalLoanRenewPreview", id, principalNum, interestType, interestValueNum, frequency, tenureNum],
     queryFn: () => previewRenewal(id, { principalAmount: principalNum, interestType, interestValue: interestValueNum, frequency, tenureCount: tenureNum || 1 }),
     enabled: !!loan && principalNum > 0,
+    placeholderData: keepPreviousData,
   });
 
   const renew = useMutation({
@@ -449,11 +472,11 @@ export function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
         ...((preview.data?.disbursedAmount ?? 0) > 0 ? { ...(pay?.split ?? {}), bankId: pay?.bankId } : {}),
       }),
     onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ["personalLoans"] });
+      invalidateMoney(qc);
       qc.invalidateQueries({ queryKey: ["personalLoan"] });
       onRenewed(result.newLoan.id);
     },
-    onError: (err) => setError(errMsg(err, "Could not renew the loan — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not renew the loan — try again.")),
   });
 
   return (
@@ -489,7 +512,6 @@ export function RenewSheet({ loan, onClose, onRenewed }: RenewSheetProps) {
       ) : null}
       {preview.data && preview.data.disbursedAmount > 0 ? <SplitPaymentInput total={preview.data.disbursedAmount} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
       {preview.data?.shortfall ? <WarningBanner>New principal is not enough to cover the outstanding balance and interest.</WarningBanner> : null}
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Confirm Renewal" onPress={() => renew.mutate()} loading={renew.isPending} disabled={!principal || !tenure || !!preview.data?.shortfall || ((preview.data?.disbursedAmount ?? 0) > 0 && !pay?.ready)} />
     </Sheet>
   );

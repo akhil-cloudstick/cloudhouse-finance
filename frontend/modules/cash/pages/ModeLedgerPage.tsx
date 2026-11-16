@@ -133,7 +133,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
     getModeLedger(
       mode,
       page,
-      { ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment, focusRef: target.ref } : {}), fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined, search: search || undefined },
+      { ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment, focusRef: target.ref, focusLoan: target.loan } : {}), fromDate: fromDate || undefined, toDate: toDate || undefined, branchIds: branchIds.length ? branchIds.map(Number) : undefined, bankId, types: typeValues.length ? typeValues : undefined, search: search || undefined },
       pageSize
     )
       .then(({ items, total, totalDebit, totalCredit, focusPage }) => {

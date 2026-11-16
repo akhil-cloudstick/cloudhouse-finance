@@ -171,6 +171,7 @@ export type BackendLoan = {
   // charged under.
   schemeInterestRate: number;
   schemeLtvPercent: number;
+  currentSchemeLtvPercent?: number;
   schemeInterestMethod: string;
   schemePenalRate: number;
   openedDate: string;
@@ -325,6 +326,8 @@ export type LoanView = {
   schemeName: string;
   schemeRate: number;
   schemeLtv: number;
+  // The scheme's LTV now, as the server will check an edit against it (schemeLtv is the one frozen on the loan).
+  currentSchemeLtv?: number;
   schemeMethod: string;
   schemePenal: number;
   opened: string; // "YYYY-MM-DD"
@@ -481,6 +484,7 @@ export type LoanFilters = {
   branchId?: number | number[];
   customerId?: number | number[];
   bankPledgeStatus?: string | string[];
+  bank?: string | string[]; // names of the banks an active pledge is with
   schemeId?: number | number[];
   auctionStage?: string | string[]; // latest auction record at any of these stages
   from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)

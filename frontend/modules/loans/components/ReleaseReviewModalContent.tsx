@@ -449,14 +449,15 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
               ><Icon name="check" /></button>
             )}
           </div>
-          <button
+          {/* Nothing to pay (minimum is ₹0): no Record Payment. */}
+          {!(loan && neededNum <= 0.01) && <button
             className="btn ghost sm"
             style={{ height: 38, justifySelf: "end" }}
             disabled={req.status !== "Pending" || !canDecide || !loan}
             onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null, earlierLocked)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
           >
             <Icon name="coin" /> Record Payment
-          </button>
+          </button>}
         </div>
 
         <div className="frow" style={{ marginTop: 14 }}><div className={notesErr ? "has-err" : undefined}><label className="f">Verification Notes</label><NoteField value={notes} disabled={!canDecide || req.locked} onChange={(v) => { setNotes(v); setNotesErr(""); }} onBlur={saveNotes} placeholder="Optional" /><FieldError msg={notesErr} /></div></div>

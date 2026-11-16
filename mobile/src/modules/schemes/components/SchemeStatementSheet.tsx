@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { AccBtn, Buffering, BtnRow2, C, CheckItem, DateField, EmptyText, FieldRow, PrimaryButton, Sheet, StatusChip, Txt, toast } from "@/common/components/ui";
+import { BoundedList, Buffering, BtnRow2, C, CheckItem, DateField, EmptyText, FieldRow, PrimaryButton, Sheet, StatusChip, Txt, toast } from "@/common/components/ui";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { downloadSchemeStatement, type StatementFilters } from "@/modules/schemes/utils/schemeStatement";
 import { dmy, inr, todayISO } from "@/common/utils/format";
@@ -91,7 +91,7 @@ export function SchemeStatementSheet({ visible, onClose, scheme }: SchemeStateme
         </Txt>
         {rows.length > 0 ? (
           <Pressable hitSlop={6} onPress={() => setSelected(allLoadedSelected ? new Set() : new Set(rows.map((l) => l.id)))}>
-            <Txt style={{ fontSize: 11.5, fontWeight: "700", color: C.brandDeep }}>{allLoadedSelected ? "Clear all" : "Select all"}</Txt>
+            <Txt style={{ fontSize: 11.5, fontWeight: "700", color: C.brandDeep }}>{allLoadedSelected ? "Clear all" : loans.hasNextPage ? `Select shown (${rows.length})` : "Select all"}</Txt>
           </Pressable>
         ) : null}
       </View>
@@ -100,7 +100,13 @@ export function SchemeStatementSheet({ visible, onClose, scheme }: SchemeStateme
       ) : rows.length === 0 ? (
         <EmptyText>No loans opened under this scheme in that range.</EmptyText>
       ) : (
-        <>
+        <BoundedList
+          rows={3}
+          rowHeight={62}
+          onEndReached={loans.hasNextPage && !loans.isFetchingNextPage ? () => loans.fetchNextPage() : undefined}
+          loadingMore={loans.isFetchingNextPage}
+          caption={`Showing ${rows.length}${total != null ? ` of ${total}` : ""} loan${rows.length === 1 ? "" : "s"}${loans.hasNextPage ? " — scroll for more" : ""}`}
+        >
           {rows.map((l) => (
             <CheckItem
               key={l.id}
@@ -110,15 +116,7 @@ export function SchemeStatementSheet({ visible, onClose, scheme }: SchemeStateme
               sub={inr(l.principalAmount)}
             />
           ))}
-          {loans.hasNextPage ? (
-            <AccBtn
-              label={loans.isFetchingNextPage ? "Loading…" : "Load more"}
-              disabled={loans.isFetchingNextPage}
-              onPress={() => loans.fetchNextPage()}
-              style={{ flex: 0, marginBottom: 12 }}
-            />
-          ) : null}
-        </>
+        </BoundedList>
       )}
 
       {shown.length > 0 ? (

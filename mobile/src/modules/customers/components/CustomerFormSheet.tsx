@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pressable, View } from "react-native";
-import { AsyncSelect, C, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt } from "@/common/components/ui";
+import { AsyncSelect, C, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt, toast } from "@/common/components/ui";
+import { FieldErr } from "@/common/components/ErrorText";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { UploadField } from "@/common/components/UploadField";
@@ -109,6 +110,7 @@ export function CustomerFormSheet({
   const [place, setPlace] = useState("");
   const [pinCode, setPinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
 
   // Seed (edit) or clear (register) every time the sheet opens.
   useEffect(() => {
@@ -138,7 +140,10 @@ export function CustomerFormSheet({
     setPinCode(x.pinCode ?? "");
     setShowMore(!!(x.age || x.fatherName || x.district || x.taluk || x.village || x.place || x.pinCode));
     setError(null);
-  }, [visible, customer]);
+    setTried(false);
+    // Seed only when the sheet opens or the record changes — not on every new object identity (would wipe typing).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, customer?.id]);
 
   const phoneOk = /^\d{10}$/.test(phone.trim());
   const aadhaarOk = !aadhaar || /^\d{12}$/.test(aadhaar);
@@ -150,6 +155,8 @@ export function CustomerFormSheet({
   const serverAadhaarErr = !serverPanErr && error && /aadhaar/i.test(error) ? error : null;
   const serverPhoneErr = !serverPanErr && !serverAadhaarErr && error && /^(?!.*nominee).*(phone|mobile)/i.test(error) ? error : null;
   const bottomError = serverPanErr || serverAadhaarErr || serverPhoneErr ? null : error;
+  // Server messages that are not about a field are raised as a toast.
+  useEffect(() => { if (bottomError) toast.error(bottomError); }, [bottomError]);
   const canSave = nameOk && phoneOk && aadhaarOk && panOk && (!showBranch || !!branch);
 
   const save = useMutation({
@@ -203,11 +210,11 @@ export function CustomerFormSheet({
       <SectionTitle flush>Personal Details</SectionTitle>
       <Field label="Full Name *">
         <Input placeholder="Customer's full name" value={name} onChangeText={(t) => setName(stripDigits(t))} />
-        {name.length > 0 && !nameOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Please enter the customer&apos;s full name (at least 3 characters).</Txt> : null}
+        {(name.length > 0 || tried) && !nameOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Enter the customer&apos;s full name (at least 3 characters).</Txt> : null}
       </Field>
       <Field label="Mobile Number *">
         <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => { setPhone(digits(t)); setError(null); }} />
-        {serverPhoneErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{serverPhoneErr}</Txt> : null}
+        {serverPhoneErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{serverPhoneErr}</Txt> : tried && !phoneOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Enter a valid 10-digit mobile number.</Txt> : null}
       </Field>
       {showBranch ? (
         <AsyncSelect<{ id: number; name: string; code?: string }>
@@ -221,6 +228,7 @@ export function CustomerFormSheet({
           renderItem={(b) => ({ title: b.name, sub: b.code })}
         />
       ) : null}
+      <FieldErr m={tried && showBranch && !branch ? "Select a branch." : undefined} />
       <DateField label="Date of Birth" value={dob} onChange={(v) => { setDob(v); setAge(ageOf(v)); }} max={todayISO()} clearable />
       <Field label="Age">
         <Input placeholder="Auto from date of birth" editable={false} value={ageOf(dob) || age} />
@@ -303,8 +311,7 @@ export function CustomerFormSheet({
         </>
       ) : null}
 
-      {bottomError ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{bottomError}</Txt> : null}
-      <PrimaryButton label={editing ? "Save Changes" : "Register Customer"} onPress={() => save.mutate()} loading={save.isPending} disabled={!canSave} />
+      <PrimaryButton label={editing ? "Save Changes" : "Register Customer"} onPress={() => (canSave ? save.mutate() : setTried(true))} loading={save.isPending} />
     </Sheet>
   );
 }

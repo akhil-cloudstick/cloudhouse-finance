@@ -39,6 +39,9 @@ type AuctionCardProps = { l: LoanView; onLoanChanged: () => void; version?: numb
  * own isOverdue/isDefaulted flags; AuctionEligible onward come from
  * GET /loans/:id/auction) instead of the old cosmetic 4-box track that
  * just read `l.status`. */
+// The auction stepper's step names — the same five as the mobile Auction Flow, in AUCTION_STAGES order.
+const AUCTION_STEP_NAMES = ["Eligible", "Notice", "Schedule", "Conduct", "Settle"];
+
 function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
   const { openModal } = useModal();
   const { can, role, isSystem } = useAuth();
@@ -176,9 +179,10 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
       <div className="bd">
         <div style={{ marginBottom: 14 }}>
           <StageTracker
-            // The auction path starts at Defaulted; a loan that is only overdue has not entered it yet.
-            stages={["Defaulted", ...AUCTION_STAGES.map((s) => AUCTION_STAGE_LABELS[s])]}
-            currentIndex={rec ? 1 + stageIndex : l.isDefaulted ? 0 : -1}
+            // Same step names as the mobile Auction Flow; a loan that has no case yet shows none highlighted,
+            // and a concluded case (Settled / Withdrawn) shows every step done.
+            stages={AUCTION_STEP_NAMES}
+            currentIndex={!rec ? -1 : rec.stage === "Settled" || rec.stage === "Withdrawn" ? AUCTION_STEP_NAMES.length : stageIndex}
           />
         </div>
         <div className="kv">

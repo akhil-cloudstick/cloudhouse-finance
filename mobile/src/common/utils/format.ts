@@ -25,8 +25,10 @@ export const inr = (n?: number | null) => {
 export const inrShort = (n?: number | null) => {
   const v = Math.abs(n ?? 0);
   const sign = (n ?? 0) < 0 ? "−" : "";
-  if (v >= 1e7) return `${sign}₹${(v / 1e7).toFixed(1).replace(/\.0$/, "")}Cr`;
-  if (v >= 1e5) return `${sign}₹${(v / 1e5).toFixed(1).replace(/\.0$/, "")}L`;
+  const cr = Math.round(v / 1e6) / 10;
+  if (cr >= 1) return `${sign}₹${cr}Cr`;
+  const lk = Math.round(v / 1e4) / 10;
+  if (lk >= 1) return `${sign}₹${lk}L`;
   return `${sign}₹${Math.round(v).toLocaleString("en-IN")}`;
 };
 

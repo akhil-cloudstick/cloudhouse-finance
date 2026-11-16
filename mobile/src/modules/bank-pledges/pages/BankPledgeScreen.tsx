@@ -9,6 +9,7 @@ import {
   GroupedFilter,
   emptyGroupedFilter,
   gfDate,
+  gfValues,
   type GFSection,
   type GroupedFilterValue,
   Field,
@@ -24,10 +25,15 @@ import {
   Txt,
   WarningBanner,
   openPage,
+  toast,
 } from "@/common/components/ui";
 import { invalidateBankPledgeViews } from "@/modules/bank-pledges/components/bankPledgeViews";
 import { BanksSheet } from "@/modules/bank-pledges/components/BanksSheet";
 import { AddBankPledgeSheet } from "@/modules/bank-pledges/components/AddBankPledgeSheet";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
+import { listBranchesPage } from "@/modules/branches/services/branchService";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
+import { listBanksPage } from "@/modules/banks/services/bankService";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
@@ -57,8 +63,8 @@ const cashLabel = (t?: string) => (t === "CashIn" ? "Cash Added" : "Record Only"
 const statusLabel = (s: string) => (s === "Voided" ? "Deleted" : s);
 
 type PledgeTarget = { loanId: number; loanNumber: string; pledge: BankPledgeRecordWithWeights };
-const activePledgeOf = (l: Loan) => l.bankPledges?.find((p) => p.status === "Active") as BankPledgeRecordWithWeights | undefined;
-const errText = (msg: string | null) => (msg ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{msg}</Txt> : null);
+// A loan can carry several active (partial-ornament) pledges — one row each.
+const activePledgesOf = (l: Loan) => (l.bankPledges ?? []).filter((p) => p.status === "Active") as BankPledgeRecordWithWeights[];
 
 export default function BankPledgeScreen() {
   const qc = useQueryClient();
@@ -77,28 +83,69 @@ export default function BankPledgeScreen() {
   const [addPledge, setAddPledge] = useState(false);
   const [banksOpen, setBanksOpen] = useState(false);
   const [releaseTarget, setReleaseTarget] = useState<PledgeTarget | null>(null);
-  const [releaseError, setReleaseError] = useState<string | null>(null);
   // How the pledged amount is paid back to the bank (a "CashIn" pledge only).
   const [releasePay, setReleasePay] = useState<SplitPayment | null>(null);
   const [voidTarget, setVoidTarget] = useState<PledgeTarget | null>(null);
   const [voidReason, setVoidReason] = useState("");
-  const [voidError, setVoidError] = useState<string | null>(null);
 
   // Pledge date range — the same from/to the web filter sends, for both tabs.
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("bankPledges:filters", emptyGroupedFilter());
   const { from, to } = gfDate(fv, "date");
-  const filters = { from: from || undefined, to: to || undefined };
+  const showBranchFilter = useShowBranchFilter();
+  const branchIds = showBranchFilter ? gfValues(fv, "branch") : [];
+  const customerIds = gfValues(fv, "customer");
+  const bankNames = gfValues(fv, "bank");
+  const filters = {
+    from: from || undefined,
+    to: to || undefined,
+    branchId: branchIds.join(",") || undefined,
+    customerId: customerIds.join(",") || undefined,
+    bank: bankNames.join(",") || undefined,
+  };
+  // Same filters as web: Branch, Customer (narrowed by the chosen branches), Bank, Pledge date.
+  const filterSections: GFSection[] = [
+    ...(!showBranchFilter ? [] : [{
+      kind: "async" as const,
+      key: "branch",
+      label: "Branch",
+      fetchPage: (p: { q?: string; limit: number; offset: number }) =>
+        listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
+    }]),
+    {
+      kind: "async" as const,
+      key: "customer",
+      label: "Customer",
+      deps: [branchIds.join(",")],
+      fetchPage: (p: { q?: string; limit: number; offset: number }) =>
+        listCustomersPage({ q: p.q, limit: p.limit, offset: p.offset, customerType: "Borrower", ...(branchIds.length ? { branchIds: branchIds.map(Number) } : {}) }).then((r) => ({
+          items: r.items.map((c) => ({ value: String(c.id), label: c.code ? `${c.name} (${c.code})` : c.name })),
+          hasMore: r.hasMore,
+        })),
+    },
+    {
+      kind: "async" as const,
+      key: "bank",
+      label: "Bank",
+      fetchPage: (p: { q?: string; limit: number; offset: number }) =>
+        listBanksPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: b.name, label: b.name })), hasMore: r.hasMore })),
+    },
+    ...FILTER_SECTIONS,
+  ];
   const active = useServerList<Loan, typeof filters>({ key: ["bankPledges", "active"], filters, fetchPage: (p) => listBankPledgedLoansPage(p), enabled: tab === "active" });
   const history = useServerList<BankPledgeHistoryRow, typeof filters>({ key: ["bankPledges", "history"], filters, fetchPage: (p) => listBankPledgeHistoryPage(p), enabled: tab === "history" });
 
+  const closeRelease = () => {
+    setReleaseTarget(null);
+    setReleasePay(null);
+  };
   const release = useMutation({
     mutationFn: (t: PledgeTarget) =>
       releaseBankPledge(t.loanId, t.pledge.id, t.pledge.cashTreatment === "CashIn" && releasePay ? { ...releasePay.split, bankId: releasePay.bankId } : undefined),
     onSuccess: () => {
-      setReleaseTarget(null);
+      closeRelease();
       invalidateBankPledgeViews(qc);
     },
-    onError: (err) => setReleaseError(errMsg(err, "Could not release the pledge.")),
+    onError: (err) => toast.error(errMsg(err, "Could not release the pledge.")),
   });
   const voidPledge = useMutation({
     mutationFn: (t: PledgeTarget) => voidBankPledge(t.loanId, t.pledge.id, voidReason.trim()),
@@ -107,19 +154,73 @@ export default function BankPledgeScreen() {
       setVoidReason("");
       invalidateBankPledgeViews(qc);
     },
-    onError: (err) => setVoidError(errMsg(err, "Could not delete the pledge entry — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not delete the pledge entry — try again.")),
   });
 
   const openLoan = (id: number) => {
     openPage(`/loans/${id}`);
   };
 
-  const filterBtn = <GroupedFilter title="Filter pledges" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />;
+  const filterBtn = <GroupedFilter title="Filter pledges" sections={filterSections} value={fv} onChange={setFv} />;
   const header = (
     <>
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={TAB_LABELS} />
     </>
   );
+
+  // One row for one active pledge of a loan (or the placeholder row when the loan lists none).
+  const renderActiveRow = (l: Loan, p: BankPledgeRecordWithWeights | undefined, open: boolean) => {
+    const weight = p?.pledgedNetWeight || l.totalNetWeight;
+    const target = p ? { loanId: l.id, loanNumber: l.loanNumber, pledge: p } : null;
+    return (
+      <AccRow
+        key={p ? p.id : "none"}
+        defaultOpen={open}
+        id={l.loanNumber}
+        name={or(l.customer?.name)}
+        sub={or(p?.bankName)}
+        amount={p ? inr(p.pledgedAmount) : undefined}
+        details={[
+          { k: "Weight", v: weight ? `${+Number(weight).toFixed(2)} g` : "—" },
+          { k: "Cash treatment", v: p ? cashLabel(p.cashTreatment) : "—" },
+          { k: "Pledged on", v: dmy(p?.pledgeDate) },
+          { k: "Due date", v: dmy(p?.bankPledgeDueDate) + (p && pledgeOverdue(p) ? "  · Overdue" : ""), color: p && pledgeOverdue(p) ? C.red : undefined },
+          { k: "Gross weight", v: fmtW(p?.pledgedGrossWeight) },
+          { k: "Net weight", v: fmtW(p?.pledgedNetWeight) },
+          { k: "Interest rate", v: p?.bankInterestRate ? `${p.bankInterestRate}% p.m.` : "—" },
+          { k: "Ornaments", v: p ? pledgeOrnaments(p, l) : "—" },
+          { k: "Ref no", v: or(p?.referenceNumber) },
+        ]}
+        actions={[
+          ...(target && canUpdatePledges
+            ? [
+                {
+                  label: "Release",
+                  onPress: () => {
+                    setReleasePay(null);
+                    setReleaseTarget(target);
+                  },
+                },
+              ]
+            : []),
+          ...(target && canVoid
+            ? [
+                {
+                  label: "Delete",
+                  danger: true,
+                  onPress: () => {
+                    setVoidReason("");
+                    setVoidTarget(target);
+                  },
+                },
+              ]
+            : []),
+          ...(target && canEditPledge ? [{ label: "Edit", onPress: () => setEditTarget({ loanId: l.id, pledge: target.pledge, mode: "edit" }) }] : []),
+          ...(canViewLoans && (!target || (!canUpdatePledges && !canVoid)) ? [{ label: "View Loan", onPress: () => openLoan(l.id) }] : []),
+        ]}
+      />
+    );
+  };
 
   return (
     <Screen
@@ -138,7 +239,7 @@ export default function BankPledgeScreen() {
       }
     >
       {tab === "active" ? (
-        <ServerFlatList
+        <ServerFlatList stickyHeader
           list={active}
           items={active.items}
           keyOf={(l) => String(l.id)}
@@ -150,61 +251,14 @@ export default function BankPledgeScreen() {
             </>
           }
           renderItem={(l, i) => {
-            const p = activePledgeOf(l);
-            const weight = p?.pledgedNetWeight || l.totalNetWeight;
-            const target = p ? { loanId: l.id, loanNumber: l.loanNumber, pledge: p } : null;
-            return (
-              <AccRow
-                defaultOpen={i === 0}
-                id={l.loanNumber}
-                name={or(l.customer?.name)}
-                sub={or(p?.bankName)}
-                amount={p ? inr(p.pledgedAmount) : undefined}
-                details={[
-                  { k: "Weight", v: weight ? `${+Number(weight).toFixed(2)} g` : "—" },
-                  { k: "Cash treatment", v: p ? cashLabel(p.cashTreatment) : "—" },
-                  { k: "Pledged on", v: dmy(p?.pledgeDate) },
-                  { k: "Due date", v: dmy(p?.bankPledgeDueDate) + (p && pledgeOverdue(p) ? "  · Overdue" : ""), color: p && pledgeOverdue(p) ? C.red : undefined },
-                  { k: "Gross weight", v: fmtW(p?.pledgedGrossWeight) },
-                  { k: "Net weight", v: fmtW(p?.pledgedNetWeight) },
-                  { k: "Interest rate", v: p?.bankInterestRate ? `${p.bankInterestRate}% p.m.` : "—" },
-                  { k: "Ornaments", v: p ? pledgeOrnaments(p, l) : "—" },
-                  { k: "Ref no", v: or(p?.referenceNumber) },
-                ]}
-                actions={[
-                  ...(target && canUpdatePledges
-                    ? [
-                        {
-                          label: "Release",
-                          onPress: () => {
-                            setReleaseError(null);
-                            setReleaseTarget(target);
-                          },
-                        },
-                      ]
-                    : []),
-                  ...(target && canVoid
-                    ? [
-                        {
-                          label: "Delete",
-                          danger: true,
-                          onPress: () => {
-                            setVoidError(null);
-                            setVoidReason("");
-                            setVoidTarget(target);
-                          },
-                        },
-                      ]
-                    : []),
-                  ...(target && canEditPledge ? [{ label: "Edit", onPress: () => setEditTarget({ loanId: l.id, pledge: target.pledge, mode: "edit" }) }] : []),
-                  ...(canViewLoans && (!target || (!canUpdatePledges && !canVoid)) ? [{ label: "View Loan", onPress: () => openLoan(l.id) }] : []),
-                ]}
-              />
-            );
+            const pledges = activePledgesOf(l);
+            // No active pledge record on the loan: keep the single placeholder row.
+            const rows: (BankPledgeRecordWithWeights | undefined)[] = pledges.length ? pledges : [undefined];
+            return <>{rows.map((p, pi) => renderActiveRow(l, p, i === 0 && pi === 0))}</>;
           }}
         />
       ) : (
-        <ServerFlatList
+        <ServerFlatList stickyHeader
           list={history}
           items={history.items}
           keyOf={(r) => String(r.id)}
@@ -248,7 +302,7 @@ export default function BankPledgeScreen() {
       <BankPledgeEditSheet loanId={editTarget?.loanId ?? 0} pledge={editTarget?.pledge ?? null} mode={editTarget?.mode ?? "edit"} onClose={() => setEditTarget(null)} />
       <BanksSheet visible={banksOpen} onClose={() => setBanksOpen(false)} />
 
-      <Sheet visible={!!releaseTarget} onClose={() => setReleaseTarget(null)} title="Release Bank Pledge" maxHeightPct={releaseTarget?.pledge.cashTreatment === "CashIn" ? 88 : 60}>
+      <Sheet visible={!!releaseTarget} onClose={closeRelease} title="Release Bank Pledge" maxHeightPct={releaseTarget?.pledge.cashTreatment === "CashIn" ? 88 : 60}>
         {releaseTarget ? (
           <>
             <Txt style={{ fontSize: 13, marginTop: 10, marginBottom: 12 }}>
@@ -262,9 +316,8 @@ export default function BankPledgeScreen() {
             {releaseTarget.pledge.cashTreatment === "CashIn" ? (
               <SplitPaymentInput total={releaseTarget.pledge.pledgedAmount} onChange={setReleasePay} bankLabel="Bank (account it leaves from)" />
             ) : null}
-            {errText(releaseError)}
             <BtnRow2>
-              <PrimaryButton label="Cancel" variant="outline" onPress={() => setReleaseTarget(null)} disabled={release.isPending} />
+              <PrimaryButton label="Cancel" variant="outline" onPress={closeRelease} disabled={release.isPending} />
               <PrimaryButton label="Release" onPress={() => release.mutate(releaseTarget)} loading={release.isPending} disabled={releaseTarget.pledge.cashTreatment === "CashIn" && !releasePay?.ready} />
             </BtnRow2>
           </>
@@ -282,7 +335,6 @@ export default function BankPledgeScreen() {
             <Field label="Reason *">
               <Input value={voidReason} onChangeText={setVoidReason} placeholder="Why this record is being cancelled" maxLength={255} />
             </Field>
-            {errText(voidError)}
             <PrimaryButton label="Delete Entry" variant="danger" onPress={() => voidPledge.mutate(voidTarget)} loading={voidPledge.isPending} disabled={!voidReason.trim()} />
           </>
         ) : null}
