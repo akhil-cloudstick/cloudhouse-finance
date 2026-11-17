@@ -5,8 +5,7 @@ import { useRouter } from "expo-router";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
 import { HEADER_LOGO } from "@/common/config/brand";
-import { HeroBackground } from "./HeroBackground";
-import { useShell, s, TitleTransitionContext } from "./shellContext";
+import { HeroBackground } from "./HeroBackground";import { useShell, s, TitleTransitionContext } from "./shellContext";
 
 type HeaderIcon = { icon: string; onPress: () => void; label?: string; dot?: boolean };
 type FlatHeaderProps = {

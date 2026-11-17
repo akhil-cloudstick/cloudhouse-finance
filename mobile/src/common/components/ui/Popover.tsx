@@ -70,6 +70,7 @@ type LayerProps = {
   minWidth: number;
   header?: React.ReactNode;
   awaitKeyboard?: boolean;
+  openUp?: boolean;
   children: React.ReactNode;
 };
 
@@ -81,6 +82,7 @@ function Layer({
   minWidth,
   header,
   awaitKeyboard,
+  openUp,
   children,
 }: LayerProps) {
   const insets = useSafeAreaInsets();
@@ -246,8 +248,10 @@ function Layer({
   // When even a full-height list fits below the field, it opens below
   // right away. Only near the bottom of the screen does it wait one layout
   // pass for its real height to decide between below and above.
-  const fitsBelow = below >= maxHeight;
-  const up = !fitsBelow && h > 0 && Math.min(h, maxHeight) > below && above > below;
+  // openUp: a field low on a bottom sheet opens its list above itself (when there's room there), so the list
+  // never runs out of room below and the sheet never has to grow to make space.
+  const fitsBelow = !openUp && below >= maxHeight;
+  const up = openUp ? above > 120 || above > below : !fitsBelow && h > 0 && Math.min(h, maxHeight) > below && above > below;
   const room = Math.max(0, up ? above : below);
   const cap = Math.min(maxHeight, room);
   const ready = !kbWait && !!origin && liftFix !== null && (fitsBelow || h > 0) && (!up || layerH > 0);
@@ -329,6 +333,8 @@ type PopoverProps = {
   header?: React.ReactNode;
   /** The field opens the keyboard (typeable dropdown): wait for it. */
   awaitKeyboard?: boolean;
+  /** Open above the field whenever there is room there (a field low on a bottom sheet), instead of below it. */
+  openUp?: boolean;
   children: React.ReactNode;
 };
 
@@ -342,6 +348,7 @@ export function Popover({
   minWidth = 140,
   header,
   awaitKeyboard,
+  openUp,
   children,
 }: PopoverProps) {
   const [id] = useState(nextSheetId);
@@ -355,7 +362,7 @@ export function Popover({
     }
     sheetStore.set(
       id,
-      <Layer anchor={anchor} onClose={onClose} onRemeasure={onRemeasure} maxHeight={maxHeight} minWidth={minWidth} header={header} awaitKeyboard={awaitKeyboard}>
+      <Layer anchor={anchor} onClose={onClose} onRemeasure={onRemeasure} maxHeight={maxHeight} minWidth={minWidth} header={header} awaitKeyboard={awaitKeyboard} openUp={openUp}>
         {children}
       </Layer>
     );
