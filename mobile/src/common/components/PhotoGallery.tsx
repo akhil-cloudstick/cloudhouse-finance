@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
-import { Pressable, ScrollView, View, useWindowDimensions, type ScrollViewInstance } from "react-native";
+import { useColumnWidth } from "@/common/theme/layout";
+import { Pressable, ScrollView, View, type ScrollViewInstance } from "react-native";
 import { C, PIcon, Sheet, Txt } from "@/common/components/ui";
 import { UploadImage } from "./BillSheet";
 
@@ -11,7 +12,7 @@ export function PhotoGallery({ paths, title, height = 160 }: PhotoGalleryProps) 
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const ref = useRef<ScrollViewInstance>(null);
-  const { width } = useWindowDimensions();
+  const width = useColumnWidth();
   // The sheet pads 20px each side.
   const pageW = width - 40;
   if (paths.length === 0) return null;

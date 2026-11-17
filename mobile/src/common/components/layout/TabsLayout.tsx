@@ -5,7 +5,7 @@ import { syncPersistedSection } from "@/common/hooks/use-persisted-state";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
-import { Animated, Dimensions, Easing, View } from "react-native";
+import { Animated, Easing, View } from "react-native";
 import { PanGestureHandler } from "react-native-gesture-handler";
 import { PRIMARY_ROUTES, pageShift } from "@/common/components/ui/swipeStore";
 import { useTabSwipe } from "@/common/hooks/use-tab-swipe";
@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { C, HeaderHost, HeaderHostContext, openPage, PillButton, PTabBar, ShellContext, type ShellActions, Spinner, toast, Txt } from "@/common/components/ui";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
 import { NoAccess } from "@/common/components/NoAccess";
-import { PTAB_HEIGHT, PTAB_INSET, tabBarLift } from "@/common/theme/layout";
+import { PAGE_WIDTH, PTAB_HEIGHT, PTAB_INSET, tabBarLift } from "@/common/theme/layout";
 import { MoreSheet } from "./MoreSheet";
 import { ProfileSheet } from "./ProfileSheet";
 import { RemindersModal } from "./RemindersModal";
@@ -40,7 +40,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 // ShellContext carries the global openers — New Loan, More, search, gold
 // rate, reminders, profile — so every header and quick action drives the one
 // instance of each sheet mounted here.
-const SCREEN_W = Dimensions.get("window").width;
+const SCREEN_W = PAGE_WIDTH;
 
 // One guard for every optional module (src/common/config/tenantModules.ts): catches
 // a deep link, a stale nav state, or a module switched off while open.

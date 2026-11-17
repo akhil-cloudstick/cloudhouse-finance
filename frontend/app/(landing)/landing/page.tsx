@@ -5,10 +5,11 @@
  * public to apply for a loan (App Store guideline 3.2.1(viii)). */
 
 import Link from "next/link";
+import { CONTACT_ADDRESS_LINES, CONTACT_EMAIL, CONTACT_LEGAL_NAME, CONTACT_PHONE_DISPLAY, CONTACT_PHONE_TEL } from "@/modules/legal/content/legalConfig";
 
-const SUPPORT_EMAIL = "support@cloudhousetechnologies.com";
-const PHONE_DISPLAY = "0480-27327360";
-const PHONE_TEL = "+914802737360";
+const SUPPORT_EMAIL = CONTACT_EMAIL;
+const PHONE_DISPLAY = CONTACT_PHONE_DISPLAY;
+const PHONE_TEL = CONTACT_PHONE_TEL;
 
 const FEATURES = [
   {
@@ -238,13 +239,13 @@ export default function LandingPage() {
               </p>
             </div>
             <address className="lp-address">
-              <strong>CloudHouse Technologies Pvt. Ltd.</strong>
-              <br />
-              Special Economic Zone (SEZ), Infopark Thrissur,
-              <br />
-              4B-15, Indeevaram, Nalukettu Road,
-              <br />
-              Koratty, Kerala, India 680308
+              <strong>{CONTACT_LEGAL_NAME}</strong>
+              {CONTACT_ADDRESS_LINES.map((line) => (
+                <span key={line}>
+                  <br />
+                  {line}
+                </span>
+              ))}
             </address>
           </div>
         </section>
@@ -253,12 +254,12 @@ export default function LandingPage() {
       <footer className="lp-footer">
         <div className="lp-wrap">
           <nav className="lp-footer-links" aria-label="Legal and support">
-            <a href="/staff-app/privacy-policy">Privacy policy</a>
-            <a href="/staff-app/terms-and-conditions">Terms &amp; conditions</a>
-            <a href="/staff-app/account-deletion">Account deletion</a>
-            <a href="/staff-app/data-safety">Data safety</a>
-            <a href="/staff-app/disclaimer">Disclaimer</a>
-            <a href="/staff-app/contact">Support</a>
+            <a href="/privacy-policy">Privacy policy</a>
+            <a href="/terms-and-conditions">Terms &amp; conditions</a>
+            <a href="/account-deletion">Account deletion</a>
+            <a href="/data-safety">Data safety</a>
+            <a href="/disclaimer">Disclaimer</a>
+            <a href="/contact">Support</a>
           </nav>
           <p>
             CloudHouse Finance is a product of CloudHouse Technologies Pvt. Ltd. &copy; 2026 All

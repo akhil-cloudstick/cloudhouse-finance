@@ -155,7 +155,6 @@ export async function printLabelAndSlipOnePage(l: Loan) {
     ${pledgeSlipBody(l, topUps)}
     <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
       <div style="display:inline-block">${label.html}</div>
-      <p class="muted" style="margin-top:12px;color:${C.muted}">Packet label — scanning the QR opens ${label.url}</p>
     </div>
   </body></html>`;
   await Print.printAsync({ html });

@@ -25,12 +25,17 @@ import { useLoanRowEdit } from "@/modules/loans/components/useLoanRowEdit";
 // touches — one shared screen, app/(tabs)/cash/[id].tsx, keyed by kind.
 
 /** The transaction a ledger link was followed from — the ledger it opens scrolls to and highlights the same one. */
-export type LedgerFocus = { date: string; amount: number };
+export type LedgerFocus = { date: string; amount: number; ref?: string; method?: string; loanRef?: string };
 
 /** Open a ledger. `ref` is the bank/customer/category id, or the mode name. `focus` is the transaction the link
  * was tapped on, so the ledger opens on the page holding it. */
 export function openLedger(kind: LedgerKind, ref: string | number, label: string, focus?: LedgerFocus) {
-  const f = focus ? `&focusDate=${encodeURIComponent(focus.date.slice(0, 10))}&focusAmount=${encodeURIComponent(String(focus.amount))}` : "";
+  const f = focus
+    ? `&focusDate=${encodeURIComponent(focus.date.slice(0, 10))}&focusAmount=${encodeURIComponent(String(focus.amount))}` +
+      (focus.ref ? `&focusRef=${encodeURIComponent(focus.ref)}` : "") +
+      (focus.method ? `&focusMethod=${encodeURIComponent(focus.method)}` : "") +
+      (focus.loanRef ? `&focusLoan=${encodeURIComponent(focus.loanRef)}` : "")
+    : "";
   openPage(`/cash/${kind}?ref=${encodeURIComponent(String(ref))}&label=${encodeURIComponent(label)}${f}`);
 }
 
@@ -115,7 +120,8 @@ type LedgerRowItemProps ={ r: LedgerRow; index: number; kind: LedgerKind; ledger
 
 function LedgerRowItem({ r, index, kind, ledgerRef, categoryIds, highlight }: LedgerRowItemProps) {
   // Links on this row open the other ledgers on this same transaction.
-  const focus: LedgerFocus = { date: r.date, amount: r.amount };
+  // ref (unique entry identity) pins the exact entry: two loans of one customer can share a date and an amount.
+  const focus: LedgerFocus = { date: r.date, amount: r.amount, ref: r.ref, method: r.method, loanRef: (r.reference || r.description || "").match(/LN-\d+/i)?.[0] };
   const isDebit = r.debitOrCredit === "debit";
   // A cash-in / debit / self transfer a person keyed in: info icon + Edit.
   // Every row gets the info icon; rows with no cash movement behind them open a popup built from the row itself.
@@ -280,8 +286,17 @@ export function useLedgerList({ kind, ledgerRef, onCategoryName, focus, enabled 
   // highlight it for a few seconds.
   const focusIndex = focus
     ? (() => {
-        const day = list.items.findIndex((r) => r.date.slice(0, 10) === focus.date.slice(0, 10) && sameAmount(r.amount, focus.amount));
-        return day >= 0 ? day : list.items.findIndex((r) => sameAmount(r.amount, focus.amount));
+        // Exact identity first: the entry followed, never another loan's with the same date and amount. An entry
+        // split over several modes has one row per mode under one ref — prefer the row of the mode followed.
+        if (focus.ref) {
+          const own = list.items.filter((r) => r.ref === focus.ref);
+          const pick = own.find((r) => sameAmount(r.amount, focus.amount) && r.method === focus.method) ?? own.find((r) => sameAmount(r.amount, focus.amount));
+          return pick ? list.items.indexOf(pick) : -1;
+        }
+        const sameDay = (r: LedgerRow) => r.date.slice(0, 10) === focus.date.slice(0, 10) && sameAmount(r.amount, focus.amount);
+        const namesLoan = (r: LedgerRow) => !!focus.loanRef && `${r.reference} ${r.description}`.toUpperCase().includes(focus.loanRef.toUpperCase());
+        const byLoan = list.items.findIndex((r) => sameDay(r) && namesLoan(r));
+        return byLoan >= 0 ? byLoan : list.items.findIndex((r) => sameDay(r) && !r.paymentId);
       })()
     : -1;
   const [highlighted, setHighlighted] = useState(false);

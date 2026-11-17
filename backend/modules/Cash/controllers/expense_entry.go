@@ -7,6 +7,7 @@ import (
 	"cloudhouse/backend/modules/Cash/models"
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -191,4 +192,46 @@ func editPendingExpense(c echo.Context, ctx context.Context, e *models.Expense, 
 		created = append(created, rec)
 	}
 	return created[0].ID, nil
+}
+
+// DeleteExpense is DELETE /expenses/:id, the Expense Register's Delete. A pending expense has no cash line yet, so
+// it (with the rest of its payment group) is simply removed; an approved one goes through the ledger-entry delete so
+// its cash lines, loan links and balances are cleaned up the same way.
+func DeleteExpense(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	e, err := getExpense(ctx, id, auth.GetBranchScope(c))
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	if !e.Editable {
+		return common.FailErr(c, common.NewConflict("this expense can't be deleted from here"))
+	}
+	if e.Status == "Pending" {
+		rows, err := expenseGroup(ctx, e, true)
+		if err != nil {
+			return common.FailErr(c, err)
+		}
+		ids := make([]uint, 0, len(rows))
+		for _, r := range rows {
+			ids = append(ids, r.ID)
+		}
+		if err := deleteByIDs(ctx, ids); err != nil {
+			return common.FailErr(c, err)
+		}
+		return common.Success(c, http.StatusOK, echo.Map{"deleted": len(ids)})
+	}
+	if e.Status != "Approved" {
+		return common.FailErr(c, common.NewConflict("only a pending or approved expense can be deleted"))
+	}
+	var mv models.CashMovement
+	if err := config.DB.WithContext(ctx).Where("expense_id = ?", e.ID).Order("id").First(&mv).Error; err != nil {
+		return common.FailErr(c, common.NewConflict("this expense has no ledger entry to delete"))
+	}
+	c.SetParamNames("id")
+	c.SetParamValues(strconv.FormatUint(uint64(mv.ID), 10))
+	return DeleteMovement(c)
 }

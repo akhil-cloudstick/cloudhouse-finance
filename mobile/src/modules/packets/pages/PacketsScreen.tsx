@@ -340,6 +340,13 @@ function LockersTab({ header, onOpen }: LockersTabProps) {
           const st = lockerStatus(l);
           return (
             <AccRow
+              // iPad and bigger: the same columns as the web Lockers table.
+              cells={[
+                { h: "Locker", v: l.code },
+                ...(showBranchFilter ? [{ h: "Branch", v: l.branch?.name || "—" }] : []),
+                { h: "Packets", v: `${l.occupied ?? 0} / ${l.capacity}`, num: true },
+                { h: "Status", v: st, chip: true },
+              ]}
               id={l.code}
               name={`${l.occupied ?? 0} / ${l.capacity} occupied`}
               sub={l.branch?.name}

@@ -188,6 +188,15 @@ export default function RequestsScreen() {
           const paymentOverdue = !!r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && r.paymentDueDate.slice(0, 10) < todayISO();
           return (
             <AccRow
+              // iPad and bigger: the same columns as the web Extension & Release table.
+              cells={[
+                { h: "Type", v: r.type, chip: true, tone: "info", sub: r.type === "Release" && r.isPartial ? "Partial" : undefined, flex: 0.9 },
+                { h: "Loan", v: r.loan?.loanNumber ?? `#${r.loanId}`, flex: 0.9 },
+                { h: "Customer", v: r.loan?.customer?.name ?? "—", flex: 1.3 },
+                { h: "Detail", v: r.detail || "—", flex: 1.6 },
+                { h: "Date", v: dmy(r.requestedAt) },
+                { h: "Status", v: paymentOverdue ? "Payment Overdue" : r.status, chip: true, tone: paymentOverdue ? "overdue" : undefined },
+              ]}
               defaultOpen={i === 0}
               id={r.loan?.loanNumber ?? `#${r.loanId}`}
               name={r.type}

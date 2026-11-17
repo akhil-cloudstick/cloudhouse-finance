@@ -41,8 +41,9 @@ export function ExpenseRow({ e, categoryId, canApprove, awaiting, busy, onApprov
           </div>
         )}
       </td>
-      <td data-label="Info" style={{ textAlign: "center" }}>
-        <span className="ledger-info" style={{ right: "50%", transform: "translate(50%, -50%)" }}><button type="button" title="Details" aria-label="Expense details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }} onClick={onInfo}><Icon name="info" /></button></span>
+      {/* One info icon per row; Edit and Delete live in the info popup's footer. */}
+      <td className="tbl-acts" data-label="Info">
+        <button type="button" className="tbl-ibtn" title="Details" aria-label="Expense details" onClick={onInfo}><Icon name="info" /></button>
       </td>
     </tr>
   );

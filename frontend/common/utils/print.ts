@@ -214,7 +214,8 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
     .num{text-align:right;font-variant-numeric:tabular-nums}
     ol li{margin-bottom:10px;text-align:justify}
     .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
-    .sig div{flex:1;text-align:center;position:relative}
+    /* Direct children only: a nested div (an embedded slip's .lender-sig wrapper) must keep its own positioning. */
+    .sig>div{flex:1;text-align:center;position:relative}
     .sig span{display:block;border-top:1px solid ${C.ink};padding-top:6px;margin-top:44px;font-size:12.5px}
     /* Absolutely positioned — sits inside the existing blank gap the 44px
      * margin-top above already reserves, rather than adding its own height

@@ -1028,9 +1028,11 @@ export type LoanRiskCounts = { loss: number; atRisk: number; safe: number };
  * from "field omitted"; leaving it undefined here therefore leaves the
  * server-side value untouched, same as charges/verificationNotes below. */
 export type ChecklistInput = {
-	customerSawGold?: boolean;
-	verificationNotes?: string;
-	charges?: number;
+  customerSawGold?: boolean;
+  verificationNotes?: string;
+  charges?: number;
+  /* The release date (YYYY-MM-DD), changed while the request is pending. */
+  requestedAt?: string;
 };
 /* "Record Payment" step on the release review screen — now driven by the
  * SAME general payment shape PaymentModalContent posts to /loans/:id/payments

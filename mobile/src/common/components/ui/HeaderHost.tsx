@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, View } from "react-native";
 import { HeroHeader, heroMorphGate, setSlimHeaderHeight, syncHeroGate } from "./HeroHeader";
 import { FlatHeader } from "./FlatHeader";
@@ -71,11 +71,13 @@ function TitleFade({ node }: { node: React.ReactNode }) {
   const [out] = useState(() => fade.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }));
   if (cur.title !== now.title) {
     setPrev(cur);
-    fade.setValue(0);
   }
   if (cur.title !== now.title || cur.subtitle !== now.subtitle) setCur(now);
-  useEffect(() => {
+  // Layout effect: resets the fade before the first paint with `prev`, so there is no flash.
+  // (Setting an Animated.Value during render updates other components mid-render — React warns.)
+  useLayoutEffect(() => {
     if (!prev) return;
+    fade.setValue(0);
     Animated.timing(fade, { toValue: 1, duration: TITLE_FADE_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }).start(({ finished }) => {
       if (finished) setPrev(null);
     });
@@ -150,26 +152,41 @@ export function HeaderHost() {
   // Each side mounts fresh on a swap (tall and short render different trees),
   // so the values set here are already in place on the frame it first draws.
   const [prevTall, setPrevTall] = useState(tall);
+  // Animated values are written in a layout effect (before paint, so still in place on the first
+  // frame): writing them during render updated other components mid-render, which React warns about.
+  const [swap, setSwap] = useState<{ kind: "collapse" | "expand" | "plain"; flat: boolean; driven: boolean; tall: boolean } | null>(null);
   if (prevTall !== tall) {
     setPrevTall(tall);
-    timed.stopAnimation();
     const flat = syncHeroGate();
     setFlatMode(flat);
-    const driven = !flat && track.prev && focusedPrimary();
+    const driven = !!(!flat && track.prev && focusedPrimary());
     if (!tall && heights.tall && heroNode) {
-      timed.setValue(0);
-      if (flat) morph.lift.setValue(0);
-      else if (heights.short) morph.lift.setValue(heights.tall - heights.short);
+      setSwap({ kind: "collapse", flat, driven, tall });
       setRunning({ dir: "collapse", hero: heroNode });
     } else if (tall && heights.tall && heights.short && flatNode) {
-      timed.setValue(driven ? 0 : 1);
-      morph.lift.setValue(flat ? 0 : heights.tall - heights.short);
+      setSwap({ kind: "expand", flat, driven, tall });
       setRunning({ dir: "expand", flat: flatNode });
     } else {
-      timed.setValue(tall ? 0 : 1);
+      setSwap({ kind: "plain", flat, driven, tall });
       setRunning(null);
     }
   }
+  useLayoutEffect(() => {
+    if (!swap) return;
+    timed.stopAnimation();
+    if (swap.kind === "collapse") {
+      timed.setValue(0);
+      if (swap.flat) morph.lift.setValue(0);
+      else if (heights.short) morph.lift.setValue(heights.tall - heights.short);
+    } else if (swap.kind === "expand") {
+      timed.setValue(swap.driven ? 0 : 1);
+      morph.lift.setValue(swap.flat ? 0 : heights.tall - heights.short);
+    } else {
+      timed.setValue(swap.tall ? 0 : 1);
+    }
+    // Runs once per swap; the heights it reads are the ones the swap was decided with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [swap]);
 
   // Starts the running transition, `h` being the incoming header's height.
   const startRunning = (h: number, from: string) => {

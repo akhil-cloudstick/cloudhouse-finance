@@ -1,36 +1,31 @@
-/* The "App Provider" block on every store-listing page — GET /public/provider,
- * which the backend answers from the business whose code is "default".
+/* The "App Provider" block on every store-listing page.
  *
- * A bare apiRawFetch rather than apiFetch, like fetchPublicBranding: these
- * pages are read by app-store reviewers with no session, so nothing here may
- * attach a staff token or bounce to /login.
+ * Static on purpose. These pages are read by app-store reviewers with no
+ * session, and they must always name the company that publishes the app —
+ * CloudHouse Technologies Pvt. Ltd., the software vendor — never a lender's
+ * business (the old lookup asked the backend for the "default" business, whose
+ * name and logo could be any lender's). Nothing here needs the backend, so the
+ * pages also keep working if it is down.
  *
- * A failed lookup returns null and the page says so. It must NOT fall back to
- * some other company's name: a policy page naming the wrong provider is worse
- * than one that says it could not load.
- *
- * apiRawFetch runs the response through the contract adapter, so keys arrive
- * already camelCased (addressLine, supportEmail, ...). */
-import { apiRawFetch, resolveAssetUrl } from "@/common/services/httpClient";
+ * Still async and nullable so LegalDocumentPage does not change. */
+import {
+  APP_NAME,
+  CONTACT_ADDRESS_LINES,
+  CONTACT_EMAIL,
+  CONTACT_LEGAL_NAME,
+  CONTACT_PHONE_DISPLAY,
+  CONTACT_WEBSITE,
+} from "@/modules/legal/content/legalConfig";
 import type { Provider } from "@/modules/legal/types/legal-types";
 
 export async function fetchProvider(): Promise<Provider | null> {
-	try {
-		const res = await apiRawFetch("/public/provider", { cache: "no-store" });
-		if (!res.ok) return null;
-		const body = (await res.json()) as { data?: Partial<Provider> };
-		const d = body?.data;
-		if (!d?.name) return null;
-		return {
-			name: d.name,
-			legalName: d.legalName || d.name,
-			addressLine: d.addressLine ?? "",
-			contactPhone: d.contactPhone ?? "",
-			supportEmail: d.supportEmail ?? "",
-			website: d.website ?? "",
-			logoUrl: d.logoUrl ? resolveAssetUrl(d.logoUrl) : "",
-		};
-	} catch {
-		return null;
-	}
+  return {
+    name: APP_NAME,
+    legalName: CONTACT_LEGAL_NAME,
+    addressLine: CONTACT_ADDRESS_LINES.join(" "),
+    contactPhone: CONTACT_PHONE_DISPLAY,
+    supportEmail: CONTACT_EMAIL,
+    website: CONTACT_WEBSITE,
+    logoUrl: "/cloudhouse-mark.png",
+  };
 }

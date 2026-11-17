@@ -114,6 +114,14 @@ export default function InvestmentsScreen() {
         }
         renderItem={(inv, i) => (
           <AccRow
+            // iPad and bigger: the same columns as the web Investments table.
+            cells={[
+              { h: "Investment / Investor", v: inv.investmentNumber, sub: inv.customer?.name, flex: 1.6 },
+              { h: "Principal", v: inr(inv.principalAmount), num: true },
+              { h: "Rate", v: `${inv.interestRatePercent}% ${inv.payoutFrequency}` },
+              { h: "Maturity", v: dmy(inv.maturityDate) },
+              { h: "Status", v: inv.status, chip: true },
+            ]}
             defaultOpen={i === 0}
             id={inv.investmentNumber}
             name={inv.customer?.name ?? `Customer #${inv.customerId}`}
@@ -574,7 +582,7 @@ export function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
         Outstanding principal: {inr(inv.outstandingPrincipal)} · Outstanding interest: {inr(inv.outstandingInterest)}
       </Txt>
       <Field label="Withdraw from">
-        <ChipToggle options={WITHDRAW_FROM} value={from} onChange={setFrom} />
+        <ThemeDropdown value={from} options={[...WITHDRAW_FROM]} onChange={setFrom} labelOf={(o) => o} />
       </Field>
       {from !== "Principal" ? (
         <Field label="Interest amount">

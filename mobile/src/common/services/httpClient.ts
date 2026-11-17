@@ -1,6 +1,7 @@
 import { getToken } from "./tokenStorage";
 import { fromApi, rememberToken, toApi } from "./apiContract";
 import { friendlyServerMessage } from "./apiErrors";
+import { branchHeader } from "./branchSelection";
 
 // ===== ENVIRONMENT =====
 // Flip this before building. false = production.
@@ -83,6 +84,7 @@ export async function sessionHeaders(): Promise<Record<string, string>> {
   if (token) {
     rememberToken(token);
     headers.Authorization = `Bearer ${token}`;
+    Object.assign(headers, branchHeader());
   }
   return headers;
 }
@@ -110,7 +112,11 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
     // in .env.local). Harmless no-op against a plain LAN IP/localhost.
     "ngrok-skip-browser-warning": "true",
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    // The branch switcher's selection narrows every list server-side (ignored for roles that can't switch).
+    Object.assign(headers, branchHeader());
+  }
 
   // A device that cannot reach API_BASE_URL (wrong LAN IP, dead ngrok tunnel,
   // stale bundle still holding the old default) would otherwise leave fetch

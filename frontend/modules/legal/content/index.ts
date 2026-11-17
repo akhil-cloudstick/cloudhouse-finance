@@ -13,6 +13,7 @@ import { disclaimer } from "@/modules/legal/content/disclaimer";
 import { refundPolicy } from "@/modules/legal/content/refundPolicy";
 import { dataSafety } from "@/modules/legal/content/dataSafety";
 import { contact } from "@/modules/legal/content/contact";
+import { APP_NAME } from "@/modules/legal/content/legalConfig";
 
 const SOURCES: Record<LegalDoc, LegalDocumentSource> = {
 	"privacy-policy": privacyPolicy,
@@ -36,14 +37,14 @@ export const DOC_TITLES: Record<LegalDoc, string> = {
 
 /* A detail the provider has not filled in reads as a pointer, never as a blank. */
 function tokens(provider: Provider, audience: LegalAudience): Record<string, string> {
-	return {
-		provider: provider.legalName || provider.name,
-		address: provider.addressLine || "our registered address",
-		phone: provider.contactPhone || "the number on our Contact page",
-		email: provider.supportEmail || "the address on our Contact page",
-		website: provider.website || "—",
-		app: provider.legalName || provider.name,
-	};
+  return {
+    provider: provider.legalName || provider.name,
+    address: provider.addressLine || "our registered address",
+    phone: provider.contactPhone || "the number on our Contact page",
+    email: provider.supportEmail || "the address on our Contact page",
+    website: provider.website || "—",
+    app: APP_NAME,
+  };
 }
 
 function fill(text: string, t: Record<string, string>): string {

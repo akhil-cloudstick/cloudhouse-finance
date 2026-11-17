@@ -15,6 +15,10 @@ type ThemeDropdownProps<T> = {
   keyOf?: (v: T) => string | number;
   placeholder?: string;
   style?: StyleProp<ViewStyle>;
+  /** Open the list above the field (a field low on a bottom sheet). */
+  openUp?: boolean;
+  /** Tallest the list may get before it scrolls (default: the Popover's). */
+  maxHeight?: number;
 };
 
 // ---- .theme-dropdown ------------------------------------------------------
@@ -30,6 +34,8 @@ export function ThemeDropdown<T>({
   keyOf,
   placeholder = "Select",
   style,
+  openUp,
+  maxHeight,
 }: ThemeDropdownProps<T>) {
   const { ref, measure } = useAnchor();
   const [anchor, setAnchor] = useState<Anchor | null>(null);
@@ -64,7 +70,7 @@ export function ThemeDropdown<T>({
           <Chevron open={!!anchor} />
         </Pressable>
       </View>
-      <Popover anchor={anchor} onClose={close} onRemeasure={() => measure(setAnchor)}>
+      <Popover anchor={anchor} onClose={close} onRemeasure={() => measure(setAnchor)} openUp={openUp} maxHeight={maxHeight}>
         {options.length === 0 ? <Txt style={[s.ddItemTxt, { padding: 10, color: C.muted }]}>No options</Txt> : null}
         {options.map((o, i) => {
           const selected = value != null && (keyOf ? keyOf(o) === keyOf(value) : o === value);

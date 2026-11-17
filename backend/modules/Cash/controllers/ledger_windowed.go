@@ -85,6 +85,19 @@ func focusMatches(rows []ledgerSourceRow, f ledgerFocus) (exact, fallback int) {
 	return focusMatchesIn(rows, f, false)
 }
 
+// focusLoanOf is the loan a row belongs to, for a focus that came from a loan page. A gold-loan cash line
+// (disbursal, service charge, top-up) has no LoanNumber — that field is only filled from loan_cash_sources —
+// and names its loan only in its purpose, which refOrPurpose already turned into the row's Reference.
+func focusLoanOf(r ledgerSourceRow) string {
+	if r.LoanNumber != "" {
+		return r.LoanNumber
+	}
+	if r.Kind == "cash_movement" {
+		return r.Reference
+	}
+	return ""
+}
+
 func focusMatchesIn(rows []ledgerSourceRow, f ledgerFocus, onlyLoan bool) (exact, fallback int) {
 	exact, fallback = -1, -1
 	same := func(a float64) bool { return a-f.amount < 0.005 && f.amount-a < 0.005 }
@@ -118,7 +131,7 @@ func focusMatchesIn(rows []ledgerSourceRow, f ledgerFocus, onlyLoan bool) (exact
 		if r.Memo || !same(r.Amount) {
 			continue
 		}
-		if onlyLoan && !strings.EqualFold(r.LoanNumber, f.loan) {
+		if onlyLoan && !strings.EqualFold(focusLoanOf(r), f.loan) {
 			continue
 		}
 		if exact < 0 && f.date != "" && r.Date.Format("2006-01-02") == f.date {

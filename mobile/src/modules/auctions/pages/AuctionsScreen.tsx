@@ -242,6 +242,12 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
         if (r.stage === "Withdrawn" || !r.saleAmount) {
           return (
             <AccRow
+              // iPad and bigger: the same columns as the web "Closed Without Auction" table.
+              cells={[
+                { h: "Loan", v: r.loanNumber, sub: r.customerName || undefined, flex: 1.4 },
+                { h: "Marked Eligible", v: r.auctionEligibleDate ? dmy(r.auctionEligibleDate) : "—" },
+                { h: "Outcome", v: r.stage === "Withdrawn" ? "Withdrawn — removed from auction" : AUCTION_OUTCOME_LABELS[r.finalSettlementStatus ?? "Pending"], flex: 1.6 },
+              ]}
               id={r.loanNumber}
               name="Withdrawn"
               sub="Settled before auction"
@@ -260,6 +266,17 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
         const ss = r.surplusShortfall ?? 0;
         return (
           <AccRow
+            // iPad and bigger: the same columns as the web "Auctions Conducted" table.
+            cells={[
+              { h: "Loan", v: r.loanNumber, sub: r.customerName || undefined, flex: 1.3 },
+              { h: "Auction Date", v: r.auctionDate ? dmy(r.auctionDate) : "—" },
+              { h: "Reference", v: r.auctionReferenceNumber || "—" },
+              { h: "Sale Amount", v: inr(r.saleAmount ?? 0), num: true },
+              { h: "Expenses", v: r.auctionExpenses ? inr(r.auctionExpenses) : "—", num: true },
+              { h: "Net Proceeds", v: inr((r.saleAmount ?? 0) - (r.auctionExpenses || 0)), num: true },
+              { h: "Surplus / Shortfall", v: `${ss >= 0 ? "+" : "−"}${inr(Math.abs(ss))}`, num: true, color: ss >= 0 ? C.green : C.red },
+              { h: "Outcome", v: AUCTION_OUTCOME_LABELS[r.finalSettlementStatus ?? "Pending"], flex: 1.3 },
+            ]}
             id={r.loanNumber}
             name="Auctioned"
             sub={`Sale ${inr(r.saleAmount)}`}

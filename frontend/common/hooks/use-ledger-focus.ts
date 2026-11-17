@@ -19,7 +19,8 @@ import { useEffect, useRef } from "react";
 
 type Origin = { path: string; scope: string; rowKey: string; page: number; date: string; amount: string; ref?: string };
 // ref (data-ledger-ref = "<kind>:<id>", e.g. "lp:42" loan payment, "m:12" cash movement, "e:7" expense, "g:3" gold sale) pins the exact entry followed.
-type Arrival = { path: string; date: string; amount: string; fromPath: string; ref?: string; loan?: string };
+// xref (data-ledger-xref) is the row's own backend ref ("lp:42" payment vs "ld:42" its discount, which share ref lp:42 above).
+type Arrival = { path: string; date: string; amount: string; fromPath: string; ref?: string; xref?: string; loan?: string };
 // The loan number of the loan page a drill-down started on (/loan/LN-00069): two loans can share a date and an amount.
 function loanOfPath(p: string): string | undefined {
   const m = /\/loan\/([^/?#]+)/i.exec(p);
@@ -89,7 +90,7 @@ function onLedgerLinkClick(e: MouseEvent) {
       ref,
     },
   });
-  write(ARRIVAL_KEY, { path: url.pathname, date, amount, ref, fromPath: path, loan: row.dataset.ledgerLoan || loanOfPath(path) } satisfies Arrival);
+  write(ARRIVAL_KEY, { path: url.pathname, date, amount, ref, xref: row.dataset.ledgerXref || undefined, fromPath: path, loan: row.dataset.ledgerLoan || loanOfPath(path) } satisfies Arrival);
 }
 
 if (typeof window !== "undefined") {
@@ -210,7 +211,10 @@ export function useLedgerFocus(scope: string, ready: boolean, deps: unknown[] = 
           const own = a.ref ? rows.filter((r) => r.dataset.ledgerRef === a.ref) : [];
           if (own.length) {
             // The exact payment followed: its own row only, never another loan's with the same date and amount.
-            row = own.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount)) ?? own[0];
+            // A payment and its discount share the ref: prefer the row whose own ref is the one clicked.
+            const exact = a.xref ? own.filter((r) => r.dataset.ledgerXref === a.xref) : [];
+            const pool = exact.length ? exact : own;
+            row = pool.find((r) => r.dataset.ledgerDate === a.date && sameAmount(r.dataset.ledgerAmount, a.amount)) ?? pool.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount)) ?? pool[0];
           } else {
             // No exact payment id (e.g. a sanction/top-up row). Two loans can share the same date and
             // amount, so prefer the row that names the loan the user came from (/loan/LN-00069).

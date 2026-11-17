@@ -11,6 +11,7 @@ import { useBranding } from "@/common/providers/BrandingProvider";
 import { useLockedBranchId, useShowBranch } from "@/common/hooks/use-branch-switch";
 import { createScheme, updateScheme } from "@/modules/schemes/services/schemeService";
 import { type AccrualBasis, type SchemeView, type ServiceChargeType } from "@/modules/schemes/types/scheme-types";
+import { NoteField } from "@/common/components/ui/NoteField";
 import { Select } from "@/common/components/ui/Select";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -232,90 +233,90 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
           <span className="track" />
           Loan amount is limited by gold LTV
         </label>
-				<div className="scheme-sec">Interest</div>
-				<div className="frow c2 scheme-frow">
-					<div><label className="f">Calculation Method</label>
-						<Select options={methodOptions} value={method} onChange={setMethod} /></div>
-					<div><label className="f">Minimum Period (days)</label><input className="inp" inputMode="numeric" value={minDays} onChange={(e) => setMinDays(cleanNum(e.target.value, false))} /></div>
-				</div>
-				{!isMultiple && (
-					<>
-						<div className="frow c2 scheme-frow">
-							<div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" inputMode="decimal" placeholder="12.5" value={rate} onChange={(e) => { setRate(cleanNum(e.target.value, true)); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
-							{accrualField}
-						</div>
-						<div className="frow c2 scheme-frow">
-							{penalField}
-							<div />
-						</div>
-					</>
-				)}
-				{isMultiple && (
-					<div className={fe.tiers ? "has-err scheme-frow" : "scheme-frow"} style={{ marginBottom: 12 }}>
-						<label className="f">Rate ladder *</label>
-						<div style={{ border: "1px solid var(--line)", borderRadius: 10 }}>
-							<div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 28px", gap: 10, padding: "8px 12px", fontSize: 11.5, color: "var(--muted)", borderBottom: "1px solid var(--line)" }}>
-								<span>#</span><span>If interest unpaid for (days)</span><span>Rate (% p.a.)</span><span />
-							</div>
-							{tiers.map((t, i) => {
-								const last = i === tiers.length - 1;
-								const patch = (p: Partial<TierDraft>) => { setTiers((cur) => cur.map((x, j) => (j === i ? { ...x, ...p } : x))); clearFe(`tier${i}`); };
-								return (
-									<div key={i} className={fe[`tier${i}`] ? "has-err" : undefined} style={{ padding: "8px 12px", borderTop: i ? "1px dashed var(--line)" : undefined }}>
-									<div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 28px", gap: 10, alignItems: "center" }}>
-										<span style={{ color: "var(--accent-deep)", fontSize: 12 }}>{i + 1}</span>
-										{last
-											? <div className="inp" style={{ color: "var(--muted)", fontStyle: "italic" }}>Thereafter</div>
-											: <input className="inp" inputMode="numeric" placeholder="e.g. 90" value={t.days} onChange={(e) => patch({ days: cleanNum(e.target.value, false) })} />}
-										<input className="inp" inputMode="decimal" placeholder="e.g. 12" value={t.rate} onChange={(e) => patch({ rate: cleanNum(e.target.value, true) })} />
-										<button type="button" className="btn plain sm" aria-label={`Remove row ${i + 1}`} disabled={tiers.length <= 2}
-											onClick={() => { setTiers((cur) => cur.filter((_, j) => j !== i)); setFe({}); }}>✕</button>
-									</div>
-									<FieldError msg={fe[`tier${i}`]} />
-									</div>
-								);
-							})}
-							<div style={{ padding: "8px 12px" }}>
-								<button type="button" className="btn ghost sm" onClick={() => { setTiers((cur) => [...cur.slice(0, -1), { days: "", rate: "" }, cur[cur.length - 1]]); clearFe("tiers"); }}>+ Add rate row</button>
-							</div>
-						</div>
-						<FieldError msg={fe.tiers} />
-					</div>
-				)}
-				{isMultiple && (
-					<div className="frow c2 scheme-frow">
-						{accrualField}
-						{penalField}
-					</div>
-				)}
-				<div className="scheme-sec">Charges &amp; status</div>
-				<div className="frow c2 scheme-frow">
-					<div><label className="f">Service Charge</label>
-						<Select options={CHARGE_TYPE_OPTIONS} value={chargeType} onChange={(v) => setChargeType(v as ServiceChargeType)} /></div>
-					{chargeType !== "None" && (
-						<div className={fe.charge ? "has-err" : undefined}><label className="f">{chargeType === "Flat" ? "Charge Amount (₹) *" : "Charge (% of principal) *"}</label>
-							<input
-								className="inp" inputMode="decimal"
-								placeholder={chargeType === "Flat" ? "e.g. 500" : "e.g. 2"}
-								value={chargeValue} onChange={(e) => { setChargeValue(cleanNum(e.target.value, true)); clearFe("charge"); }}
-							/><FieldError msg={fe.charge} /></div>
-					)}
-				</div>
-				{/* Status sits up beside the name when there's no branch field. */}
-				{showBranch && (
-					<div className="frow c2 scheme-frow">
-						{statusField}
-						<div />
-					</div>
-				)}
-				<div className="frow scheme-frow"><div><label className="f">Applicable Conditions</label>
-					<input className="inp" placeholder="e.g. Interest payable monthly; penal 24% p.a. after due" value={cond} onChange={(e) => setCond(e.target.value)} /></div></div>
-				<div className="notice"><Icon name="shield" /> Scheme changes are restricted to authorized administrators and recorded in the audit trail.</div>
-			</div>
-			<div className="ft">
-					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : s ? "Save Changes" : "Create Scheme"}</button>
-			</div>
-		</>
-	);
+        <div className="scheme-sec">Interest</div>
+        <div className="frow c2 scheme-frow">
+          <div><label className="f">Calculation Method</label>
+            <Select options={methodOptions} value={method} onChange={setMethod} /></div>
+          <div><label className="f">Minimum Period (days)</label><input className="inp" inputMode="numeric" value={minDays} onChange={(e) => setMinDays(cleanNum(e.target.value, false))} /></div>
+        </div>
+        {!isMultiple && (
+          <>
+            <div className="frow c2 scheme-frow">
+              <div className={fe.rate ? "has-err" : undefined}><label className="f">Interest Rate (% p.a.) *</label><input className="inp" inputMode="decimal" placeholder="12.5" value={rate} onChange={(e) => { setRate(cleanNum(e.target.value, true)); clearFe("rate"); }} /><FieldError msg={fe.rate} /></div>
+              {accrualField}
+            </div>
+            <div className="frow c2 scheme-frow">
+              {penalField}
+              <div />
+            </div>
+          </>
+        )}
+        {isMultiple && (
+          <div className={fe.tiers ? "has-err scheme-frow" : "scheme-frow"} style={{ marginBottom: 12 }}>
+            <label className="f">Rate ladder *</label>
+            <div style={{ border: "1px solid var(--line)", borderRadius: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 28px", gap: 10, padding: "8px 12px", fontSize: 11.5, color: "var(--muted)", borderBottom: "1px solid var(--line)" }}>
+                <span>#</span><span>If interest unpaid for (days)</span><span>Rate (% p.a.)</span><span />
+              </div>
+              {tiers.map((t, i) => {
+                const last = i === tiers.length - 1;
+                const patch = (p: Partial<TierDraft>) => { setTiers((cur) => cur.map((x, j) => (j === i ? { ...x, ...p } : x))); clearFe(`tier${i}`); };
+                return (
+                  <div key={i} className={fe[`tier${i}`] ? "has-err" : undefined} style={{ padding: "8px 12px", borderTop: i ? "1px dashed var(--line)" : undefined }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "28px 1fr 1fr 28px", gap: 10, alignItems: "center" }}>
+                    <span style={{ color: "var(--accent-deep)", fontSize: 12 }}>{i + 1}</span>
+                    {last
+                      ? <div className="inp" style={{ color: "var(--muted)", fontStyle: "italic" }}>Thereafter</div>
+                      : <input className="inp" inputMode="numeric" placeholder="e.g. 90" value={t.days} onChange={(e) => patch({ days: cleanNum(e.target.value, false) })} />}
+                    <input className="inp" inputMode="decimal" placeholder="e.g. 12" value={t.rate} onChange={(e) => patch({ rate: cleanNum(e.target.value, true) })} />
+                    <button type="button" className="btn plain sm" aria-label={`Remove row ${i + 1}`} disabled={tiers.length <= 2}
+                      onClick={() => { setTiers((cur) => cur.filter((_, j) => j !== i)); setFe({}); }}>✕</button>
+                  </div>
+                  <FieldError msg={fe[`tier${i}`]} />
+                  </div>
+                );
+              })}
+              <div style={{ padding: "8px 12px" }}>
+                <button type="button" className="btn ghost sm" onClick={() => { setTiers((cur) => [...cur.slice(0, -1), { days: "", rate: "" }, cur[cur.length - 1]]); clearFe("tiers"); }}>+ Add rate row</button>
+              </div>
+            </div>
+            <FieldError msg={fe.tiers} />
+          </div>
+        )}
+        {isMultiple && (
+          <div className="frow c2 scheme-frow">
+            {accrualField}
+            {penalField}
+          </div>
+        )}
+        <div className="scheme-sec">Charges &amp; status</div>
+        <div className="frow c2 scheme-frow">
+          <div><label className="f">Service Charge</label>
+            <Select options={CHARGE_TYPE_OPTIONS} value={chargeType} onChange={(v) => setChargeType(v as ServiceChargeType)} /></div>
+          {chargeType !== "None" && (
+            <div className={fe.charge ? "has-err" : undefined}><label className="f">{chargeType === "Flat" ? "Charge Amount (₹) *" : "Charge (% of principal) *"}</label>
+              <input
+                className="inp" inputMode="decimal"
+                placeholder={chargeType === "Flat" ? "e.g. 500" : "e.g. 2"}
+                value={chargeValue} onChange={(e) => { setChargeValue(cleanNum(e.target.value, true)); clearFe("charge"); }}
+              /><FieldError msg={fe.charge} /></div>
+          )}
+        </div>
+        {/* Status sits up beside the name when there's no branch field. */}
+        {showBranch && (
+          <div className="frow c2 scheme-frow">
+            {statusField}
+            <div />
+          </div>
+        )}
+        <div className="frow scheme-frow"><div><label className="f">Applicable Conditions</label>
+          <NoteField value={cond} onChange={setCond} placeholder="e.g. Interest payable monthly; penal 24% p.a. after due" /></div></div>
+        <div className="notice"><Icon name="shield" /> Scheme changes are restricted to authorized administrators and recorded in the audit trail.</div>
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
+      </div>
+      <div className="ft">
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : s ? "Save Changes" : "Create Scheme"}</button>
+      </div>
+    </>
+  );
 }

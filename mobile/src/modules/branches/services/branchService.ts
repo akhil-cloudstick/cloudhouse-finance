@@ -1,5 +1,12 @@
 import { apiRequestEnveloped as apiRequest } from "@/common/services/httpClient";
-import { Branch, type BranchInput } from "@/modules/branches/types/branch-types";
+import { Branch, type BranchInput, type SwitchableBranches } from "@/modules/branches/types/branch-types";
+
+// Feeds the header's branch switcher (GET /branches/switchable) — never branch-scoped, so it still lists every
+// branch after one has been selected.
+export async function listSwitchableBranches(): Promise<SwitchableBranches> {
+  const rec = await apiRequest<SwitchableBranches>("/branches/switchable");
+  return rec || { branches: [], canSwitch: false };
+}
 
 export function listBranches() {
   return apiRequest<Branch[]>("/branches");

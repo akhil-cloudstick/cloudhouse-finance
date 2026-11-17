@@ -34,6 +34,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { FieldErr } from "@/common/components/ErrorText";
 import { ApiError } from "@/common/services/httpClient";
 import { inr } from "@/common/utils/format";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 
 type EmployeeFormSheetProps = { visible: boolean; onClose: () => void; editing: Employee | null };
 
@@ -267,6 +268,7 @@ export default function EmployeesScreen() {
   const { can } = useAuth();
   const canCreate = can("Employee_Management", "can_create_employee");
   const canUpdate = can("Employee_Management", "can_update_employee");
+  const showBranch = useShowBranchFilter();
 
   const list = useServerList<Employee>({ key: ["employees", "list"], fetchPage: (p) => listEmployeesPage(p) });
 
@@ -298,6 +300,16 @@ export default function EmployeesScreen() {
         }
         renderItem={(e, i) => (
           <AccRow
+            // iPad and bigger: the same columns as the web Employees table.
+            cells={[
+              { h: "Employee", v: e.name, sub: e.code || undefined, flex: 1.6 },
+              { h: "Role", v: e.role, chip: true, tone: "info" },
+              ...(showBranch ? [{ h: "Branch", v: e.branch?.name || "—" }] : []),
+              { h: "Loans Processed", v: e.loansProcessed ? String(e.loansProcessed) : "—", num: true },
+              { h: "Collections", v: inr(e.collections ?? 0), num: true },
+              { h: "Follow-ups", v: String(e.followups ?? 0), num: true },
+              { h: "Pending", v: String(e.pending ?? 0), num: true },
+            ]}
             defaultOpen={i === 0}
             id={e.code || undefined}
             name={e.name}

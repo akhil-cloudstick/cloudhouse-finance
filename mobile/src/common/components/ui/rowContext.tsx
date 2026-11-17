@@ -3,6 +3,27 @@ import { StyleSheet } from "react-native";
 import { C } from "./base";
 
 export type AccDetail = { k: string; v: React.ReactNode; color?: string };
+/** One column of the iPad/desktop table row. `h` is the header (same labels as the web table), `v` the cell. */
+export type AccCell = {
+  h: string;
+  v?: React.ReactNode;
+  /** Right-aligned (the web's "num" columns). */
+  num?: boolean;
+  /** Relative width (default 1). */
+  flex?: number;
+  /** Draw `v` (a string) as a status chip. */
+  chip?: boolean;
+  tone?: import("./chipTones").ChipTone;
+  /** Second, muted line under `v` (the web's name + code cells). */
+  sub?: React.ReactNode;
+  color?: string;
+  /** Detail labels this column already shows, so the expanded panel does not repeat them. */
+  covers?: string[];
+  /** Narrowest width (dp) this column stays readable at. Default: 100 (chip 112, number 92, flex>1 150). */
+  min?: number;
+  /** When the table is too narrow, columns are dropped (their value moves into the expanded panel) lowest `drop` first. Default: right-most first. The first and last columns are never dropped. */
+  drop?: number;
+};
 export type AccAction = { label: string; onPress: () => void; primary?: boolean; danger?: boolean; disabled?: boolean };
 
 // ---- one-open-at-a-time accordion -----------------------------------------
@@ -13,6 +34,9 @@ export type AccAction = { label: string; onPress: () => void; primary?: boolean;
 type AccGroupState = { open: string | null | undefined; setOpen: (k: string | null) => void };
 export const AccGroupContext = createContext<AccGroupState | null>(null);
 export const AccRowKey = createContext<string | null>(null);
+/** Set by ServerFlatList on wide screens: AccRow then draws itself as a table row (`first` also draws the header). */
+export type TableHeadCol = { h: string; flex?: number; width?: number; min?: number; num?: boolean };
+export const TableRowCtx = createContext<{ first: boolean; last: boolean; publishHead: (cols: TableHeadCol[]) => void } | null>(null);
 
 const ROW_SHADOW = { shadowColor: "#000", shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 } as const;
 

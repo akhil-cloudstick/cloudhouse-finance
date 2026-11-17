@@ -2,12 +2,11 @@ import React, { useState } from "react";
 import { Pressable, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccRow, Buffering, C, EmptyText, FieldGrid, FlatHeader, PillTabs, PrimaryButton, Screen, SectionTitle, ConfirmSheet, ServerFlatList, StatusChip, Txt, toast } from "@/common/components/ui";
-import { ActionGroup, type GroupAction } from "@/common/components/ActionGroup";
+import { AccRow, Buffering, C, EmptyText, FieldGrid, FlatHeader, PillTabs, PrimaryButton, Screen, SectionTitle, ConfirmSheet, FabMenu, ServerFlatList, StatusChip, Txt, toast } from "@/common/components/ui";
+import { type GroupAction } from "@/common/components/ActionGroup";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, closeInvestment, deleteInvestment } from "@/modules/investments/services/investmentService";
-import { InvestorProfileSheet } from "@/modules/investments/components/InvestorProfileSheet";
 import { InvestmentLedgerEditSheet } from "@/modules/investments/components/InvestmentLedgerEditSheet";
 import { type InvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
 import { previewInvestmentBondPdf, previewInvestmentStatementPdf } from "@/modules/investments/utils/investmentBond";
@@ -33,7 +32,6 @@ export default function InvestmentDetailScreen() {
   const canDelete = useAuth().can("Investment_Management", "can_delete_investment");
   const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | "payInterest" | "edit" | "close" | "delete" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [profileOpen, setProfileOpen] = useState(false);
   const [payout, setPayout] = useState<InvestmentPayout | null>(null);
   const [printing, setPrinting] = useState(false);
 
@@ -149,9 +147,6 @@ export default function InvestmentDetailScreen() {
         <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600" }}>Started {dmy(inv.startDate)}</Txt>
         <StatusChip label={inv.status} />
       </View>
-      <Pressable onPress={() => setProfileOpen(true)} accessibilityRole="button" accessibilityLabel="View investor profile" style={{ marginBottom: 12 }}>
-        <Txt style={{ fontSize: 13, color: C.brandDeep, fontWeight: "700", textDecorationLine: "underline" }}>{inv.customer?.name ?? `Customer #${inv.customerId}`} · View investor profile</Txt>
-      </Pressable>
       <FieldGrid
         style={{ marginBottom: 16 }}
         items={[
@@ -183,7 +178,6 @@ export default function InvestmentDetailScreen() {
           ) : null}
         </View>
       ) : null}
-      <ActionGroup actions={groupActions} style={{ marginBottom: 10 }} />
       {canUpdate && !isLive && (inv.status === "Active" || inv.status === "Matured") ? (
         <PrimaryButton label="Pay Interest" variant="outline" onPress={() => setAction("payInterest")} style={{ marginBottom: 10 }} />
       ) : null}
@@ -268,7 +262,15 @@ export default function InvestmentDetailScreen() {
     );
 
   return (
-    <Screen header={<FlatHeader back title={title} subtitle="Investment details" />}>
+    <Screen
+      header={<FlatHeader back title={title} subtitle="Investment details" />}
+      // Print / edit / cash / close actions live in one corner button that opens upward, like Loans and Bank Pledges.
+      floating={
+        groupActions.length ? (
+          <FabMenu label="Investment actions" actions={groupActions.map((a) => ({ label: a.label, icon: a.icon ?? "dots", onPress: a.busy ? () => {} : a.onPress }))} />
+        ) : undefined
+      }
+    >
       {body}
       {inv ? (
         <>
@@ -276,7 +278,6 @@ export default function InvestmentDetailScreen() {
           <AddCashSheet inv={inv} visible={action === "addCash"} onClose={() => setAction(null)} onDone={invalidate} />
           <WithdrawSheet inv={inv} visible={action === "withdraw"} onClose={() => setAction(null)} onDone={invalidate} />
           <CloseRenewSheet inv={inv} visible={action === "mature"} onClose={() => setAction(null)} onDone={invalidate} />
-          <InvestorProfileSheet customerId={inv.customerId} visible={profileOpen} onClose={() => setProfileOpen(false)} />
           <ConfirmSheet
             visible={action === "close"}
             onClose={() => setAction(null)}

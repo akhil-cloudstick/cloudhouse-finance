@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
@@ -285,6 +286,9 @@ func schemeLTV(in SchemeCreateInput) float64 {
 func schemeValidate(in SchemeCreateInput) error {
 	if err := validateTiers(in); err != nil {
 		return err
+	}
+	if utf8.RuneCountInString(in.Conditions) > 150 {
+		return NewBadRequest("conditions can be at most 150 characters")
 	}
 	if in.DurationMonths <= 0 {
 		return NewBadRequest("duration must be greater than zero months")

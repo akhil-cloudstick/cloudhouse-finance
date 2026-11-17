@@ -1,7 +1,5 @@
-import { redirect } from "next/navigation";
+import LegalDocumentPage from "@/modules/legal/pages/LegalDocumentPage";
 
-/* Stable public URL for the store listing: cloudhousefinance.com/privacy-policy.
- * The real document lives with the staff app's other legal pages. */
 export default function Page() {
-  redirect("/staff-app/privacy-policy");
+  return <LegalDocumentPage doc="privacy-policy" audience="staff" />;
 }

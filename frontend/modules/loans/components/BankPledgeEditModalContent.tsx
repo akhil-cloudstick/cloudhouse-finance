@@ -233,15 +233,17 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
 }
 
 function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "edit" | "delete"; preview: BankPledgeEditPreview; onConfirm: () => Promise<void> }) {
-	const { closeModal } = useModal();
-	const [err, setErr] = useState("");
-	const [saving, setSaving] = useState(false);
-	const b = preview.before;
-	const a = preview.after;
-	const treatmentLabel = (t?: string) => (t === "CashIn" ? "Added to Cash-in-Hand" : "Record only");
-	const row = (label: string, before: React.ReactNode, after: React.ReactNode) => (
-		<tr><td>{label}</td><td className="num">{before}</td><td className="num" style={{ fontWeight: 600, color: String(before) !== String(after) ? "var(--brand)" : undefined }}>{after}</td></tr>
-	);
+  const { closeModal } = useModal();
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const b = preview.before;
+  const a = preview.after;
+  const treatmentLabel = (t?: string) => (t === "CashIn" ? "Added to Cash-in-Hand" : "Record only");
+  // Long values (e.g. "Added to Cash-in-Hand") wrap inside their own column instead of running into the next one.
+  const wrapCell = { whiteSpace: "normal", overflowWrap: "anywhere", textOverflow: "clip" } as const;
+  const row = (label: string, before: React.ReactNode, after: React.ReactNode) => (
+    <tr><td>{label}</td><td className="num" style={wrapCell}>{before}</td><td className="num" style={{ ...wrapCell, fontWeight: 600, color: String(before) !== String(after) ? "var(--brand)" : undefined }}>{after}</td></tr>
+  );
 
 	async function confirm() {
 		return singleFlight("modal:bank-pledge-confirm", async () => {
@@ -255,30 +257,30 @@ function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "ed
 		});
 	}
 
-	return (
-		<>
-			<div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd bd-scroll ledger-edit-bd">
-				<label className="f">{mode === "delete" ? "This record will be removed" : "What changes"}</label>
-				<div className="tbl-wrap"><table className="tbl"><TableCols widths={[40, 30, 30]} />
-					<thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
-					<tbody>
-						{row("Bank", b.bankName, a ? a.bankName : "—")}
-						{row("Pledged amount", fmt(b.pledgedAmount), a ? fmt(a.pledgedAmount) : "—")}
-						{row("Pledge date", b.pledgeDate.slice(0, 10), a ? a.pledgeDate.slice(0, 10) : "—")}
-						{row("Cash treatment", treatmentLabel(b.cashTreatment), a ? treatmentLabel(a.cashTreatment) : "—")}
-						{row("Cash received", fmt((b.cashAmount ?? 0) + (b.upiAmount ?? 0) + (b.bankTransferAmount ?? 0)), a ? fmt((a.cashAmount ?? 0) + (a.upiAmount ?? 0) + (a.bankTransferAmount ?? 0)) : "—")}
-						{b.releaseDate && row("Release date", b.releaseDate.slice(0, 10), a?.releaseDate ? a.releaseDate.slice(0, 10) : "—")}
-					</tbody>
-				</table></div>
-				<FieldError msg={err} />
-			</div>
-			<div className="ft">
-				<button className="btn ghost" onClick={closeModal} disabled={saving}>Back</button>
-				<button className="btn" onClick={confirm} disabled={saving}>
-					<Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : mode === "delete" ? "Confirm delete" : "Confirm & save"}
-				</button>
-			</div>
-		</>
-	);
+  return (
+    <>
+      <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll ledger-edit-bd">
+        <label className="f">{mode === "delete" ? "This record will be removed" : "What changes"}</label>
+        <div className="tbl-wrap"><table className="tbl"><TableCols widths={[28, 36, 36]} />
+          <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
+          <tbody>
+            {row("Bank", b.bankName, a ? a.bankName : "—")}
+            {row("Pledged amount", fmt(b.pledgedAmount), a ? fmt(a.pledgedAmount) : "—")}
+            {row("Pledge date", b.pledgeDate.slice(0, 10), a ? a.pledgeDate.slice(0, 10) : "—")}
+            {row("Cash treatment", treatmentLabel(b.cashTreatment), a ? treatmentLabel(a.cashTreatment) : "—")}
+            {row("Cash received", fmt((b.cashAmount ?? 0) + (b.upiAmount ?? 0) + (b.bankTransferAmount ?? 0)), a ? fmt((a.cashAmount ?? 0) + (a.upiAmount ?? 0) + (a.bankTransferAmount ?? 0)) : "—")}
+            {b.releaseDate && row("Release date", b.releaseDate.slice(0, 10), a?.releaseDate ? a.releaseDate.slice(0, 10) : "—")}
+          </tbody>
+        </table></div>
+        <FieldError msg={err} />
+      </div>
+      <div className="ft">
+        <button className="btn ghost" onClick={closeModal} disabled={saving}>Back</button>
+        <button className="btn" onClick={confirm} disabled={saving}>
+          <Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : mode === "delete" ? "Confirm delete" : "Confirm & save"}
+        </button>
+      </div>
+    </>
+  );
 }

@@ -273,7 +273,7 @@ export function ModeLedgerPage({ mode }: ModeLedgerPageProps) {
 										r.description.match(/—\s*(PL-\S+)\s*$/i)?.[1] ||
 										null;
 									return (
-                  <tr key={`${r.type}-${r.id}-${r.method}-${i}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : r.ref}>
+                  <tr key={`${r.type}-${r.id}-${r.method}-${i}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : r.ref} data-ledger-xref={r.ref}>
 										<td data-label="Date">{fmtDate(r.d)}</td>
 										<td data-label="Ref No">
 											{loanRef ? (

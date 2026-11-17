@@ -84,10 +84,22 @@ export default function DashboardScreen() {
   // While the keyboard is up the page gets that much extra room below, so it can scroll past the keyboard.
   const insets = useSafeAreaInsets();
   const [kbHeight, setKbHeight] = useState(0);
+  // How much of the page the keyboard actually covers — not its full height: where the window already
+  // shrinks for the keyboard (Android), adding the whole height again lifted the calculator a keyboard's
+  // height too high. Measured twice, since that shrink can land a moment after the keyboard event.
   useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", (e) => setKbHeight(e.endCoordinates.height));
-    const hide = Keyboard.addListener("keyboardDidHide", () => setKbHeight(0));
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const show = Keyboard.addListener("keyboardDidShow", (e) => {
+      const measure = () =>
+        scrollRef.current?.measureInWindow((_x, y, _w, h) => setKbHeight(Math.max(0, Math.round(y + h - e.endCoordinates.screenY))));
+      timers.push(setTimeout(measure, 16), setTimeout(measure, 220));
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      timers.splice(0).forEach(clearTimeout);
+      setKbHeight(0);
+    });
     return () => {
+      timers.forEach(clearTimeout);
       show.remove();
       hide.remove();
     };
@@ -171,7 +183,7 @@ export default function DashboardScreen() {
         scrollRef={scrollRef}
         // PScroll already pads for the floating tab bar, which is hidden while the keyboard is up: swap that
         // padding for the keyboard's own height plus a small margin, so the calculator rests just above it.
-        extraBottom={kbHeight ? kbHeight + 24 - (PCONTENT_BOTTOM + tabBarLift(insets.bottom)) : 0}
+        extraBottom={kbHeight ? kbHeight + 8 - (PCONTENT_BOTTOM + tabBarLift(insets.bottom)) : 0}
         onScroll={(e) => noteHeroScroll(e.nativeEvent.contentOffset.y)}
         // The hero never rests half-collapsed (a half-collapsed header bobbed when switching
         // pages): a scroll that stops inside the hero's collapse distance glides to fully open or
