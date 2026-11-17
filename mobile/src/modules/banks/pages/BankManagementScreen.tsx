@@ -22,11 +22,12 @@ import { inr } from "@/common/utils/format";
 
 export default function BankManagementScreen() {
   const { can } = useAuth();
-  const canManage = can("Bank_Management", "can_create_bank") || can("Bank_Management", "can_update_bank") || can("Bank_Management", "can_delete_bank");
   // A bank's ledger is a Cash drill-down.
   const canLedger = useCanOpen()("/cash");
   const [manageOpen, setManageOpen] = useState(false);
   const [editBank, setEditBank] = useState<Bank | null>(null);
+  // The corner button opens the Add Bank form straight away (no list of banks first).
+  const [addOpen, setAddOpen] = useState(false);
   const canEdit = can("Bank_Management", "can_update_bank");
 
   // The "banks" prefix is invalidated by the Banks sheet after an add, edit or delete.
@@ -54,7 +55,7 @@ export default function BankManagementScreen() {
   return (
     <Screen
       header={<FlatHeader title="Bank Management" subtitle="Banks & net balance" />}
-      floating={canManage ? <FabCorner onPress={() => { setEditBank(null); setManageOpen(true); }} label="Manage banks" /> : undefined}
+      floating={can("Bank_Management", "can_create_bank") ? <FabCorner onPress={() => { setEditBank(null); setAddOpen(true); }} label="Add bank" /> : undefined}
     >
       <ServerFlatList stickyHeader
         list={list}
@@ -79,6 +80,15 @@ export default function BankManagementScreen() {
         }
         renderItem={(b, i) => (
           <AccRow
+            // iPad and bigger: the same columns as the web Banks table.
+            cells={[
+              { h: "Bank", v: b.name, flex: 1.4 },
+              ...(showBranch ? [{ h: "Business branch", v: b.branchName || "—" }] : []),
+              { h: "Bank branch", v: b.branch || "—" },
+              { h: "IFSC", v: b.ifsc || "—" },
+              { h: "Account No.", v: b.accountNo || "—" },
+              { h: "Balance", v: fmtBalance(b.balance ?? 0), num: true, color: balanceColor(b.balance ?? 0) },
+            ]}
             defaultOpen={i === 0}
             name={b.name}
             sub={b.branch || b.ifsc || "—"}
@@ -100,6 +110,7 @@ export default function BankManagementScreen() {
         )}
       />
       <BanksSheet visible={manageOpen} editBank={editBank} onClose={() => { setManageOpen(false); setEditBank(null); }} />
+      <BanksSheet visible={addOpen} startAdd onClose={() => setAddOpen(false)} />
     </Screen>
   );
 }

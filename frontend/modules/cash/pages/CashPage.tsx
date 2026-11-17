@@ -18,7 +18,7 @@ import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/com
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { useExpenseCategoryIdsState } from "@/common/hooks/use-expense-category-ids";
 import { rememberedLedgerPage, reloadedLedgerPosition, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
-import { listCashMovementsPage, listExpensesPage, getExpense, listGoldSalesPage, getCashSummary, approveExpense, rejectExpense, exportCashMovements, exportExpenses } from "@/modules/cash/services/cashService";
+import { listCashMovementsPage, listExpensesPage, getExpense, getExpenseEntry,listGoldSalesPage, getCashSummary, approveExpense, rejectExpense, exportCashMovements, exportExpenses } from "@/modules/cash/services/cashService";
 import { type CashMovementView, type ExpenseView, type GoldSaleView, type CashSummary, type CashMovementCategory } from "@/modules/cash/types/cash-types";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import { canActAtStage, stageByPending } from "@/common/services/approvalWorkflowService";
@@ -32,6 +32,7 @@ import { Kpi } from "@/modules/cash/components/Kpi";
 import { MovementRow } from "@/modules/cash/components/MovementRow";
 import { useBankPledgeEntryActions } from "@/modules/loans/components/useBankPledgeEntryActions";
 import { ExpenseRow } from "@/modules/cash/components/ExpenseRow";
+import { DeleteEntryModalContent } from "@/modules/cash/components/DeleteEntryModalContent";
 import { EditEntryModalContent } from "@/modules/cash/components/EditEntryModalContent";
 import { GoldSaleRow } from "@/modules/cash/components/GoldSaleRow";
 import { TableCols } from "@/common/components/ui/TableCols";
@@ -58,7 +59,7 @@ function withRunningBalance(items: CashMovementView[], topBalance: number): { m:
  * balance, and the Expected Cash in Hand figure all come from the Go API
  * (backend/internal/cash) instead of localStorage. */
 export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
-  const { openModal, openChildModal } = useModal();
+  const { openModal, openChildModal, closeAllModals } = useModal();
   const toast = useToast();
   // Recording cash movements and expenses is a create; closing a loan movement is an update.
   // Whatever the role can't do is hidden outright (see Customers.tsx).
@@ -344,6 +345,7 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
 
   const pledgeActions = useBankPledgeEntryActions(refresh);
   const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
   useEffect(() => { refresh(); }, [refresh]);
 
   async function onApproveExpense(e: ExpenseView) {
@@ -617,10 +619,16 @@ export function CashPage({ focusExpenseId }: { focusExpenseId?: string } = {}) {
                       onReject={() => onRejectExpense(e)}
                       onInfo={() => {
                         const viaPledge = !e.editable && canEditLedger && e.bankPledgeId && e.bankPledgeLoanId;
-                        const onEdit = e.editable
-                          ? () => openChildModal(<EditEntryModalContent entryId={e.id} viaExpense onSaved={refresh} />)
+                        // The edit form's data is fetched while the info popup is open, so Edit opens already filled
+                        // in instead of showing "Loading…" first. If the fetch fails the form loads it itself.
+                        const preload = e.editable && canCreateCash ? getExpenseEntry(e.id).catch(() => undefined) : undefined;
+                        const onEdit = e.editable && canCreateCash
+                          ? async () => openChildModal(<EditEntryModalContent entryId={e.id} info={await preload} viaExpense onSaved={refresh} />)
                           : viaPledge ? () => void pledgeActions.pledge(e.bankPledgeLoanId!, e.bankPledgeId!, "edit") : undefined;
-                        openModal(<ExpenseInfoModalContent e={e} showBranch={showBranch} onEdit={onEdit} />);
+                        const onDelete = e.editable && canDeleteLedger && (e.status === "Pending" || e.status === "Approved")
+                          ? () => openChildModal(<DeleteEntryModalContent entryId={e.id} viaExpense label={e.cat} onDeleted={() => { refresh(); closeAllModals(); }} />)
+                          : undefined;
+                        openModal(<ExpenseInfoModalContent e={e} showBranch={showBranch} onEdit={onEdit} onDelete={onDelete} />);
                       }}
                     />
                   ))

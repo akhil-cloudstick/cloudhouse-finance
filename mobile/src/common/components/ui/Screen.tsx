@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useLayoutEffect, useState } from "react";
 import { Keyboard, View } from "react-native";
 import { useIsFocused, useNavigation, useRoute } from "expo-router";
 import { Fade } from "./Fade";
-import { PHEADER_FADE } from "@/common/theme/layout";
+import { PHEADER_FADE, onWindowSizeChange } from "@/common/theme/layout";
 import { HeaderHostContext, HeaderInsetContext, headerStore, s, TabNameContext } from "./shellContext";
 import { blurredBySwipe } from "./swipeController";
 
@@ -19,6 +19,9 @@ type ScreenProps = {
 
 // Last measured header height of an overlayHeader page, so a remount starts at the right inset.
 let lastOverlayHeaderH = 0;
+onWindowSizeChange(() => {
+  lastOverlayHeaderH = 0;
+});
 
 /** Page shell: header on top, body below with a gradual fade under the
  * header so content scrolls away smoothly. `floating` renders page-level

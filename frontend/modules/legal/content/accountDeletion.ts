@@ -13,7 +13,7 @@ export const accountDeletion: LegalDocumentSource = {
       heading: "How to request deletion",
       body: [
         { only: "customer", text: `Call {{phone}} with your name, your registered mobile number and the subject “Delete my account”. We verify your identity and reply within ${DELETION_REPLY_DAYS} days.` },
-        { only: "staff", text: "This app is an internal tool for authorised employees and field agents of {{provider}}. Accounts are provisioned manually by backend administrators and cannot be created within the app. To disable your login or request data deletion, contact your backend administrator or call {{phone}}. We verify the request before acting." },
+        { only: "staff", text: "This app is business software for the authorised employees and field agents of the licensed lenders that use {{app}}. Sign-in IDs are issued by {{provider}} and accounts cannot be created within the app. To disable your login or request data deletion, contact your employer's administrator, call {{phone}} or write to {{email}}. We verify the request before acting." },
         "Uninstalling the app does not delete your account.",
       ],
     },

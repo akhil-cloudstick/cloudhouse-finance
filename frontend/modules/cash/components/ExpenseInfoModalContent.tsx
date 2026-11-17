@@ -15,11 +15,13 @@ type Props = {
   showBranch: boolean;
   // Offered only when the expense can be edited (directly, or through its bank pledge).
   onEdit?: () => void;
+  // Offered only when the user may delete this expense (same rule as the row's Delete button).
+  onDelete?: () => void;
 };
 
 /* The info popup for one row of the Expense Register: every table column, the additional information, the receipt
  * preview and Edit. The table itself stays compact — the remarks and the receipt live only here. */
-export function ExpenseInfoModalContent({ e, showBranch, onEdit }: Props) {
+export function ExpenseInfoModalContent({ e, showBranch, onEdit, onDelete }: Props) {
   const { closeModal } = useModal();
   const remarks = e.remarks && e.remarks !== SYSTEM_REMARK ? e.remarks : "";
   return (
@@ -43,9 +45,10 @@ export function ExpenseInfoModalContent({ e, showBranch, onEdit }: Props) {
           ? <div style={{ textAlign: "center" }}><SafeImage src={e.img} style={{ maxWidth: "100%", maxHeight: "50vh", borderRadius: 8, border: "1px solid var(--line)" }} alt="Receipt" /></div>
           : <span style={{ color: "var(--muted)" }}>No receipt attached.</span>}
       </div>
-      {onEdit && (
+      {(onEdit || onDelete) && (
         <div className="ft">
-          <button className="btn" onClick={onEdit}><Icon name="edit" /> Edit</button>
+          {onDelete && <button className="btn ghost" style={{ color: "var(--red)" }} onClick={onDelete}><Icon name="trash" /> Delete</button>}
+          {onEdit && <button className="btn" onClick={onEdit}><Icon name="edit" /> Edit</button>}
         </div>
       )}
     </>

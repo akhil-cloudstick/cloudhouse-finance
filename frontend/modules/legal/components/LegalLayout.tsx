@@ -11,7 +11,7 @@ type Props = {
   document: LegalDocument;
 };
 
-const BASE: Record<LegalAudience, string> = { customer: "/customer-app", staff: "/staff-app" };
+const BASE: Record<LegalAudience, string> = { customer: "/customer-app", staff: "" };
 
 const PAGE: CSSProperties = { maxWidth: 760, margin: "0 auto", padding: "24px 16px 64px", lineHeight: 1.65, color: "var(--ink, #1c1b22)" };
 const CARD: CSSProperties = { border: "1px solid var(--line, #dcd9e6)", borderRadius: 12, padding: "14px 16px", margin: "28px 0", background: "var(--card, #fff)" };

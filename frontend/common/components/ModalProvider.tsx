@@ -113,6 +113,7 @@ export function ModalProvider({ children }: ModalProviderProps) {
         setWide(parent.wide);
         return;
       }
+      current.current = { content: null, wide: false };
       setOpen(false);
     }, CLOSE_MS);
   }, []);
@@ -124,6 +125,7 @@ export function ModalProvider({ children }: ModalProviderProps) {
     closeTimer.current = setTimeout(() => {
       closeTimer.current = null;
       setClosing(false);
+      current.current = { content: null, wide: false };
       setOpen(false);
     }, CLOSE_MS);
   }, []);

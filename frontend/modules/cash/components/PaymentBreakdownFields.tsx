@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { fmt, roundRupee } from "@/common/utils/format";
 import { Icon } from "@/common/components/Icon";
 import { FieldError } from "@/common/components/ui/FieldError";
@@ -41,6 +41,19 @@ export function effectiveRows(rows: PaymentRow[], total: number): PaymentRow[] {
   if (rows.length !== 1 || !rows[0].auto) return rows;
   const v = total > 0 ? String(total) : "";
   return rows[0].amount === v ? rows : [{ ...rows[0], amount: v }];
+}
+
+/* The lines after the entry's Amount (`total`) is set: a lone line takes all of it (an untouched one always, any
+ * other when the Amount just `changed`); with several lines the last takes whatever the others leave. */
+function followTotal(rows: PaymentRow[], total: number, changed: boolean): PaymentRow[] {
+  if (rows.length === 1) {
+    const v = total > 0 ? String(total) : "";
+    return rows[0].amount !== v && (rows[0].auto || changed) ? [{ ...rows[0], amount: v }] : rows;
+  }
+  if (!changed || !(total > 0)) return rows;
+  const last = rows[rows.length - 1];
+  const rest = String(round2(Math.max(0, total - rows.slice(0, -1).reduce((s, r) => s + (Number(r.amount) || 0), 0))));
+  return last.amount === rest ? rows : rows.map((r) => (r.key === last.key ? { ...r, amount: rest, auto: false } : r));
 }
 
 /* The rows as the backend's payment lines — rows with no amount are dropped. */
@@ -108,13 +121,18 @@ type PaymentBreakdownFieldsProps = {
  * moved through; the lines must add up to the entry's Amount, and each one is
  * saved as its own ledger entry. */
 export function PaymentBreakdownFields({ total, rows, onChange, scrollInternally = true, label, error }: PaymentBreakdownFieldsProps) {
+  // The breakdown follows the entry's Amount whenever it changes (an edit opens with the saved amounts, which must
+  // not stay put): a lone line takes all of it; with several lines the last one takes whatever the others leave.
+  const prevTotal = useRef(total);
   useEffect(() => {
-    if (rows.length !== 1 || !rows[0].auto) return;
-    const v = total > 0 ? String(total) : "";
-    if (rows[0].amount !== v) onChange((cur) => (cur.length === 1 && cur[0].auto ? [{ ...cur[0], amount: v }] : cur));
+    const changed = prevTotal.current !== total;
+    prevTotal.current = total;
+    onChange((cur) => followTotal(cur, total, changed));
   }, [total, rows, onChange]);
 
-  const shownRows = effectiveRows(rows, total);
+  // The effect above lands one render late; the lines shown (and the "still to allocate" line, which the modal
+  // would turn into a toast) use the same result right away, so a changed Amount never flashes a mismatch.
+  const shownRows = followTotal(rows, total, prevTotal.current !== total);
   const allocated = round2(shownRows.reduce((s, r) => s + (+r.amount || 0), 0));
   const remaining = round2(total - allocated);
   const patch = (key: number, p: Partial<PaymentRow>) =>

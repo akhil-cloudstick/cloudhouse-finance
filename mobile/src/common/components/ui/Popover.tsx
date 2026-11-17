@@ -1,7 +1,9 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { onWindowSizeChange, useColumnWidth } from "@/common/theme/layout";
 import { Animated, BackHandler, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type HostInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextSheetId, sheetStore } from "./SheetHost";
+import { sheetLift } from "./sheetLift";
 import { C } from "./base";
 
 // Dropdown menu layer — the standard mobile dropdown: the field stays where
@@ -20,6 +22,11 @@ const EDGE = 8;
 // its first frame instead of waiting for a fresh native measure.
 let lastOrigin: { x: number; y: number } | null = null;
 let lastLayerH = 0;
+// A cached position from the other orientation would show the list in the wrong place for a frame.
+onWindowSizeChange(() => {
+  lastOrigin = null;
+  lastLayerH = 0;
+});
 
 // The list sits on its own layer at a fixed screen position, so it has to
 // be told when the form under it moves — a sheet/page scrolling (by hand, or
@@ -63,6 +70,7 @@ type LayerProps = {
   minWidth: number;
   header?: React.ReactNode;
   awaitKeyboard?: boolean;
+  openUp?: boolean;
   children: React.ReactNode;
 };
 
@@ -74,10 +82,12 @@ function Layer({
   minWidth,
   header,
   awaitKeyboard,
+  openUp,
   children,
 }: LayerProps) {
   const insets = useSafeAreaInsets();
   const win = useWindowDimensions();
+  const colW = useColumnWidth();
   // Where the keyboard's top edge is, or null when it's down. Read from the keyboard as it is now:
   // on iOS its "will show" event fires before this list exists (it opens with or after the
   // keyboard), so starting from null let the list run down behind the keyboard.
@@ -94,6 +104,8 @@ function Layer({
   const rootRef = useRef<HostInstance>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(lastOrigin);
   const [layerH, setLayerH] = useState(lastLayerH);
+  // Android, sheet lifted for the keyboard: how much of that lift the measured field position is missing (null: not known yet).
+  const [liftFix, setLiftFix] = useState<number | null>(Platform.OS === "android" && sheetLift.value > 0 ? null : 0);
   const measureOrigin = useCallback(() => {
     rootRef.current?.measureInWindow((x, y, _w, lh) => {
       lastOrigin = { x, y };
@@ -102,6 +114,8 @@ function Layer({
         setLayerH((v) => (v === lh ? v : lh));
       }
       setOrigin((o) => (o && o.x === x && o.y === y ? o : { x, y }));
+      if (Platform.OS === "android" && sheetLift.value > 0 && sheetLift.probe) sheetLift.probe(setLiftFix);
+      else setLiftFix(0);
     });
   }, []);
   useEffect(measureOrigin, [anchor, measureOrigin]);
@@ -116,6 +130,11 @@ function Layer({
   useEffect(() => {
     cbRef.current = { onClose, onRemeasure };
   });
+  // Rotating / resizing while a list is open: re-measure the layer and the field it hangs from.
+  useEffect(() => {
+    measureOrigin();
+    cbRef.current.onRemeasure?.();
+  }, [win.width, win.height, measureOrigin]);
 
   useEffect(() => {
     let frame: number | null = null;
@@ -215,23 +234,27 @@ function Layer({
   const oy = origin?.y ?? 0;
   const ox = origin?.x ?? 0;
   // Field and keyboard edge, relative to this layer.
-  const fy = anchor.y - oy;
+  const fy = anchor.y - oy - (liftFix ?? 0);
   const fx = anchor.x - ox;
   const topLimit = insets.top + EDGE;
-  const bottomLimit = (kbTop != null ? Math.min(kbTop, win.height) : win.height - insets.bottom) - EDGE;
-  const width = Math.min(Math.max(anchor.w, minWidth), win.width - EDGE * 2);
-  const left = Math.min(Math.max(fx, EDGE), win.width - width - EDGE);
+  // The layer covers the window, so its measured height is the real one (the reported window height can lag a rotation).
+  const winH = layerH > 0 ? layerH : win.height;
+  const bottomLimit = (kbTop != null ? Math.min(kbTop, winH) : winH - insets.bottom) - EDGE;
+  const width = Math.min(Math.max(anchor.w, minWidth), colW - EDGE * 2);
+  const left = Math.min(Math.max(fx, EDGE), colW - width - EDGE);
 
   const below = bottomLimit - (fy + anchor.h + GAP);
   const above = fy - GAP - topLimit;
   // When even a full-height list fits below the field, it opens below
   // right away. Only near the bottom of the screen does it wait one layout
   // pass for its real height to decide between below and above.
-  const fitsBelow = below >= maxHeight;
-  const up = !fitsBelow && h > 0 && Math.min(h, maxHeight) > below && above > below;
+  // openUp: a field low on a bottom sheet opens its list above itself (when there's room there), so the list
+  // never runs out of room below and the sheet never has to grow to make space.
+  const fitsBelow = !openUp && below >= maxHeight;
+  const up = openUp ? above > 120 || above > below : !fitsBelow && h > 0 && Math.min(h, maxHeight) > below && above > below;
   const room = Math.max(0, up ? above : below);
   const cap = Math.min(maxHeight, room);
-  const ready = !kbWait && !!origin && (fitsBelow || h > 0) && (!up || layerH > 0);
+  const ready = !kbWait && !!origin && liftFix !== null && (fitsBelow || h > 0) && (!up || layerH > 0);
   // Above the field it's pinned by its bottom edge, so it needs no height.
   const place = up ? { bottom: layerH - (fy - GAP) } : { top: fy + anchor.h + GAP };
 
@@ -310,6 +333,8 @@ type PopoverProps = {
   header?: React.ReactNode;
   /** The field opens the keyboard (typeable dropdown): wait for it. */
   awaitKeyboard?: boolean;
+  /** Open above the field whenever there is room there (a field low on a bottom sheet), instead of below it. */
+  openUp?: boolean;
   children: React.ReactNode;
 };
 
@@ -323,6 +348,7 @@ export function Popover({
   minWidth = 140,
   header,
   awaitKeyboard,
+  openUp,
   children,
 }: PopoverProps) {
   const [id] = useState(nextSheetId);
@@ -336,7 +362,7 @@ export function Popover({
     }
     sheetStore.set(
       id,
-      <Layer anchor={anchor} onClose={onClose} onRemeasure={onRemeasure} maxHeight={maxHeight} minWidth={minWidth} header={header} awaitKeyboard={awaitKeyboard}>
+      <Layer anchor={anchor} onClose={onClose} onRemeasure={onRemeasure} maxHeight={maxHeight} minWidth={minWidth} header={header} awaitKeyboard={awaitKeyboard} openUp={openUp}>
         {children}
       </Layer>
     );

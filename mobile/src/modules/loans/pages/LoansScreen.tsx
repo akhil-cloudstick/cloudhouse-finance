@@ -123,6 +123,16 @@ export default function LoansScreen() {
           return (
             <AccRow
               defaultOpen={i === 0}
+              // iPad and bigger: the same columns as the web Loans table.
+              cells={[
+                { h: "Loan / Customer", v: l.loanNumber, sub: l.customer?.name ?? `Customer #${l.customerId}`, flex: 2 },
+                { h: "Scheme", v: l.scheme?.name || "—", drop: 1, covers: [] },
+                { h: "Opened / Due", v: dmy(l.openedDate), sub: l.dueDate ? `due ${dmy(l.dueDate)}` : undefined, covers: ["Opened on", "Due date", "Due on"], min: 112, drop: 4 },
+                { h: "Principal", v: inr(l.principalAmount), num: true, drop: 5 },
+                { h: "Outstanding", v: inr(l.totalOutstandingBalance ?? l.outstandingAmount ?? 0), num: true, drop: 3 },
+                { h: "Pledge", v: l.bankPledgeStatus || "—", chip: !!l.bankPledgeStatus, drop: 2 },
+                { h: "Status", v: loanDisplayStatus(l), chip: true },
+              ]}
               id={l.loanNumber}
               name={l.customer?.name ?? `Customer #${l.customerId}`}
               sub={l.scheme?.name || undefined}

@@ -9,7 +9,7 @@ export const refundPolicy: LegalDocumentSource = {
       heading: "The app",
       body: [
         { only: "customer", text: "{{app}} is free for customers; we charge customers no fee for using it." },
-        { only: "staff", text: "{{app}} has no in-app purchases, subscriptions or fees. It is an internal tool for authorised employees and field agents of {{provider}}." },
+        { only: "staff", text: "{{app}} has no in-app purchases, subscriptions or fees. It is business software for the authorised employees and field agents of licensed lenders, supplied by {{provider}}." },
       ],
     },
     {

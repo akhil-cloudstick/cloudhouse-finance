@@ -209,7 +209,7 @@ export function SchemesPage() {
                   </div></div>
                 )}
               </div>
-              <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: smallScreen ? 4 : 12, borderTop: "1px dashed var(--line)", paddingTop: smallScreen ? 4 : 10, height: smallScreen ? 28 : 60, overflow: "hidden" }}>{s.cond || "—"}</p>
+              <p title={s.cond || undefined} style={{ fontSize: 12.5, color: "var(--muted)", marginTop: smallScreen ? 4 : 12, borderTop: "1px dashed var(--line)", paddingTop: smallScreen ? 4 : 10, height: smallScreen ? 28 : 60, overflow: "hidden", overflowWrap: "anywhere", cursor: s.cond ? "help" : undefined, display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: smallScreen ? 1 : 3 }}>{s.cond || "—"}</p>
             </div>
             <div className="ft" style={{ display: "flex", gap: 8, padding: smallScreen ? "6px 12px" : undefined }}>
               {canDownloadStatement && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<SchemeStatementModalContent scheme={s} />, true); }}>Download Statement</a>}

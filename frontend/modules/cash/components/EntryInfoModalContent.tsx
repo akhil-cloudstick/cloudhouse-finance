@@ -92,8 +92,10 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
           {info.approvedAt ? item("Approved on", fmtDateTime(info.approvedAt)) : null}
         </div>
 
-        {/* A gold loan repayment (it has a "Paid towards" split) takes no remarks, so none is shown for it. */}
-        {!(info.split && info.split.length > 0) && (
+        {/* A gold loan repayment (it has a "Paid towards" split) takes no remarks, and neither does an entry the system
+          * booked itself (a bank pledge, a disbursement…) — there is nowhere to add them, so the box only shows when
+          * there is something in it. */}
+        {!(info.split && info.split.length > 0) && (info.kind !== "system" || !!info.remarks) && (
           <>
             <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Remarks</h4>
             <div className="addl-info boxed" style={{ color: info.remarks ? undefined : "var(--muted)" }}>

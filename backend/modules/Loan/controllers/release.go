@@ -283,6 +283,9 @@ func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, i
 	if in.Charges != nil {
 		req.Charges = *in.Charges
 	}
+	if in.RequestedAt != nil {
+		req.RequestedAt = sameDayKeep(in.RequestedAt, req.RequestedAt)
+	}
 	if req.ApprovalStage == "" {
 		req.ApprovalStage = models.ApprovalStagePendingManager
 	}
@@ -875,11 +878,20 @@ func VerifyReleaseChecklist(c echo.Context) error {
 		f, _ := v.(float64)
 		charges = &f
 	}
+	var requestedAt *time.Time
+	if v, ok := raw["requested_at"].(string); ok && v != "" {
+		d, perr := parseDate(v)
+		if perr != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid requested_at: expected YYYY-MM-DD"})
+		}
+		requestedAt = &d
+	}
 	_, _, actorRoleID := auth.ActorFromContext(c)
 	rec, err := SaveReleaseChecklist(ctx, requestID, auth.GetBranchScope(c), ChecklistInput{
 		CustomerSawGold:   customerSawGold,
 		VerificationNotes: verificationNotes,
 		Charges:           charges,
+		RequestedAt:       requestedAt,
 		ActorRoleID:       actorRoleID,
 	})
 	if err != nil {

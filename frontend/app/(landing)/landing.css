@@ -22,6 +22,11 @@ html {
   scroll-behavior: smooth;
 }
 
+/* The sticky header would cover a section opened from a #link, so stop exactly at its bottom edge (60px row + 1px border). */
+section[id] {
+  scroll-margin-top: 61px;
+}
+
 body {
   background: var(--lp-bg);
   color: var(--lp-text);

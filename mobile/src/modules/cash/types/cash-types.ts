@@ -149,6 +149,9 @@ export type LedgerRow = {
   // The gold-loan repayment behind a row — the ledger offers its edit and delete.
   loanId?: number;
   paymentId?: number;
+  // Unique identity of the entry behind the row ("m:12" cash movement, "lp:42" loan payment, "e:7" expense …),
+  // the same in every ledger that shows it. Ledger links carry it so the exact entry is highlighted.
+  ref?: string;
 };
 // One line of a payment breakdown: how much was paid in which mode (and
 // through which bank for UPI / Bank Transfer). Each line of a Credit or Debit

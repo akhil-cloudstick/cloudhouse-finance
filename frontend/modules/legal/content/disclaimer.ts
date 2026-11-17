@@ -16,7 +16,7 @@ export const disclaimer: LegalDocumentSource = {
       heading: "Our role",
       body: [
         { only: "customer", text: "{{provider}} supplies the software. The loan itself is offered by the lender who gave it to you, and {{provider}} is not a party to that loan unless your agreement says so." },
-        { only: "staff", text: "{{app}} is an internal tool for authorised employees and field agents of {{provider}}. It records information for the lender; decisions on loans and valuations remain with the lender." },
+        { only: "staff", text: "{{app}} is business software supplied by {{provider}} for the authorised employees and field agents of licensed lenders. {{provider}} does not offer or fund loans. The app records information for the lender; decisions on loans and valuations remain with the lender." },
       ],
     },
     {

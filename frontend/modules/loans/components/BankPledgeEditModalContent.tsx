@@ -230,8 +230,10 @@ function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "ed
   const b = preview.before;
   const a = preview.after;
   const treatmentLabel = (t?: string) => (t === "CashIn" ? "Added to Cash-in-Hand" : "Record only");
+  // Long values (e.g. "Added to Cash-in-Hand") wrap inside their own column instead of running into the next one.
+  const wrapCell = { whiteSpace: "normal", overflowWrap: "anywhere", textOverflow: "clip" } as const;
   const row = (label: string, before: React.ReactNode, after: React.ReactNode) => (
-    <tr><td>{label}</td><td className="num">{before}</td><td className="num" style={{ fontWeight: 600, color: String(before) !== String(after) ? "var(--brand)" : undefined }}>{after}</td></tr>
+    <tr><td>{label}</td><td className="num" style={wrapCell}>{before}</td><td className="num" style={{ ...wrapCell, fontWeight: 600, color: String(before) !== String(after) ? "var(--brand)" : undefined }}>{after}</td></tr>
   );
 
   async function confirm() {
@@ -251,7 +253,7 @@ function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "ed
       <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll ledger-edit-bd">
         <label className="f">{mode === "delete" ? "This record will be removed" : "What changes"}</label>
-        <div className="tbl-wrap"><table className="tbl"><TableCols widths={[40, 30, 30]} />
+        <div className="tbl-wrap"><table className="tbl"><TableCols widths={[28, 36, 36]} />
           <thead><tr><th></th><th className="num">Before</th><th className="num">After</th></tr></thead>
           <tbody>
             {row("Bank", b.bankName, a ? a.bankName : "—")}

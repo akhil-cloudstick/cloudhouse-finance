@@ -10,6 +10,11 @@ export type Branch = {
   updatedAt: string;
 };
 
+/** GET /branches/switchable — what the branch switcher offers. Not `listBranches`, which is itself branch-scoped:
+ * once a branch is selected it would return only that one, leaving nothing to switch back to. canSwitch is the
+ * backend's own decision (Administrator / Management). */
+export type SwitchableBranches = { branches: Branch[]; canSwitch: boolean };
+
 export type BranchInput = {
   name: string;
   code?: string;

@@ -57,10 +57,14 @@ function EntryInfoSheet({ info, onClose, onEdit, onDelete }: EntryInfoSheetProps
             {info.approvedAt ? <Cell k="Approved on" v={stamp(info.approvedAt)} /> : null}
           </View>
 
-          <Txt style={{ fontSize: 13, fontWeight: "700", marginTop: 6, marginBottom: 6 }}>Remarks</Txt>
-          <View style={{ borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, minHeight: 44 }}>
+          {info.kind !== "system" || info.remarks ? (
+            <>
+              <Txt style={{ fontSize: 13, fontWeight: "700", marginTop: 6, marginBottom: 6 }}>Remarks</Txt>
+              <View style={{ borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, minHeight: 44 }}>
             <TruncText lines={4} style={{ fontSize: 13.5, color: info.remarks ? undefined : C.muted }}>{info.remarks || "No remarks were added to this entry."}</TruncText>
-          </View>
+              </View>
+            </>
+          ) : null}
 
           {info.loanEntry === "service_charge" ? (
             <Txt style={{ fontSize: 12.5, color: C.muted, marginTop: 14 }}>This charge is calculated from the loan&apos;s sanction and rate — it cannot be edited on its own.</Txt>

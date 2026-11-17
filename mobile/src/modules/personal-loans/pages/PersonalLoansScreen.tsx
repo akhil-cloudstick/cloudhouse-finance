@@ -104,6 +104,14 @@ export default function PersonalLoansScreen() {
         }
         renderItem={(l, i) => (
           <AccRow
+            // iPad and bigger: the same columns as the web Personal Loans table.
+            cells={[
+              { h: "Loan / Customer", v: l.loanNumber, sub: l.customer?.name, flex: 1.6 },
+              { h: "Principal", v: inr(l.principalAmount), num: true },
+              { h: "Outstanding", v: inr(l.outstandingAmount), num: true },
+              { h: "Frequency", v: l.frequency },
+              { h: "Status", v: l.status, chip: true },
+            ]}
             defaultOpen={i === 0}
             id={l.loanNumber}
             name={l.customer?.name ?? `Customer #${l.customerId}`}

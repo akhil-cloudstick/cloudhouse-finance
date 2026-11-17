@@ -5,8 +5,8 @@ import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
 import { setOverlayOrigin } from "./overlayOrigin";
 import { HEADER_LOGO } from "@/common/config/brand";
-import { HeroBackground } from "./HeroBackground";
-import { s, HeroMorphContext } from "./shellContext";
+import { HeroBackground } from "./HeroBackground";import { s, HeroMorphContext } from "./shellContext";
+import { onWindowSizeChange } from "@/common/theme/layout";
 
 /** The Dashboard's scroll offset (PScroll `scrollY`, native thread). As the page scrolls up the hero
  * shrinks to its top row — logo, name, search, bell — and grows back when scrolled to the top. */
@@ -18,6 +18,10 @@ const COLLAPSED_PAD = 14;
 // them in mid-swipe — that swap made the header jump for a frame.
 let lastFullH = 0;
 let lastTopRowBottom = 0;
+onWindowSizeChange(() => {
+  lastFullH = 0;
+  lastTopRowBottom = 0;
+});
 // Height of a page's (slim) header, measured by HeaderHost. The hero collapses to exactly this, so
 // handing over to a page header never shows the bottom edge jump by the few pixels they differ.
 let slimH = 0;
@@ -174,11 +178,11 @@ export function HeroHeader({
       </Animated.View>
       <Animated.View style={collapse?.hold}>
       <View style={s.aTopRow} onLayout={(e) => measureTopRow(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}>
-        <Pressable style={s.aId} onPress={onAvatar} hitSlop={4}>
+        <Pressable style={[s.aId, { flexShrink: 1, minWidth: 0, marginRight: 8 }]} onPress={onAvatar} hitSlop={4}>
           <Image source={HEADER_LOGO} style={s.flatLogo} resizeMode="contain" accessibilityLabel="CloudHouse" />
-          <Animated.View style={fx?.top}>
-            <Txt style={s.aName}>{name}</Txt>
-            {branch ? <Txt style={s.aBranch}>{branch}</Txt> : null}
+          <Animated.View style={[{ flexShrink: 1, minWidth: 0 }, fx?.top]}>
+            <Txt style={s.aName} numberOfLines={1}>{name}</Txt>
+            {branch ? <Txt style={s.aBranch} numberOfLines={1}>{branch}</Txt> : null}
           </Animated.View>
         </Pressable>
         <Animated.View style={[s.aIcons, fx?.top]}>

@@ -23,9 +23,11 @@ import { balanceColor, fmtBalance } from "@/modules/banks/utils/bankBalance";
 // still has linked transactions or pledges, and that message is shown as-is.
 type BanksView = { kind: "list" } | { kind: "form"; bank?: Bank } | { kind: "delete"; bank: Bank } | { kind: "merge"; bank: Bank };
 // editBank opens the sheet straight on that bank's edit form (Bank Management's per-row Edit).
-type BanksSheetProps = { visible: boolean; onClose: () => void; editBank?: Bank | null };
+// startAdd opens straight on the Add Bank form (Bank Management's corner button) and closes the sheet when done, instead of landing on the banks list.
+type BanksSheetProps = { visible: boolean; onClose: () => void; editBank?: Bank | null; startAdd?: boolean };
 
-export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
+export function BanksSheet({ visible, onClose, editBank, startAdd }: BanksSheetProps) {
+  const addOnly = !!startAdd && !editBank;
   const qc = useQueryClient();
   const { can } = useAuth();
   const canCreate = can("Bank_Management", "can_create_bank");
@@ -70,9 +72,10 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
     if (visible) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (editBank) openForm(editBank);
+      else if (addOnly) openForm();
       else setView({ kind: "list" });
     }
-  }, [visible, editBank]);
+  }, [visible, editBank, addOnly]);
 
   const save = useMutation({
     mutationFn: async (bank?: Bank) => {
@@ -91,7 +94,8 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
     },
     onSuccess: () => {
       refreshBanks();
-      setView({ kind: "list" });
+      if (addOnly) onClose();
+      else setView({ kind: "list" });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not save."),
   });
@@ -130,7 +134,7 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
   if (view.kind === "form") {
     const editing = view.bank;
     return (
-      <Sheet visible={visible} onClose={() => setView({ kind: "list" })} title={editing ? `Edit ${editing.name}` : "Add Bank"} maxHeightPct={80}>
+      <Sheet visible={visible} onClose={() => (addOnly ? onClose() : setView({ kind: "list" }))} title={editing ? `Edit ${editing.name}` : "Add Bank"} maxHeightPct={80}>
         {showBranch ? (
           <View>
             <AsyncSelect<{ id: number; name: string; code?: string }>
@@ -164,7 +168,7 @@ export function BanksSheet({ visible, onClose, editBank }: BanksSheetProps) {
           {fieldErr("phone")}
         </Field>
         <BtnRow2>
-          <PrimaryButton label="Back" variant="outline" onPress={() => setView({ kind: "list" })} disabled={save.isPending} />
+          <PrimaryButton label={addOnly ? "Cancel" : "Back"} variant="outline" onPress={() => (addOnly ? onClose() : setView({ kind: "list" }))} disabled={save.isPending} />
           <PrimaryButton label={editing ? "Save" : "Add Bank"} onPress={() => submit(editing)} loading={save.isPending} />
         </BtnRow2>
       </Sheet>

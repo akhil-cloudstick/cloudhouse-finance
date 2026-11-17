@@ -7,7 +7,7 @@ export const contact: LegalDocumentSource = {
   sections: [
     {
       heading: "Get in touch",
-      list: ["Provider: {{provider}}", "Phone: {{phone}}"],
+      list: ["Provider: {{provider}}", "Address: {{address}}", "Phone: {{phone}}", "Email: {{email}}"],
     },
     {
       heading: "Support hours",

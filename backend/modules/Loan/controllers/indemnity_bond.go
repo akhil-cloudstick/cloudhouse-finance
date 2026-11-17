@@ -87,9 +87,9 @@ ol li{margin-bottom:10px;text-align:justify}
  * "Loan Sanctioned" line instead, right-aligned. The <img> only exists when
  * the business has uploaded a signature, so the line keeps a fixed gap above
  * it for a wet-ink signature either way. */
-.sanction-sig{width:210px;margin:-30px 0 0 auto;text-align:center}
-.sanction-sig .slot{height:51px;display:flex;align-items:flex-end;justify-content:center}
-.sanction-sig .sig-img{max-height:49px;max-width:175px;display:block}
+.sanction-sig{width:250px;margin:-30px 0 0 auto;text-align:center}
+.sanction-sig .slot{height:80px;display:flex;align-items:flex-end;justify-content:center}
+.sanction-sig .sig-img{max-height:78px;max-width:240px;display:block}
 .sanction-sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:2px;font-size:12.5px}
 /* No forced page-break here (unlike the Gujarati deed's .sig-page below) —
  * this bond's whole point is fitting the short KML letterhead letter onto
@@ -126,9 +126,9 @@ ol{padding-left:22px} ol li{margin-bottom:8px;text-align:justify}
 .sig>div{flex:1;text-align:center}
 .sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:16px;font-size:12.5px}
 /* Lender's signature over the "Loan Sanctioned" line — see bondPageStyle. */
-.sanction-sig{width:210px;margin:-30px 0 0 auto;text-align:center}
-.sanction-sig .slot{height:51px;display:flex;align-items:flex-end;justify-content:center}
-.sanction-sig .sig-img{max-height:49px;max-width:175px;display:block}
+.sanction-sig{width:250px;margin:-30px 0 0 auto;text-align:center}
+.sanction-sig .slot{height:80px;display:flex;align-items:flex-end;justify-content:center}
+.sanction-sig .sig-img{max-height:78px;max-width:240px;display:block}
 .sanction-sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:2px;font-size:12.5px}
 /* No forced page-break — see bondPageStyle's .sig-page comment. */
 .sig-page{}

@@ -242,6 +242,12 @@ export function rejectExpense(id: number, remarks: string) {
   return apiRequest<Expense>(`/expenses/${id}/reject`, { method: "PATCH", body: { remarks } });
 }
 
+// Deletes an expense from the Expenses list (a pending one, or an approved one with its ledger lines) —
+// web deleteExpense. Needs the "can delete ledger entry" permission.
+export function deleteExpense(id: number) {
+  return apiRequest<unknown>(`/expenses/${id}`, { method: "DELETE" });
+}
+
 // Cash summary — branchId/date are real server-side params. Opening cash is
 // carried forward from the previous day's closing Balance in Hand (backend
 // cash.SummaryService.openingFor), so there's no opening balance to set.

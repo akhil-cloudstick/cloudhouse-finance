@@ -107,6 +107,8 @@ export function LoanRiskPage() {
     <div className="page-fill loan-risk-page">
       <div className="page-h">
         <div><h1>Loan Risk</h1><p>Outstanding principal vs. today&apos;s gold value for every open loan — flags loans a falling gold price has put at risk or at a loss</p></div>
+        <div className="sp" />
+        <TableSearch value={q} onChange={setQ} placeholder="Search loans…" searches="loan no., customer, status, risk, amounts, weight, gold value" />
       </div>
       <hr className="gold-rule" />
 
@@ -140,7 +142,6 @@ export function LoanRiskPage() {
           </button>
         ))}
       </div>
-      <TableSearch value={q} onChange={setQ} placeholder="Search loans…" searches="loan no., customer, status, risk, amounts, weight, gold value" />
       <FilterPanel
         categories={filterCategories}
         value={filterValue}

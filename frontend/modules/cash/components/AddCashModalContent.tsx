@@ -93,7 +93,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
   const [bankId, setBankId] = useState(edit?.kind === "gold_sale" && edit.lines[0]?.bankId ? String(edit.lines[0].bankId) : "");
   const [payRows, setPayRows] = useState<PaymentRow[]>(() =>
     edit
-      ? edit.lines.map((l) => newPaymentRow({ mode: l.mode, amount: String(l.amount), bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName || "", auto: false }))
+      ? edit.lines.map((l) => newPaymentRow({ mode: l.mode, amount: String(l.amount), bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName || "", auto: edit.lines.length === 1 }))
       : [newPaymentRow({ mode: "Cash" })]
   );
   const [receiptFile, setReceiptFile] = useState<File | null>(null);

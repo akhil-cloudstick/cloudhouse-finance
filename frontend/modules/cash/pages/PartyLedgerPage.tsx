@@ -274,7 +274,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
                 return (
                 // A loan ledger mixes movement and expense ids (plus the
                 // id-less opening row), so key by position there.
-                <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : r.ref}>
+                <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : r.ref} data-ledger-xref={r.ref}>
                   <td data-label="Date">{fmtDate(r.d)}</td>
                   <td data-label="Ref No">
                     {loanRef ? (

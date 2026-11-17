@@ -1,9 +1,10 @@
-import { Animated, Dimensions, Easing } from "react-native";
+import { Animated, Easing } from "react-native";
+import { PAGE_WIDTH } from "@/common/theme/layout";
 
 // Primary tab routes in bar order — the pages a horizontal swipe moves between.
 export const PRIMARY_ROUTES = ["dashboard", "customers", "loans", "schemes"];
 
-const WIDTH = Dimensions.get("window").width;
+const WIDTH = PAGE_WIDTH;
 
 const pos = new Animated.Value(0);
 // The finger's horizontal travel, written by the native gesture itself (no JS in the loop).

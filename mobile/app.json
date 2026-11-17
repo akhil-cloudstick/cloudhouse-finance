@@ -4,11 +4,11 @@
     "slug": "cloudhousefinance",
     "owner": "cloudhouse-production",
     "version": "1.0.2",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/cloudhouse.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.cloudhouse.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -31,6 +31,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-screen-orientation",
       "expo-font",
       [
         "expo-splash-screen",

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Easing, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigationContainerRef } from "expo-router";
 import type { BottomTabBarProps } from "expo-router/js-tabs";
@@ -97,6 +97,8 @@ export function PTabBar({ state: viewState, emitter, navigateToTab }: BottomTabB
   const keyboardUp = useKeyboardVisible();
   const insets = useSafeAreaInsets();
   const { openMore } = useShell();
+  // Web opens More on press-up: opening on press-down put the sheet under the pointer, and the click that
+  // finished the same tap then hit its backdrop and closed it again.
   const { can } = useAuth();
   const navRoute = state.routes[state.index]?.name;
   // The tapped tab lights up on touch-down, before the (heavier) new page
@@ -191,7 +193,10 @@ export function PTabBar({ state: viewState, emitter, navigateToTab }: BottomTabB
           so content eases out before it reaches the bar instead of meeting
           a hard edge. */}
       <Fade from="bottom" height={PTAB_INSET + PTAB_HEIGHT + TAB_FADE_ABOVE + tabBarLift(insets.bottom)} solidAt={0.6} style={s.tabFade} />
-      <View style={[s.tabbar, { bottom: PTAB_INSET + tabBarLift(insets.bottom) }]}>
+      {/* On wide screens the bar stays a compact centred control (at most 640 wide). Centred by layout alone,
+          so a rotation resizes it in the same frame instead of after the width has been re-measured. */}
+      <View pointerEvents="box-none" style={{ position: "absolute", left: PTAB_INSET, right: PTAB_INSET, bottom: PTAB_INSET + tabBarLift(insets.bottom), zIndex: 50, alignItems: "center" }}>
+      <View style={[s.tabbar, { position: "relative", left: 0, right: 0, width: "100%", maxWidth: 640 }]}>
         {tabs.map((t) => {
           const i = PRIMARY_ROUTES.indexOf(t.route);
           if (t.fab) {
@@ -211,27 +216,36 @@ export function PTabBar({ state: viewState, emitter, navigateToTab }: BottomTabB
           }
           return (
             <Pressable key={t.route} style={s.tab} onPressIn={() => go(t.route)} accessibilityLabel={t.label}>
-              {/* One pill holds the icon and the name, so the highlight covers both. */}
+              {/* The highlight pill wraps only the icon; the name sits below it. */}
               <View style={s.tabIc}>
-                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcActive, { opacity: tabLit[i] }]} />
-                <PIcon name={t.icon} color={C.muted} />
-                <Txt style={s.tabLbl}>{t.label}</Txt>
-                <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcOverlay, { opacity: tabLit[i] }]}>
-                  <PIcon name={t.icon} color={C.brandDeep} />
-                  <Txt style={[s.tabLbl, s.tabLblActive]}>{t.label}</Txt>
-                </Animated.View>
+                <View style={s.tabPill}>
+                  <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcActive, { opacity: tabLit[i] }]} />
+                  <PIcon name={t.icon} color={C.muted} />
+                  <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, s.tabIcOverlay, { opacity: tabLit[i] }]}>
+                    <PIcon name={t.icon} color={C.brandDeep} />
+                  </Animated.View>
+                </View>
+                <View>
+                  <Txt style={s.tabLbl}>{t.label}</Txt>
+                  <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: tabLit[i] }]}>
+                    <Txt style={[s.tabLbl, s.tabLblActive]}>{t.label}</Txt>
+                  </Animated.View>
+                </View>
               </View>
             </Pressable>
           );
         })}
         {hasMore ? (
-          <Pressable style={s.tab} onPressIn={openMore} accessibilityLabel="More">
-            <View style={[s.tabIc, !isPrimary && s.tabIcActive]}>
-              <PIcon name="dots" color={!isPrimary ? C.brandDeep : C.muted} />
+          <Pressable style={s.tab} {...(Platform.OS === "web" ? { onPress: openMore } : { onPressIn: openMore })} accessibilityLabel="More">
+            <View style={s.tabIc}>
+              <View style={[s.tabPill, !isPrimary && s.tabIcActive]}>
+                <PIcon name="dots" color={!isPrimary ? C.brandDeep : C.muted} />
+              </View>
               <Txt style={[s.tabLbl, !isPrimary && s.tabLblActive]}>More</Txt>
             </View>
           </Pressable>
         ) : null}
+      </View>
       </View>
     </>
   );

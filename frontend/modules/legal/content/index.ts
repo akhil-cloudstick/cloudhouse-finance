@@ -13,6 +13,7 @@ import { disclaimer } from "@/modules/legal/content/disclaimer";
 import { refundPolicy } from "@/modules/legal/content/refundPolicy";
 import { dataSafety } from "@/modules/legal/content/dataSafety";
 import { contact } from "@/modules/legal/content/contact";
+import { APP_NAME } from "@/modules/legal/content/legalConfig";
 
 const SOURCES: Record<LegalDoc, LegalDocumentSource> = {
   "privacy-policy": privacyPolicy,
@@ -42,7 +43,7 @@ function tokens(provider: Provider, audience: LegalAudience): Record<string, str
     phone: provider.contactPhone || "the number on our Contact page",
     email: provider.supportEmail || "the address on our Contact page",
     website: provider.website || "—",
-    app: provider.legalName || provider.name,
+    app: APP_NAME,
   };
 }
 

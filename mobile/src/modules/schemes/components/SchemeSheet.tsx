@@ -304,7 +304,7 @@ export function SchemeSheet({ visible, onClose, scheme }: SchemeSheetProps) {
         </Field>
       ) : null}
       <Field label="Applicable conditions">
-        <Input placeholder="Free text, e.g. KYC requirements" value={conditions} onChangeText={setConditions} />
+        <Input placeholder="e.g. KYC requirements (max 150 characters)" value={conditions} onChangeText={setConditions} multiline maxLength={150} />
       </Field>
       <Field label="Status">
         <ChipToggle variant="chips" options={STATUSES} value={status} onChange={setStatus} />

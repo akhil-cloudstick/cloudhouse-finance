@@ -113,6 +113,16 @@ export default function LoanRiskScreen() {
           const margin = r.currentGoldValue - r.principalAmount;
           return (
             <AccRow
+              // iPad and bigger: the same columns as the web Loan Risk table.
+              cells={[
+                { h: "Loan / Customer", v: r.loanNumber, sub: r.customerName, flex: 1.6 },
+                { h: "Status", v: r.status },
+                { h: "Outstanding Principal", v: inr(r.principalAmount), num: true },
+                { h: "Gold Weight", v: `${Number(r.totalNetWeight ?? 0).toFixed(2)} g`, num: true },
+                { h: "Current Gold Value", v: inr(r.currentGoldValue), num: true },
+                { h: "Margin", v: `${margin >= 0 ? "+" : "−"}${inr(Math.abs(margin))}`, num: true, color: margin >= 0 ? C.green : C.red },
+                { h: "Risk", v: RISK_LABEL[r.riskLevel] ?? r.riskLevel, chip: true, tone: RISK_TONE[r.riskLevel] },
+              ]}
               defaultOpen={i === 0}
               id={r.loanNumber}
               name={r.customerName}
