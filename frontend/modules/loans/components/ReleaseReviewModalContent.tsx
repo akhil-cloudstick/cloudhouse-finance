@@ -85,7 +85,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // Payment Date in the Record Payment form, which they can still change each time.
   const [releaseDate, setReleaseDate] = useState(() => {
     // a release that is already decided shows the date it was recorded with, so it can be corrected
-    if (request.status !== "Pending" && request.requestedAt) return request.requestedAt.slice(0, 10);
+    if (request.requestedAt) return request.requestedAt.slice(0, 10);
     const n = new Date();
     return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
   });
@@ -240,7 +240,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     setSaving(true);
     setErr("");
     try {
-      const updated = await verifyReleaseChecklist(req.id, { customerSawGold: value });
+      const updated = await verifyReleaseChecklist(req.id, { customerSawGold: value, ...(pendingDateChanged ? { requestedAt: releaseDate } : {}) });
       setReq(updated);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not update the checklist — try again.");
@@ -256,6 +256,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
       ?? [...loan.payments].reverse().find((p) => Math.abs(p.amount - req.recordedPayment) < 0.005 && p.type !== "Disbursement" && p.type !== "Discount")
     : undefined;
   const dateChanged = !!req.requestedAt && releaseDate !== req.requestedAt.slice(0, 10) && (req.status !== "Pending" || req.paymentRecorded);
+
+  // A pending request keeps the date the manager picked: it is sent with the checklist and the approval, so the next stage sees it.
+  const pendingDateChanged = req.status === "Pending" && !!req.requestedAt && releaseDate !== req.requestedAt.slice(0, 10);
 
   async function saveReleaseDate() { return singleFlight("modal:releasereview:saveDate", async () => {
     setSaving(true);
@@ -293,6 +296,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     try {
       // The acting employee is derived server-side from the logged-in
       // user's JWT — no employeeId sent from here.
+      if (action === "Approved" && pendingDateChanged) await verifyReleaseChecklist(req.id, { requestedAt: releaseDate });
       const updated = await approveReleaseRequest(req.id, { stage, action });
       setReq(updated);
       onSaved();
@@ -365,9 +369,9 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
         <div style={{ margin: "14px 0" }}>
           <label className="f">Verification</label>
-          {/* One full-width two-column grid shared by the checkboxes and by the date / Record Payment row below:
-            * left column = "seen the gold" and the date, right column = bank pledge release and Record Payment. */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 4, alignItems: "start" }}>
+          {/* Steps in order, one per line: release the held gold, then the customer sees it; the release date and
+            * Record Payment follow on their own row below. */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", rowGap: 4, alignItems: "start" }}>
           {/* Bank pledge release comes first: the gold must be out of the bank before the customer can be shown it. */}
           {activePledge && canReleaseHeldGold && loan && (
               <label className="ccheck" style={{ padding: "6px 0" }}>
@@ -429,8 +433,8 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           )}
         </div>
 
-        {/* Same two columns as the checkboxes above: Release Date (+ tick) on the left, Record Payment on the right. */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: 16, rowGap: 10, alignItems: "end", marginBottom: 10 }}>
+        {/* Release Date (+ tick) on the left, Record Payment on the right, level with the date box. */}
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, alignItems: "flex-end", marginBottom: 10, paddingTop: 10, borderTop: "1px dashed var(--line)" }}>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
             <div style={{ minWidth: 170 }}>
               <label className="f">Release Date</label>
@@ -452,7 +456,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
           {/* Nothing to pay (minimum is ₹0): no Record Payment. */}
           {!(loan && neededNum <= 0.01) && <button
             className="btn ghost sm"
-            style={{ height: 38, justifySelf: "end" }}
+            style={{ height: 38 }}
             disabled={req.status !== "Pending" || !canDecide || !loan}
             onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null, earlierLocked)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
           >

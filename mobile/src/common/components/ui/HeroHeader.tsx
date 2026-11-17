@@ -7,6 +7,7 @@ import { setOverlayOrigin } from "./overlayOrigin";
 import { HEADER_LOGO } from "@/common/config/brand";
 import { HeroBackground } from "./HeroBackground";
 import { s, HeroMorphContext } from "./shellContext";
+import { onWindowSizeChange } from "@/common/theme/layout";
 
 /** The Dashboard's scroll offset (PScroll `scrollY`, native thread). As the page scrolls up the hero
  * shrinks to its top row — logo, name, search, bell — and grows back when scrolled to the top. */
@@ -18,6 +19,10 @@ const COLLAPSED_PAD = 14;
 // them in mid-swipe — that swap made the header jump for a frame.
 let lastFullH = 0;
 let lastTopRowBottom = 0;
+onWindowSizeChange(() => {
+  lastFullH = 0;
+  lastTopRowBottom = 0;
+});
 // Height of a page's (slim) header, measured by HeaderHost. The hero collapses to exactly this, so
 // handing over to a page header never shows the bottom edge jump by the few pixels they differ.
 let slimH = 0;

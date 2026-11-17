@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { View } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { Sheet } from "./Sheet";
@@ -44,7 +45,7 @@ export function ConfirmSheet({
   }
   return (
     <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={70}>
-      {danger ? <WarningBanner>{message}</WarningBanner> : <Txt style={{ fontSize: 13, lineHeight: 19, marginVertical: 10 }}>{message}</Txt>}
+      {danger ? <WarningBanner>{message}</WarningBanner> : typeof message === "string" ? <Txt style={{ fontSize: 13, lineHeight: 19, marginVertical: 10 }}>{message}</Txt> : <View style={{ marginVertical: 10 }}>{message}</View>}
       {remarks ? (
         <Field label={remarks.label}>
           <Input placeholder={remarks.placeholder} value={text} onChangeText={setText} multiline />

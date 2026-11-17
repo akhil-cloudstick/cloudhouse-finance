@@ -45,7 +45,8 @@ const RELOAD_H = 56;
 
 /** The spinner that opens at the top of a list or scroller while it reloads (a pull-down, a
  * search or filter change). It grows into place, fading and scaling the spinner up, and eases
- * back out when the reload ends — so the rows glide down and up instead of jumping. */
+ * back out when the reload ends — so the rows glide down and up instead of jumping. Kept
+ * short (about a tenth of a second) so it keeps up with the pull instead of trailing it. */
 export function ReloadBuffer({ active }: { active: boolean }) {
   const [open] = React.useState(() => new Animated.Value(0));
   const [mounted, setMounted] = React.useState(active);
@@ -53,7 +54,7 @@ export function ReloadBuffer({ active }: { active: boolean }) {
   if (active && !mounted) setMounted(true);
   React.useEffect(() => {
     if (!active && !mounted) return;
-    Animated.timing(open, { toValue: active ? 1 : 0, duration: active ? 240 : 200, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start(({ finished }) => {
+    Animated.timing(open, { toValue: active ? 1 : 0, duration: active ? 110 : 100, easing: Easing.out(Easing.quad), useNativeDriver: false }).start(({ finished }) => {
       if (finished && !active) setMounted(false);
     });
   }, [active, mounted, open]);
@@ -69,7 +70,7 @@ export function ReloadBuffer({ active }: { active: boolean }) {
         justifyContent: "center",
       }}
     >
-      <Animated.View style={{ transform: [{ scale: open.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }) }] }}>
+      <Animated.View style={{ transform: [{ scale: open.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1] }) }] }}>
         <Spinner color={C.brandDeep} size={28} />
       </Animated.View>
     </Animated.View>

@@ -104,6 +104,7 @@ export function GoldRatesPage() {
       <div className="page-h" >
         <div><h1>Gold Rates</h1><p>Daily published rates by purity · full history maintained for audit</p></div>
         <div className="sp"></div>
+        <TableSearch value={q} onChange={setQ} placeholder="Search rates…" searches="date, 24K, 22K, 18K rate, set by" />
         {canCreateRates && (
           <button className="btn" onClick={() => openModal(<RateModalContent />)}>
             <Icon name="coin" /> Set Today&apos;s Rate
@@ -111,10 +112,18 @@ export function GoldRatesPage() {
         )}
       </div>
       <hr className="gold-rule" />
-      <div className="rates3" style={{ maxWidth: smallScreen ? 480 : 720, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+      <div className="rates3" style={{ maxWidth: smallScreen ? 480 : 720, flex: "1 1 auto" }}>
         <RateTile k="24K · 999 · published" r={latest.k24} small={smallScreen} />
         <RateTile k="22K · 916" r={latest.k22} small={smallScreen} />
         <RateTile k="18K · 750" r={latest.k18} small={smallScreen} />
+      </div>
+        <FilterPanel
+          categories={filterCategories}
+          value={{ __dateFrom: from || undefined, __dateTo: to || undefined, setBy }}
+          onChange={(next) => { setFrom(next.__dateFrom || ""); setTo(next.__dateTo || ""); setSetBy(Array.isArray(next.setBy) ? next.setBy : []); setPage(1); }}
+          hideChips
+        />
       </div>
       
       <div className="card tbl-card tbl-card-fill">
@@ -122,13 +131,6 @@ export function GoldRatesPage() {
           <h3>Rate History</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <TableSearch value={q} onChange={setQ} placeholder="Search rates…" searches="date, 24K, 22K, 18K rate, set by" />
-            <FilterPanel
-              categories={filterCategories}
-              value={{ __dateFrom: from || undefined, __dateTo: to || undefined, setBy }}
-              onChange={(next) => { setFrom(next.__dateFrom || ""); setTo(next.__dateTo || ""); setSetBy(Array.isArray(next.setBy) ? next.setBy : []); setPage(1); }}
-              hideChips
-            />
           </div>
         </div>
         {error && <div className="notice" style={{ margin: "0 16px 14px" }}>{error}</div>}

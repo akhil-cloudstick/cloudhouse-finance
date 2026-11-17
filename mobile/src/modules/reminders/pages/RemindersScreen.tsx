@@ -44,17 +44,18 @@ const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "
 const GROUPS: { key: string; label: string; fg: string; bg: string; types: CalendarEvent["type"][] }[] = [
   { key: "overdue", label: "Overdue", fg: C.red, bg: C.redBg, types: ["Overdue", "PersonalLoanOverdue"] },
   { key: "due", label: "Loan due", fg: C.amber, bg: C.amberBg, types: ["LoanDue", "PersonalLoanDue"] },
-  { key: "auction", label: "Auction", fg: C.red, bg: C.redBg, types: ["AuctionScheduled"] },
+  { key: "auction", label: "Auction", fg: C.amber, bg: C.amberBg, types: ["AuctionScheduled"] },
   { key: "interest", label: "Interest", fg: C.green, bg: C.greenBg, types: ["InterestDue"] },
   { key: "followup", label: "Follow-up", fg: C.blue, bg: C.blueBg, types: ["FollowUp"] },
   { key: "promise", label: "Promise to pay", fg: C.blue, bg: C.blueBg, types: ["PromiseToPay"] },
 ];
 const GROUPED_TYPES = GROUPS.flatMap((g) => g.types);
 
-function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
-  // Blue is only for the reminders staff add themselves (custom, follow-up, promise to pay); auctions read as red.
-  if (t === "Overdue" || t === "PersonalLoanOverdue" || t === "AuctionScheduled") return "red";
-  if (t === "LoanDue" || t === "InterestDue" || t === "PersonalLoanDue") return "amber";
+function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" | "green" {
+  // Same colours as the web calendar chips: overdue red, due and auction amber, interest green, follow-up / promise blue.
+  if (t === "Overdue" || t === "PersonalLoanOverdue") return "red";
+  if (t === "LoanDue" || t === "PersonalLoanDue" || t === "AuctionScheduled") return "amber";
+  if (t === "InterestDue") return "green";
   return "blue";
 }
 
@@ -89,7 +90,7 @@ export default function RemindersScreen() {
   // Dots for the visible month only (bounded window).
   const monthEvents = useQuery({ queryKey: ["reminders", "calendar", from, to], queryFn: () => getCalendarEvents(from, to) });
   const dots = useMemo(() => {
-    const map: Record<string, ("red" | "amber" | "blue")[]> = {};
+    const map: Record<string, ("red" | "amber" | "blue" | "green")[]> = {};
     for (const e of monthEvents.data ?? []) {
       const k = e.date.slice(0, 10);
       const c = dotFor(e.type);

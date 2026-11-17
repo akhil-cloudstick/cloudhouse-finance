@@ -31,7 +31,7 @@ import {
 import { useServerList } from "@/common/hooks/use-server-list";
 import { canActAtStage, stageByPending, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { approveExpense, getCashSummary, listCashMovementsPage, listExpensesPage, listGoldSalesPage, rejectExpense } from "@/modules/cash/services/cashService";
+import { approveExpense, deleteExpense, getCashSummary, listCashMovementsPage, listExpensesPage, listGoldSalesPage, rejectExpense } from "@/modules/cash/services/cashService";
 import { type CashMovement, type Expense, type GoldSale } from "@/modules/cash/types/cash-types";
 import { AddEntrySheet, EditEntrySheet } from "@/modules/cash/components/EntryForms";
 import { dmy, inr, todayISO } from "@/common/utils/format";
@@ -162,6 +162,20 @@ export default function CashScreen() {
       toast.success("Expense rejected");
     },
     onError: (err) => setRejectError(errMsg(err, "Could not reject the expense — try again.")),
+  });
+  // Delete (web Expense Register's trash button): a pending or approved expense a person keyed in, gated
+  // "can delete ledger entry". Removing an approved one also removes its ledger lines, so everything reloads.
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
+  const [deleting, setDeleting] = useState<Expense | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const remove = useMutation({
+    mutationFn: (id: number) => deleteExpense(id),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      setDeleting(null);
+      toast.success("Expense deleted");
+    },
+    onError: (err) => setDeleteError(errMsg(err, "Could not delete the expense — try again.")),
   });
 
   const movementTotals = totalsFromPages(movements.pages);
@@ -342,7 +356,10 @@ export default function CashScreen() {
                       },
                     ]
                   : []),
-                ...(e.editable ? [{ label: "Edit", onPress: () => setEditingExpenseId(e.id) }] : []),
+                ...(e.editable && canCreateCash ? [{ label: "Edit", onPress: () => setEditingExpenseId(e.id) }] : []),
+                ...(e.editable && canDeleteLedger && (e.status === "Pending" || e.status === "Approved")
+                  ? [{ label: "Delete", danger: true, onPress: () => { setDeleteError(null); setDeleting(e); } }]
+                  : []),
               ]}
             />
           )}
@@ -391,6 +408,17 @@ export default function CashScreen() {
         loading={reject.isPending}
         error={rejectError}
         onConfirm={(reason) => rejecting && reject.mutate({ id: rejecting.id, reason })}
+      />
+      <ConfirmSheet
+        visible={!!deleting}
+        onClose={() => setDeleting(null)}
+        title="Delete Expense"
+        danger
+        message={deleting ? `Delete the ${inr(deleting.amount)} ${deleting.category} expense? ${deleting.status === "Approved" ? "Its ledger lines are removed and the balances update." : "It is removed from the register."}` : ""}
+        confirmLabel="Delete"
+        loading={remove.isPending}
+        error={deleteError}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
       />
       <MovementFilterSheet
         visible={movementFilterSheetOpen}

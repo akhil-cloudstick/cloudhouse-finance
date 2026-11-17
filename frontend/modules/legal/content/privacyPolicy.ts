@@ -7,9 +7,9 @@ export const privacyPolicy: LegalDocumentSource = {
     {
       heading: "1. Who we are",
       body: [
-        "{{app}} is provided by {{provider}} (“we”, “us”).",
-        { only: "staff", text: "This app is an internal enterprise tool meant exclusively for authorised employees and field agents of {{provider}}. It is not for the public or for loan applicants. Accounts cannot be created by users within the app; they are provisioned manually by backend administrators." },
-        "You can reach us at {{phone}}.",
+        "{{app}} is software provided by {{provider}} (“we”, “us”). We are a software company: we do not offer, fund or collect loans.",
+        { only: "staff", text: "This app is business software for the authorised employees and field agents of the licensed lenders that use {{app}}. It is not for the public or for loan applicants. Accounts cannot be created within the app; sign-in IDs are issued by {{provider}} to each lender's staff." },
+        "You can reach us at {{phone}} or {{email}}.",
       ],
     },
     {
@@ -71,14 +71,14 @@ export const privacyPolicy: LegalDocumentSource = {
         { only: "customer", text: "You may ask to access or correct your data, to withdraw consent, or to have your data deleted, subject to the legal retention above." },
         { only: "staff", text: "You may ask to access or correct your staff details, or to have your login disabled and your staff profile deleted. Requests about a customer's information should go to the lender that holds it." },
         { only: "customer", text: "Account deletion: to request deletion, follow the steps on the Account Deletion page or call {{phone}}. We verify your identity and tell you the expected processing time; the Account Deletion page lists what is deleted and which records we must keep. Uninstalling the app does not delete your account." },
-        { only: "staff", text: "Account deletion: because the app does not support user-initiated account creation, accounts are provisioned internally by administrators and cannot be created within the app. Staff members who wish to disable their login or request data deletion may contact their backend administrator or call {{phone}}. We verify the request before acting. Uninstalling the app does not delete your account." },
+        { only: "staff", text: "Account deletion: because the app does not support user-initiated account creation, accounts are provisioned internally by administrators and cannot be created within the app. Staff members who wish to disable their login or request data deletion may contact their employer's administrator, call {{phone}} or write to {{email}}. We verify the request before acting. Uninstalling the app does not delete your account." },
       ],
     },
     { heading: "9. Children", body: ["The app is not for anyone under 18."] },
     { heading: "10. Changes", body: ["When this policy changes we update this page and its date."] },
     {
       heading: "11. Grievance contact",
-      body: ["{{provider}}. Phone {{phone}}."],
+      body: ["{{provider}}, {{address}}. Phone {{phone}}. Email {{email}}."],
     },
   ],
 };

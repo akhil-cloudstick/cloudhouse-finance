@@ -107,6 +107,13 @@ export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set<string>([
   "esign-callback",
   "customer-app",
   "staff-app",
+  "privacy-policy",
+  "account-deletion",
+  "terms-and-conditions",
+  "disclaimer",
+  "refund-policy",
+  "data-safety",
+  "contact",
 ]);
 
 /* isValidBusinessSlug is the rule for what may BE a business code, and it now

@@ -1,4 +1,5 @@
-import { Animated, BackHandler, Dimensions, Keyboard } from "react-native";
+import { Animated, BackHandler, Keyboard } from "react-native";
+import { PAGE_WIDTH } from "@/common/theme/layout";
 import { headerStore, resetTabs, tabsRef, withoutNestedTarget, type TabRoute, type tabRouteMinter } from "./shellContext";
 import { PRIMARY_ROUTES, swipe, swipeSettled } from "./swipeStore";
 
@@ -8,7 +9,7 @@ const MAX_VELOCITY = 8;
 // Focusing the tab re-renders the navigator and every page (~250 ms of JS in dev). It waits until
 // the user has stopped swiping for this long, so it never lands on top of the next swipe.
 const FOCUS_IDLE_MS = 450;
-const WIDTH = Dimensions.get("window").width;
+const WIDTH = PAGE_WIDTH;
 
 type Allowed = (route: string) => boolean;
 

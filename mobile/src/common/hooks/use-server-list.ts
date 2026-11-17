@@ -69,8 +69,9 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   // so coming back shows a fresh, refreshed list.
   useFocusEffect(useCallback(() => () => { if (!keepSearch) setSearch(""); }, [setSearch, keepSearch]));
 
+  const queryKey = [...key, "page", q, filters ?? {}];
   const query = useInfiniteQuery({
-    queryKey: [...key, "page", q, filters ?? {}],
+    queryKey,
     enabled,
     staleTime,
     initialPageParam: 0,
@@ -104,6 +105,14 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
       if (query.hasNextPage && !query.isFetchingNextPage) query.fetchNextPage();
     },
     refetch: query.refetch,
+    /** Pull-to-refresh: a pull only happens at the top of the list, so reload just the first page. A plain
+     * refetch re-downloads every page scrolled through, one after another, which kept the spinner up. */
+    refresh: () => {
+      qc.setQueryData<{ pages: ServerPage<T>[]; pageParams: unknown[] }>(queryKey, (d) =>
+        d && d.pages.length > 1 ? { pages: d.pages.slice(0, 1), pageParams: d.pageParams.slice(0, 1) } : d
+      );
+      return query.refetch();
+    },
     error: query.error,
   };
 }

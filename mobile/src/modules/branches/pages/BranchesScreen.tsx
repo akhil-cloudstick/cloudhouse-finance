@@ -180,6 +180,14 @@ export default function BranchesScreen() {
         }
         renderItem={(b, i) => (
           <AccRow
+            // iPad and bigger: the same columns as the web Branches table.
+            cells={[
+              { h: "Branch", v: b.name, flex: 1.4 },
+              { h: "Code", v: b.code || "—", flex: 0.8 },
+              { h: "Address", v: b.address || "—", flex: 2 },
+              { h: "Phone", v: b.phone || "—" },
+              { h: "Status", v: b.isActive ? "Active" : "Inactive", chip: true },
+            ]}
             defaultOpen={i === 0}
             id={b.code || undefined}
             name={b.name}

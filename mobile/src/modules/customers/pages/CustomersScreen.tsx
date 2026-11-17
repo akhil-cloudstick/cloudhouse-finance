@@ -10,6 +10,7 @@ import { useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 
 // Same PAN / Aadhaar verification filters as web's Customers page (multi-select each).
 const VERIFICATION_OPTIONS = [
@@ -32,6 +33,7 @@ export default function CustomersScreen() {
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ register?: string }>();
   const [registerOpen, setRegisterOpen] = useState(false);
+  const showBranch = useShowBranchFilter();
   const canCreate = useAuth().can("Customer_Management", "can_create_customer");
 
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("customers:filters", emptyGroupedFilter());
@@ -78,6 +80,16 @@ export default function CustomersScreen() {
         renderItem={(c, i) => (
           <AccRow
             defaultOpen={i === 0}
+            // iPad and bigger: the same columns as the web Customers table.
+            cells={[
+              { h: "Customer", v: c.name, sub: c.code, flex: 2 },
+              { h: "Contact", v: c.phone || "—", sub: c.address || undefined, flex: 2, covers: ["Phone", "Address"] },
+              ...(showBranch ? [{ h: "Branch", v: c.branch?.name || "—" }] : []),
+              { h: "PAN", v: c.panStatus || "—", chip: !!c.panStatus },
+              { h: "Aadhaar", v: c.aadhaarStatus || "—", chip: !!c.aadhaarStatus },
+              { h: "KYC Status", v: c.kycStatus || "—", chip: !!c.kycStatus },
+              { h: "Loans", v: String(c.loanCount ?? 0), num: true, flex: 0.6 },
+            ]}
             id={c.code}
             name={c.name}
             sub={[c.phone, c.address].filter(Boolean).join(" · ") || undefined}

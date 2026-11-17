@@ -174,6 +174,17 @@ export default function BankPledgeScreen() {
     const target = p ? { loanId: l.id, loanNumber: l.loanNumber, pledge: p } : null;
     return (
       <AccRow
+        // iPad and bigger: the same columns as the web Bank Pledges table.
+        cells={[
+          { h: "Loan", v: l.loanNumber, flex: 0.9 },
+          { h: "Customer", v: or(l.customer?.name), flex: 1.4 },
+          { h: "Bank", v: p?.bankName || "—" },
+          { h: "Weight", v: fmtW(weight), sub: p ? pledgeOrnaments(p, l) : undefined, num: true },
+          { h: "Pledged Amount", v: p ? inr(p.pledgedAmount) : "—", num: true },
+          { h: "Cash", v: p ? cashLabel(p.cashTreatment) : "—" },
+          { h: "Pledged On", v: dmy(p?.pledgeDate) },
+          { h: "Due", v: p?.bankPledgeDueDate ? dmy(p.bankPledgeDueDate) : "—" },
+        ]}
         key={p ? p.id : "none"}
         defaultOpen={open}
         id={l.loanNumber}
@@ -271,6 +282,17 @@ export default function BankPledgeScreen() {
           }
           renderItem={(r) => (
             <AccRow
+              // iPad and bigger: the same columns as the web Re-pledge history table.
+              cells={[
+                { h: "Loan", v: r.loanNumber || `#${r.loanId}`, flex: 0.9 },
+                { h: "Customer", v: or(r.customerName), flex: 1.4 },
+                { h: "Bank", v: or(r.bankName), sub: pledgeOrnaments(r) },
+                { h: "Amount", v: inr(r.pledgedAmount), num: true },
+                { h: "Cash", v: cashLabel(r.cashTreatment) },
+                { h: "Pledged", v: dmy(r.pledgeDate) },
+                { h: "Released", v: dmy(r.releaseDate) },
+                { h: "Status", v: r.status === "Voided" ? "Deleted" : r.status, chip: true, sub: r.status === "Voided" ? r.voidReason || undefined : undefined },
+              ]}
               id={r.loanNumber || `#${r.loanId}`}
               name={or(r.bankName)}
               sub={statusLabel(r.status)}

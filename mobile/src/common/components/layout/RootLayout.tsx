@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DefaultTheme, Slot, ThemeProvider as NavThemeProvider, useRouter, useSegments } from "expo-router";
 import { QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { queryClient } from "@/common/services/queryClient";
@@ -10,7 +10,8 @@ import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
 import { Asset } from "expo-asset";
-import { View, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
+import { View, ActivityIndicator, AppState, Platform, type AppStateStatus } from "react-native";
+import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
@@ -24,6 +25,8 @@ import { KeyboardDoneBar } from "@/common/components/ui/KeyboardDoneBar";
 import { AnimatedSplash } from "@/common/components/ui/AnimatedSplash";
 import { AuthProvider, useAuth } from "@/common/providers/AuthProvider";
 import { colors } from "@/common/theme/colors";
+import * as ScreenOrientation from "expo-screen-orientation";
+import { COLUMN_HARD_MAX, IS_TABLET, MeasuredColumnWidth } from "@/common/theme/layout";
 import { useDismissKeyboardOnOutsideTouch } from "@/common/hooks/use-dismiss-keyboard-on-outside-touch";
 
 SplashScreen.preventAutoHideAsync();
@@ -68,12 +71,28 @@ AppState.addEventListener("change", (status: AppStateStatus) => {
 // the inset area explicitly, on top of every navigator, so it always matches
 // the theme. (`expo-status-bar`'s backgroundColor can't do this job any
 // more — it's a no-op under edge-to-edge.)
+// Android tablets draw a system bar / taskbar (back, home, recents) across the bottom that the app can sit
+// underneath without the OS reporting its height as a safe-area inset. Every screen sizes its bottom space
+// (tab bar, lists, sheets, table area) from the bottom inset, so give it at least this much there and the
+// whole app rides above the bar. A larger reported inset is left alone; phones are untouched.
+const ANDROID_TABLET_NAV_MIN = 48;
+function SystemBarInsets({ children }: { children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  const value = useMemo(
+    () => (Platform.OS === "android" && IS_TABLET && insets.bottom < ANDROID_TABLET_NAV_MIN ? { ...insets, bottom: ANDROID_TABLET_NAV_MIN } : insets),
+    [insets]
+  );
+  return <SafeAreaInsetsContext.Provider value={value}>{children}</SafeAreaInsetsContext.Provider>;
+}
+
 function RootNavigation() {
   const { employee, isLoading, businessCode } = useAuth();
   const { colors: themed } = useTheme();
   const segments = useSegments();
   const router = useRouter();
   const dismissKeyboard = useDismissKeyboardOnOutsideTouch();
+  // The column's real width, measured from the layout (not the reported window size, which can lag a rotation).
+  const [columnWidth, setColumnWidth] = useState<number | null>(null);
 
   // Signed out with no business yet → the scanner (connect); signed out with
   // a business → that business's login; signed in → the dashboard. Connecting
@@ -113,6 +132,14 @@ function RootNavigation() {
     // Closes the keyboard on any touch outside the field being typed in —
     // see useDismissKeyboardOnOutsideTouch.
     <View style={{ flex: 1, backgroundColor: colors.bg }} {...dismissKeyboard}>
+      <View
+        style={{ flex: 1, width: "100%", maxWidth: segments[0] === "(auth)" ? 900 : COLUMN_HARD_MAX, alignSelf: "center" }}
+        onLayout={(e) => {
+          const w = Math.round(e.nativeEvent.layout.width);
+          setColumnWidth((o) => (o === w ? o : w));
+        }}
+      >
+      <MeasuredColumnWidth.Provider value={columnWidth}>
       {/* Every page header (and the auth brand panel) paints the hero
           gradient up behind the status bar, so its icons are light
           everywhere and no separate status-bar strip is drawn. */}
@@ -128,6 +155,8 @@ function RootNavigation() {
       <CameraPermissionHost />
       <FilePromptHost />
       <KeyboardDoneBar />
+      </MeasuredColumnWidth.Provider>
+      </View>
     </View>
   );
 }
@@ -147,6 +176,11 @@ export default function RootLayout() {
   // paints in the same frame as everything else.
   const [assetsLoaded, setAssetsLoaded] = useState(false);
 
+  // Tablets rotate freely; phones stay portrait exactly as before.
+  useEffect(() => {
+    (IS_TABLET ? ScreenOrientation.unlockAsync() : ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     Asset.loadAsync([require("../../../../assets/cloudhouse.png"), require("../../../../assets/header-logo.png")])
       .catch(() => {})
@@ -162,7 +196,9 @@ export default function RootLayout() {
         <ThemeProvider>
           <SplashGate loaded={fontsLoaded && assetsLoaded}>
             <AuthProvider>
-              <RootNavigation />
+              <SystemBarInsets>
+                <RootNavigation />
+              </SystemBarInsets>
             </AuthProvider>
           </SplashGate>
         </ThemeProvider>

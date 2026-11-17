@@ -9,14 +9,15 @@ type BillLinkProps = { url?: string; title: string };
 /* A ledger entry's uploaded bill as a small image preview — click it to open
  * the same viewer the Expense Register's receipt thumbnail uses. */
 export function BillLink({ url, title }: BillLinkProps) {
-  const { openModal } = useModal();
+  // A child modal: Close returns to the entry card the bill was opened from instead of closing it too.
+  const { openChildModal } = useModal();
   if (!url) return null;
   return (
     <SafeImage
       src={url}
       title="View bill"
       style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 5, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle", marginLeft: 8 }}
-      onClick={() => openModal(<BillViewModalContent title={title} url={url} />, true)}
+      onClick={() => openChildModal(<BillViewModalContent title={title} url={url} />, true)}
     />
   );
 }

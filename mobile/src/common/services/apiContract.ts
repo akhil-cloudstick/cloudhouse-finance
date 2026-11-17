@@ -702,9 +702,21 @@ const ROUTES: [string, string, string, string][] = [
   "/users/:user_id/expenses/:id"
  ],
  [
+  "DELETE",
+  "/expenses/:id",
+  "DELETE",
+  "/users/:user_id/expenses/:id"
+ ],
+ [
   "GET",
   "/cash-movements/:id/entry",
   "GET",
+  "/users/:user_id/cash-movements/:id/entry"
+ ],
+ [
+  "DELETE",
+  "/cash-movements/:id/entry",
+  "DELETE",
   "/users/:user_id/cash-movements/:id/entry"
  ],
  [

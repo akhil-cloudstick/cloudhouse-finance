@@ -129,6 +129,7 @@ type ChecklistInput struct {
 	CustomerConfirmed  *bool
 	VerificationNotes  *string
 	Charges            *float64
+	RequestedAt        *time.Time // the release date, changed while the request is still pending
 	ActorRoleID        uint
 }
 

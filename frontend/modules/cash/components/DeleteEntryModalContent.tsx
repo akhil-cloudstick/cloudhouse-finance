@@ -7,12 +7,12 @@ import { Icon } from "@/common/components/Icon";
 import { FieldError } from "@/common/components/ui/FieldError";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
-import { deleteMovementEntry } from "@/modules/cash/services/cashService";
+import { deleteExpense, deleteMovementEntry } from "@/modules/cash/services/cashService";
 
-type Props = { entryId: number; label?: string; onDeleted?: () => void };
+type Props = { entryId: number; label?: string; onDeleted?: () => void; /* entryId is an expense id (Expense Register) */ viaExpense?: boolean };
 
 /* Confirms and deletes a cash-in, debit, self transfer or gold sale from the ledger. */
-export function DeleteEntryModalContent({ entryId, label, onDeleted }: Props) {
+export function DeleteEntryModalContent({ entryId, label, onDeleted, viaExpense }: Props) {
   const { closeModal } = useModal();
   const toast = useToast();
   const [err, setErr] = useState("");
@@ -22,7 +22,7 @@ export function DeleteEntryModalContent({ entryId, label, onDeleted }: Props) {
     return singleFlight("modal:delete-entry", async () => {
       setSaving(true);
       try {
-        await deleteMovementEntry(entryId);
+        await (viaExpense ? deleteExpense(entryId) : deleteMovementEntry(entryId));
         toast("Entry deleted");
         onDeleted?.();
         closeModal();

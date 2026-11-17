@@ -37,7 +37,7 @@ export const dataSafety: LegalDocumentSource = {
       heading: "Deletion",
       body: [
         { only: "customer", text: "You can ask for your data to be deleted — see Account Deletion." },
-        { only: "staff", text: "Accounts are provisioned by backend administrators and cannot be created in the app. To disable your login or request deletion, contact your administrator — see Account Deletion." },
+        { only: "staff", text: "Sign-in IDs are issued by {{provider}} and accounts cannot be created in the app. To disable your login or request deletion, contact your employer's administrator or {{email}} — see Account Deletion." },
       ],
     },
   ],

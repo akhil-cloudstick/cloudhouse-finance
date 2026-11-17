@@ -534,6 +534,12 @@ export async function exportPartyStatementByBranch(branchId: number, range?: Par
   await downloadFile(`/cash-movements/transactions/branch/${branchId}/export${qs}`, "branch-ledger.pdf");
 }
 
+/* Deletes an expense from the Expense Register (a pending one, or an approved one with its ledger lines).
+ * Needs the "can delete ledger entry" permission. */
+export async function deleteExpense(id: number): Promise<void> {
+  await apiFetch<unknown>(`/expenses/${id}`, { method: "DELETE" });
+}
+
 /* Deletes a cash-in, debit, self transfer or gold sale keyed into the ledger — every payment part goes with it.
  * Needs the "can delete ledger entry" permission. */
 export async function deleteMovementEntry(id: number): Promise<void> {

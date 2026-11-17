@@ -139,6 +139,7 @@ var routeManifest = map[string]routeSpec{
 	"PATCH /api/v1/users/:user_id/expenses/:id/approve":                                   probe("id=expenses"),
 	"PATCH /api/v1/users/:user_id/expenses/:id/reject":                                    probe("id=expenses"),
 	"PATCH /api/v1/users/:user_id/expenses/:id/update":                                    probe("id=expenses"),
+	"DELETE /api/v1/users/:user_id/expenses/:id":                                          probe("id=expenses"),
 	"GET /api/v1/users/:user_id/cash/opening-balance":                                     list(),
 	"POST /api/v1/users/:user_id/cash/opening-balance":                                    list(),
 	"GET /api/v1/users/:user_id/cash/summary":                                             list(),

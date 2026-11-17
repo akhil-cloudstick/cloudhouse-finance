@@ -1,5 +1,7 @@
 import React, { createContext, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, BackHandler, Easing, Keyboard, Platform, Pressable, View, StyleSheet, useWindowDimensions, type HostInstance, type KeyboardEvent } from "react-native";
+import { sheetLift } from "./sheetLift";
+import { IS_TABLET, onWindowSizeChange } from "@/common/theme/layout";
 import { Gesture, GestureDetector, type LegacyPanGesture } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/common/theme/colors";
@@ -36,6 +38,10 @@ export const SheetScrollContext = createContext<SheetScrollCtx | null>(null);
 
 // Tallest overlay height seen (the full window) — see the keyboard lift below.
 let fullOverlayH = 0;
+// The window height is the other one after a rotation, so the running maximum starts over.
+onWindowSizeChange(() => {
+  fullOverlayH = 0;
+});
 
 type BottomSheetModalProps = {
   visible: boolean;
@@ -273,6 +279,7 @@ export function BottomSheetModal({
   // snapped shut.
   const [androidLift, setAndroidLift] = useState(0);
   const overlayRef = useRef<HostInstance>(null);
+  const sheetRef = useRef<HostInstance>(null);
   const lift = Platform.OS === "ios" ? Math.max(0, keyboardHeight - resizedBy) : androidLift;
   const availH = overlayH || win.height;
   // How far the keyboard has pushed the sheet up (negative), animated natively.
@@ -298,17 +305,24 @@ export function BottomSheetModal({
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         const finish = (l: number) => {
+          sheetLift.value = l;
           setAndroidLift(l);
           setKeyboardHeight(e.endCoordinates.height);
           slide(-l, e, 200);
         };
         const node = overlayRef.current;
         if (!node) return finish(0);
-        node.measureInWindow((_x, _y, _w, h) => finish(Math.max(0, Math.round(_y + h - e.endCoordinates.screenY))));
+        node.measureInWindow((_x, _y, _w, h) => {
+          const lift = Math.max(0, Math.round(_y + h - e.endCoordinates.screenY));
+          // A little extra clearance: tablet keyboards carry a toolbar row (and the system bar) the reported
+          // top edge does not include, which left the footer buttons touching / under the keyboard.
+          finish(lift > 0 ? lift + KB_CLEARANCE : 0);
+        });
       });
     });
     const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", (e) => {
       cancelAnimationFrame(raf);
+      sheetLift.value = 0;
       setAndroidLift(0);
       setKeyboardHeight(0);
       slide(0, e, 200);
@@ -318,8 +332,30 @@ export function BottomSheetModal({
       show.remove();
       hide.remove();
       kbAnim.setValue(0);
+      sheetLift.value = 0;
       setAndroidLift(0);
       setKeyboardHeight(0);
+    };
+  }, [visible]);
+
+  // Lets a dropdown work out whether its field's measured position already includes this sheet's keyboard lift.
+  useEffect(() => {
+    if (!visible) return;
+    const probe = (done: (missing: number) => void) => {
+      const sheet = sheetRef.current;
+      const overlay = overlayRef.current;
+      const lift = sheetLift.value;
+      if (!sheet || !overlay || lift <= 0) return done(0);
+      overlay.measureInWindow((_ox, oy, _ow, oh) => {
+        sheet.measureInWindow((_sx, sy) => {
+          const resting = oy + oh - sheetH.current;
+          done(Math.abs(sy - (resting - lift)) < Math.abs(sy - resting) ? 0 : lift);
+        });
+      });
+    };
+    sheetLift.probe = probe;
+    return () => {
+      if (sheetLift.probe === probe) sheetLift.probe = null;
     };
   }, [visible]);
 
@@ -349,6 +385,7 @@ export function BottomSheetModal({
         {(() => {
           const sheet = (
             <Animated.View
+              ref={sheetRef}
               onLayout={(e) => onSheetLayout(e.nativeEvent.layout.height)}
               renderToHardwareTextureAndroid={moving}
               shouldRasterizeIOS={moving}
@@ -391,6 +428,8 @@ const CLOSE_MS = 240;
 // Clear space kept between a sheet footer and the keyboard top (added to the footer's own 12px padding).
 // iPhone sits a few px closer to the keyboard than Android.
 const KB_GAP = Platform.OS === "ios" ? 0 : 4;
+// Extra lift above the keyboard on Android (more on tablets).
+const KB_CLEARANCE = IS_TABLET ? 36 : 8;
 const KB_EASE = Easing.bezier(0.25, 0.1, 0.25, 1);
 const CLOSE_EASE = Easing.bezier(0.4, 0, 0.9, 0.6);
 
@@ -400,6 +439,10 @@ const styles = StyleSheet.create({
   backdropBare: { backgroundColor: "rgba(10,8,20,0.48)" },
   // prototype .modal-card.sheet-bottom
   sheetBare: {
+    // Wide screens: a centred sheet, not one stretched across the whole column.
+    width: "100%",
+    maxWidth: 760,
+    alignSelf: "center",
     backgroundColor: colors.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -418,6 +461,9 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheet: {
+    width: "100%",
+    maxWidth: 760,
+    alignSelf: "center",
     backgroundColor: colors.bg,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,

@@ -835,7 +835,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
   function labelStyle(): string {
     return `
       body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
-      .label{width:50mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
+      .label{width:78mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
         border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
       .label img{width:25mm;height:25mm;flex:none}
       .t{font-size:2.5mm;line-height:1.45;min-width:0}
@@ -878,7 +878,6 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
       </style></head><body>
         ${labelBodyHTML(data)}
         <div class="noprint">
-          <p style="font-size:13px;color:#555">81mm × 12mm flag tag — scanning the QR opens ${data.url}</p>
           <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
         </div>
       </body></html>`;
@@ -914,9 +913,8 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         "Pledge Slip + Label — " + l.id,
         `<style>${slip.style}</style>${slip.body}
         <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
-          <style>${labelStyle()}</style>
+          <style>${labelStyle().replace(/body\{[^}]*\}/, "") /* the label's own body rule would switch the slip to Arial */}</style>
           <div style="display:inline-block">${labelBodyHTML(data)}</div>
-          <p class="muted" style="margin-top:12px">Packet label — scanning the QR opens ${data.url}</p>
         </div>`,
         toast
       );

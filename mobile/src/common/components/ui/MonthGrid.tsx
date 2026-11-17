@@ -10,7 +10,7 @@ type MonthGridProps = {
   month: Date;
   selected?: string;
   onSelect: (iso: string) => void;
-  dots?: Record<string, ("red" | "amber" | "blue")[]>;
+  dots?: Record<string, ("red" | "amber" | "blue" | "green")[]>;
   min?: string;
   max?: string;
   gutter?: number;
@@ -73,7 +73,7 @@ export function MonthGrid({
                   {ds && ds.length ? (
                     <View style={s.calDots}>
                       {ds.slice(0, 3).map((c, i) => (
-                        <View key={i} style={[s.calDot, { backgroundColor: c === "red" ? C.red : c === "amber" ? C.amber : C.blue }]} />
+                        <View key={i} style={[s.calDot, { backgroundColor: c === "red" ? C.red : c === "amber" ? C.amber : c === "green" ? C.green : C.blue }]} />
                       ))}
                     </View>
                   ) : null}

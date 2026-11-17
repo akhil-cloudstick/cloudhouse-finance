@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { View } from "react-native";
-import { AccRow, ConfirmSheet, FabCorner, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, emptyGroupedFilter, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { ScrollView, View } from "react-native";
+import { AccRow, C, ConfirmSheet, Txt, FabCorner, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, emptyGroupedFilter, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { userMessage } from "@/common/services/apiErrors";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
@@ -112,7 +112,7 @@ export default function SchemesScreen() {
                 { k: "Code", v: sc.code || "—" },
                 ...(showBranch ? [{ k: "Branch", v: sc.branch?.name || "—" }] : []),
                 { k: "Penal rate", v: sc.penalRate != null ? `${sc.penalRate}% p.a.` : "—" },
-                { k: "Conditions", v: sc.conditions || "—" },
+                { k: "Conditions", v: sc.conditions ? (<ScrollView nestedScrollEnabled style={{ maxHeight: 72 }}><Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.ink }}>{sc.conditions}</Txt></ScrollView>) : "—" },
                 ...(sc.interestMethod ? [{ k: "Interest method", v: sc.interestMethod }] : []),
                 ...(sc.accrualBasis ? [{ k: "Accrual method", v: sc.accrualBasis === "monthly" ? "Monthly" : "Daily" }] : []),
                 ...(charge ? [{ k: "Service charge", v: charge }] : []),
