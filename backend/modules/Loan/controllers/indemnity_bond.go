@@ -81,15 +81,15 @@ ol li{margin-bottom:10px;text-align:justify}
  * own height to the flow (which would push the Lender's line lower than
  * the image-less Borrower's line beside it — see print.ts's identical
  * fix for the on-screen/print copy of this same bond). */
-.lender-sig{position:absolute;top:22px;left:50%;transform:translateX(-50%);width:130px}
-.lender-sig img{width:100%;max-height:40px;object-fit:contain;display:block}
+.lender-sig{position:absolute;top:22px;left:50%;transform:translateX(-50%);width:135px}
+.lender-sig img{width:100%;max-height:45px;object-fit:contain;display:block}
 /* The KML letter has no Borrower/Lender row; the lender signs over the
  * "Loan Sanctioned" line instead, right-aligned. The <img> only exists when
  * the business has uploaded a signature, so the line keeps a fixed gap above
  * it for a wet-ink signature either way. */
 .sanction-sig{width:210px;margin:-30px 0 0 auto;text-align:center}
-.sanction-sig .slot{height:46px;display:flex;align-items:flex-end;justify-content:center}
-.sanction-sig .sig-img{max-height:44px;max-width:170px;display:block}
+.sanction-sig .slot{height:51px;display:flex;align-items:flex-end;justify-content:center}
+.sanction-sig .sig-img{max-height:49px;max-width:175px;display:block}
 .sanction-sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:2px;font-size:12.5px}
 /* No forced page-break here (unlike the Gujarati deed's .sig-page below) —
  * this bond's whole point is fitting the short KML letterhead letter onto
@@ -127,8 +127,8 @@ ol{padding-left:22px} ol li{margin-bottom:8px;text-align:justify}
 .sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:16px;font-size:12.5px}
 /* Lender's signature over the "Loan Sanctioned" line — see bondPageStyle. */
 .sanction-sig{width:210px;margin:-30px 0 0 auto;text-align:center}
-.sanction-sig .slot{height:46px;display:flex;align-items:flex-end;justify-content:center}
-.sanction-sig .sig-img{max-height:44px;max-width:170px;display:block}
+.sanction-sig .slot{height:51px;display:flex;align-items:flex-end;justify-content:center}
+.sanction-sig .sig-img{max-height:49px;max-width:175px;display:block}
 .sanction-sig span{display:block;border-top:1px solid #333;padding-top:4px;margin-top:2px;font-size:12.5px}
 /* No forced page-break — see bondPageStyle's .sig-page comment. */
 .sig-page{}
@@ -151,8 +151,8 @@ ol{padding-left:22px} ol li{margin-bottom:12px;text-align:justify}
  * own height to the flow (which would push the Lender's line lower than
  * the image-less Borrower's line beside it — see print.ts's identical
  * fix for the on-screen/print copy of this same bond). */
-.lender-sig{position:absolute;top:22px;left:50%;transform:translateX(-50%);width:130px}
-.lender-sig img{width:100%;max-height:40px;object-fit:contain;display:block}
+.lender-sig{position:absolute;top:22px;left:50%;transform:translateX(-50%);width:135px}
+.lender-sig img{width:100%;max-height:45px;object-fit:contain;display:block}
 /* GML deeds only (gml-bond-english/gujarati.html): the Schedule, Place/Date
  * and the signing block are one .deed-end page that always starts on a fresh
  * sheet, so the Schedule is never separated from the signatures. min-height is
@@ -331,6 +331,7 @@ type indemnityBondPreviewRequest struct {
 	PrincipalAmount float64                        `json:"principal_amount"`
 	InterestRate    float64                        `json:"interest_rate"`
 	DueDate         string                         `json:"due_date"`
+	OpenedDate      string                         `json:"opened_date"`
 	Ornaments       []indemnityBondPreviewOrnament `json:"ornaments"`
 }
 
@@ -543,7 +544,9 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 		DueDate:            dueDateOrBlank(data.DueDate),
 	}
 	td.CustomerName = orBlank(data.CustomerName)
-	td.LoanDateDisplay = time.Now().Format("02-01-2006")
+	if data.Day == 0 || data.Year <= 1 {
+		td.DateDisplay = ""
+	}
 	if !data.OpenedDate.IsZero() {
 		td.LoanDateDisplay = data.OpenedDate.Format("02-01-2006")
 	}
@@ -1032,8 +1035,15 @@ func PreviewIndemnityBondPDF(c echo.Context) error {
 			Value:       o.Value,
 		})
 	}
-	now := time.Now()
+	// the loan's opening date, as sent; with none the date lines stay blank rather than showing today
+	var opened time.Time
+	if req.OpenedDate != "" {
+		if d, err := time.Parse("2006-01-02", req.OpenedDate); err == nil {
+			opened = d
+		}
+	}
 	data := BondData{
+		OpenedDate:      opened,
 		LoanNumber:      req.LoanNumber,
 		CustomerName:    req.Name,
 		Age:             age,
@@ -1045,9 +1055,9 @@ func PreviewIndemnityBondPDF(c echo.Context) error {
 		PrincipalAmount: req.PrincipalAmount,
 		InterestRate:    req.InterestRate,
 		Ornaments:       ornaments,
-		Day:             now.Day(),
-		Month:           now.Month().String(),
-		Year:            now.Year(),
+		Day:             opened.Day(),
+		Month:           opened.Month().String(),
+		Year:            opened.Year(),
 		DueDate:         dueDate,
 	}
 	fillLenderProfile(auth.RequestContext(c), &data)

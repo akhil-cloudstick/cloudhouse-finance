@@ -42,6 +42,8 @@ type Scheme struct {
 	Name               string         `json:"name" gorm:"not null;size:120"`
 	InterestRate       float64        `json:"interest_rate" gorm:"not null"`
 	DurationMonths     int            `json:"duration_months" gorm:"not null"`
+	// false: the loan is not limited by gold value, so LTVPercent is 0 and loans on this scheme have no eligible cap.
+	LTVBased           bool           `json:"ltv_based" gorm:"not null;default:true"`
 	LTVPercent         float64        `json:"ltv_percent" gorm:"not null"`
 	InterestMethod     string         `json:"interest_method" gorm:"size:80"`
 	PenalRate          float64        `json:"penal_rate"`

@@ -307,7 +307,8 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 	};
 	// Release context: Amount is what the customer pays after the discount, so the allocation preview (and the
 	// over/short checks) run against payment + discount, which together clear the loan.
-	const discountNum = canDiscount && +discount > 0 ? +discount : 0;
+  const discountBlocked = releaseMin != null && releaseMin <= 0;
+  const discountNum = canDiscount && !discountBlocked && +discount > 0 ? +discount : 0;
 	// A discount moves no money; the ledger shows it as a Cash debit, so there is no mode to pick.
 	const discountMode = "Cash";
 	// Prefill Amount with what the picked option owes (interest override
@@ -315,7 +316,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 	// since any amount is valid there.
 	// A release payment starts at what must be paid to release the gold, not at the whole settlement.
 	// With a discount the Amount is what the customer actually pays: the figure minus the discount.
-	const modeBase = mode === "Partial" && releaseMin != null
+  const modeBase = mode === "Partial" && releaseMin != null && releaseMin > 0
 		? releaseMin
 		: amountForMode(owedLoan, mode) + charge;
 	const modeTotal = Math.max(0, roundRupee((modeBase - discountNum)));
@@ -338,7 +339,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 		const processingFee = fee.trim() ? +fee : 0;
 		if (processingFee < 0) { setErr("Processing fee cannot be negative.", "fee"); return; }
 		const amount = typed;
-		const discountForMin = discount.trim() && +discount > 0 ? +discount : 0;
+    const discountForMin = discount.trim() && !discountBlocked && +discount > 0 ? +discount : 0;
 		if (releaseMin != null && amount + discountForMin < releaseMin - 0.005) { setErr(`${fmt(Math.max(0, releaseMin - discountForMin))} amount needed to release gold`, "amount"); return; }
 		if (processingFee > amount + 0.001) { setErr("Additional charges cannot exceed the amount.", "fee"); return; }
 		const interestOverride = interest.trim() ? +interest : undefined;
@@ -347,7 +348,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 		if (!splitBalanced) { setErr("The payment breakdown must add up to the amount.", "split"); return; }
 		if (bankMissing) { setErr("Select a bank", "split"); return; }
 		if (allocWarning) { setErr(allocWarning, "amount"); return; }
-		const discountAmount = discount.trim() ? +discount : 0;
+    const discountAmount = discount.trim() && !discountBlocked ? +discount : 0;
 		if (discountAmount < 0) { setErr("Discount cannot be negative.", "discount"); return; }
 		if (discountAmount > 0 && !canDiscount) { setErr("You don't have permission to give a discount.", "discount"); return; }
 		if (releaseMin != null ? discountAmount > releaseMin + 0.005 : discountAmount > modeBase + 0.005) { setErr(releaseMin != null ? `Discount cannot exceed ${fmt(releaseMin)}, the amount needed to release the gold.` : `Discount cannot exceed ${fmt(modeBase)}, what this payment type clears.`, "discount"); return; }
@@ -466,7 +467,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 			{/* `bd-scroll` caps the modal at the viewport and scrolls THIS body
 				* instead of the page behind it (see app.css). Select's option list
 				* is position:fixed, so the scrolling body can't clip it. */}
-			<div className="bd bd-scroll">
+      <div className="bd bd-scroll pay-record-modal">
 				<div className="pay-layout">
 					<div className="pay-form">
 						<div className="pay-sec">
@@ -489,7 +490,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 										</div>
 									)}
 									{canDiscount && (
-										<div className={fe.discount ? "has-err" : undefined}><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder={discountKind === "customer" ? "optional — negotiated reduction" : "filled from what is owed — change it if needed"} value={discount} onChange={(e) => setDiscount(e.target.value)} /><FieldError msg={fe.discount} /></div>
+                    <div className={fe.discount ? "has-err" : undefined}><label className="f">Discount (₹)</label><input className="inp" type="number" min={0} placeholder={discountKind === "penal_interest" ? "Penal Interest" : discountKind === "interest" ? "Interest" : "Discount"} disabled={releaseMin != null && releaseMin <= 0} value={releaseMin != null && releaseMin <= 0 ? "" : discount} onChange={(e) => setDiscount(e.target.value)} /><FieldError msg={fe.discount} /></div>
 									)}
 									{releaseRequestId == null && (
 										<div className={fe.fee ? "has-err" : undefined}><label className="f">Additional Charges (₹)</label>
@@ -498,7 +499,7 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 									)}
 									<div className={fe.amount ? "has-err" : undefined}>
 										<label className="f">Amount (₹) *</label>
-                    <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} readOnly={mode === "Full Settlement"} onChange={(e) => setAmount(e.target.value)} onBlur={() => {
+                    <input className="inp pay-amt" type="number" min={1} placeholder="e.g. 5000" value={amt} readOnly={mode === "Full Settlement"} tabIndex={mode === "Full Settlement" ? -1 : undefined} style={mode === "Full Settlement" ? { pointerEvents: "none", userSelect: "none" } : undefined} onChange={(e) => setAmount(e.target.value)} onBlur={() => {
 											// Rupees only: a typed amount with paise is rounded to the nearest rupee.
 											const n = +amt;
 											if (amt.trim() && Number.isFinite(n) && n > 0 && n !== roundRupee(n)) {
@@ -561,7 +562,6 @@ export function PaymentModalContent({ loan: initialLoan, onSaved, releaseRequest
 				{/* Never a silently disabled button: whatever is blocking Review
 					* (or the server's last rejection) is spelled out here. */}
 				<span className="pay-ft-msg">{(Object.keys(fe).length ? "" : allocWarning || (bankMissing ? (releaseRequestId != null ? "" /* a release payment already says it under the Mode / Amount / Bank row */ : "Select a bank") : !splitBalanced ? "The payment breakdown must add up to the amount." : "")) || err}</span>
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving || confirming || alloc.over > 0.01 || bankMissing || !splitBalanced}><Icon name="check" /> Review {previewAmount > 0 ? fmt(previewAmount) : "Payment"}</button>
 			</div>
 			{/* Portalled to <body> so it stacks over the whole Record Payment modal

@@ -507,6 +507,8 @@ func getInvestment(ctx context.Context, id uint, branchID *uint) (*models.Invest
 			return nil, err
 		}
 		rec.OutstandingInterest = clampMoney(rec.AccruedInterest - rec.InterestWithdrawn)
+	} else {
+		fillSchedSettlement(ctx, rec)
 	}
 	return rec, nil
 }
@@ -675,6 +677,11 @@ func matureInvestment(ctx context.Context, investmentID uint, branchID *uint, ac
 	}
 	if inv.Engine == models.EngineLive && action == "Close" {
 		return closeLiveInvestment(ctx, investmentID, branchID, pay, employeeID)
+	}
+	// A fixed-payout investment closed with a payment breakdown is settled in one step (see closeScheduledInvestment).
+	// Without one, closing keeps its old meaning: the principal return is only queued for staff to pay later.
+	if inv.Engine != models.EngineLive && action == "Close" && pay != nil && pay.CashAmount+pay.UpiAmount+pay.BankTransferAmount+pay.ChequeAmount > epsilon {
+		return closeScheduledInvestment(ctx, investmentID, branchID, pay, employeeID)
 	}
 	if inv.Status != models.StatusMatured {
 		return nil, common.NewConflict("investment has not matured yet")
@@ -874,6 +881,10 @@ func addCash(ctx context.Context, investmentID uint, branchID *uint, in AddCashI
 func withdrawInvestment(ctx context.Context, investmentID uint, branchID *uint, in WithdrawInput) (*models.Investment, error) {
 	if in.InterestAmount < 0 || in.PrincipalAmount < 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
+	}
+	// a fixed-payout investment is withdrawn from by taking principal out of its schedule
+	if cur, err := findInvestmentByID(ctx, investmentID, branchID); err == nil && cur.Engine != models.EngineLive {
+		return withdrawScheduled(ctx, investmentID, branchID, in)
 	}
 	total := common.RoundMoney(in.InterestAmount + in.PrincipalAmount)
 	if total <= 0 {
@@ -1729,11 +1740,16 @@ func closeLiveInvestment(ctx context.Context, investmentID uint, branchID *uint,
 		if locked.Engine != models.EngineLive {
 			return common.NewBadRequest("needs a live-accrual investment")
 		}
-		if locked.Status != models.StatusMatured {
-			return common.NewConflict("investment has not matured yet")
+		if locked.Status != models.StatusMatured && locked.Status != models.StatusActive {
+			return common.NewConflict("investment is not active")
 		}
-		// interest stops at the maturity date (projectAccrual caps it)
-		if err := settleAndSave(ctx, tx, locked, locked.MaturityDate); err != nil {
+		// A matured investment earns to its maturity date; one closed early earns up to today (simple or compound per
+		// its plan, same daily accrual as any other settle). projectAccrual caps interest at maturity either way.
+		settleOn := locked.MaturityDate
+		if locked.Status == models.StatusActive {
+			settleOn = time.Now()
+		}
+		if err := settleAndSave(ctx, tx, locked, settleOn); err != nil {
 			return err
 		}
 		interest := clampMoney(locked.AccruedInterest - locked.InterestWithdrawn)

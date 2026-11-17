@@ -198,7 +198,6 @@ export function LedgerPaymentEditModalContent({ loanId, payment: p, linkedDiscou
 				<FieldError msg={err} />
 			</div>
 			<div className="ft">
-				<button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
 				<button className="btn" onClick={submit} disabled={saving || (mode === "edit" && !isDiscount && Math.abs(remaining) > 0.01)}>
 					<Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : preview ? (mode === "delete" ? "Confirm delete" : "Confirm") : "Preview the change"}
 				</button>

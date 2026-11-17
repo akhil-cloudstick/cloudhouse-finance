@@ -35,8 +35,24 @@ export function ThemeDropdown<T>({
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const close = () => setAnchor(null);
   const openMenu = () => {
+    if (!Keyboard.isVisible()) {
+      measure(setAnchor);
+      return;
+    }
+    // Keyboard is up: closing it resizes the sheet under the field. Opening the list at once put it
+    // at the keyboard-up spot, then it jumped ("shook") as the sheet settled. Wait until the
+    // keyboard is down and the sheet has finished moving, then measure and open.
+    let done = false;
+    const open = () => {
+      if (done) return;
+      done = true;
+      sub.remove();
+      clearTimeout(fallback);
+      measure(setAnchor);
+    };
+    const sub = Keyboard.addListener("keyboardDidHide", () => setTimeout(open, 120));
+    const fallback = setTimeout(open, 600);
     Keyboard.dismiss();
-    measure(setAnchor);
   };
   return (
     <View style={style}>

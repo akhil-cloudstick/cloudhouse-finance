@@ -12,7 +12,7 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { CategoryChip } from "@/common/components/CategoryChip";
-import { loanCatRef } from "@/modules/cash/utils/ledgerCells";
+import { loanCatRef, clipText } from "@/modules/cash/utils/ledgerCells";
 import { LedgerEntryActions } from "@/modules/cash/components/LedgerEntryActions";
 import { useExpenseCategoryIdsState } from "@/common/hooks/use-expense-category-ids";
 import { ledgerFocusTarget, rememberedLedgerPage, saveLedgerPosition, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
@@ -146,7 +146,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
 		const target = focusPending.current ? ledgerFocusTarget("party") : null;
 		const range = {
 			fromDate: fromDate || undefined, toDate: toDate || undefined, search: search || undefined,
-      ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment } : {}),
+      ...(target && "date" in target ? { focusDate: target.date, focusAmount: target.amount, focusPayment: target.payment, focusRef: target.ref, focusLoan: target.loan } : {}),
 		};
 		const call =
 			kind === "bank" ? getBankLedger(numericId, page, { ...range, modes: modeValues }, pageSize)
@@ -274,7 +274,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
 								return (
 								// A loan ledger mixes movement and expense ids (plus the
 								// id-less opening row), so key by position there.
-                <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : undefined}>
+                <tr key={loan ? `${i}-${r.id}` : `${r.type}-${r.id}-${r.method}`} data-ledger-key={`${r.id}-${r.d}-${r.amount}-${r.debitOrCredit}-${r.method}`} data-ledger-date={r.d} data-ledger-amount={r.amount} data-ledger-ref={r.loanId && r.paymentId && !r.personalLoanId ? `lp:${r.paymentId}` : r.ref}>
 									<td data-label="Date">{fmtDate(r.d)}</td>
 									<td data-label="Ref No">
 										{loanRef ? (
@@ -288,7 +288,7 @@ export function PartyLedgerPage({ kind, id }: PartyLedgerPageProps) {
 										)}
 									</td>
 									<td data-label="Particulars" style={{ textAlign: "center" }}>
-										{r.description || r.type}
+                    {clipText(r.description || r.type)}
 										<div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 4, marginTop: 4 }}>
 											{kind !== "customer" && r.customerId ? (
 												<LedgerRefLink kind="customer" id={r.customerId} label={r.customerName || "Customer"} />

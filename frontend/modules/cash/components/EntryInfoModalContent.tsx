@@ -92,10 +92,15 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
           {info.approvedAt ? item("Approved on", fmtDateTime(info.approvedAt)) : null}
         </div>
 
-        <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Remarks</h4>
-        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, whiteSpace: "pre-wrap", minHeight: 40, color: info.remarks ? undefined : "var(--muted)" }}>
-          {info.remarks || "No remarks were added to this entry."}
-        </div>
+        {/* A gold loan repayment (it has a "Paid towards" split) takes no remarks, so none is shown for it. */}
+        {!(info.split && info.split.length > 0) && (
+          <>
+            <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Remarks</h4>
+            <div className="addl-info boxed" style={{ color: info.remarks ? undefined : "var(--muted)" }}>
+              {info.remarks || "No remarks were added to this entry."}
+            </div>
+          </>
+        )}
 
         {info.loanEntry === "service_charge" && (
           <p style={{ margin: "14px 0 0", fontSize: 12.5, color: "var(--muted)" }}>This charge is calculated from the loan&apos;s sanction and rate — it cannot be edited on its own.</p>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { C, DateField, Field, FieldRow, Input, PrimaryButton, Sheet, Txt, toast } from "@/common/components/ui";
+import { DateField, Field, FieldRow, Input, PrimaryButton, Sheet, toast } from "@/common/components/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { FieldErr } from "@/common/components/ErrorText";
 import { ApiError } from "@/common/services/httpClient";
 import { todayISO } from "@/common/utils/format";
 import { createDayBookEntry, updateDayBookEntry } from "@/modules/reports/services/reportsService";
@@ -23,7 +24,7 @@ export function DayBookEntrySheet({ visible, onClose, entry, onSaved }: DayBookE
   const [debit, setDebit] = useState("");
   const [credit, setCredit] = useState("");
   const [interest, setInterest] = useState("");
-  const [error, setError] = useState("");
+  const [tried, setTried] = useState(false);
 
   // Every opening starts from the entry being edited, or a blank line dated today.
   useEffect(() => {
@@ -33,7 +34,7 @@ export function DayBookEntrySheet({ visible, onClose, entry, onSaved }: DayBookE
     setDebit(amountText(entry?.debit));
     setCredit(amountText(entry?.credit));
     setInterest(amountText(entry?.interest));
-    setError("");
+    setTried(false);
   }, [visible, entry]);
 
   const save = useMutation({
@@ -44,31 +45,34 @@ export function DayBookEntrySheet({ visible, onClose, entry, onSaved }: DayBookE
       onClose();
       toast.success(entry ? "Entry updated" : "Entry added");
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save the entry — try again."),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Could not save the entry — try again."),
   });
 
+  const values = { debit: num(debit), credit: num(credit), interest: num(interest) };
+  const errs: Record<string, string> = {};
+  if (!date) errs.date = "Pick the date.";
+  if (!particulars.trim()) errs.particulars = "Enter the particulars.";
+  if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) errs.amount = "Amounts must be zero or more.";
+  else if (!values.debit && !values.credit && !values.interest) errs.amount = "Enter a debit, credit or interest amount.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
   function submit() {
-    const values = { debit: num(debit), credit: num(credit), interest: num(interest) };
-    if (!date) return setError("Pick the date.");
-    if (!particulars.trim()) return setError("Enter the particulars.");
-    if (Object.values(values).some((v) => !Number.isFinite(v) || v < 0)) return setError("Amounts must be zero or more.");
-    if (!values.debit && !values.credit && !values.interest) return setError("Enter a debit, credit or interest amount.");
-    setError("");
+    if (Object.keys(errs).length) return setTried(true);
     save.mutate({ date, particulars: particulars.trim(), ...values });
   }
   const amountInput = (set: (v: string) => void) => (t: string) => {
-    setError("");
     set(cleanAmount(t));
   };
 
   return (
     <Sheet visible={visible} onClose={onClose} title={entry ? "Edit Day Book Entry" : "Day Book Entry"} maxHeightPct={92}>
       <Field label="Date *">
-        <DateField value={date} max={todayISO()} onChange={(v) => { setError(""); setDate(v); }} />
+        <DateField value={date} max={todayISO()} onChange={setDate} />
       </Field>
+      <FieldErr m={fe("date")} />
       <Field label="Particulars *">
-        <Input placeholder="e.g. Office rent" value={particulars} maxLength={255} onChangeText={(t) => { setError(""); setParticulars(t); }} />
+        <Input placeholder="e.g. Office rent" value={particulars} maxLength={255} onChangeText={setParticulars} />
       </Field>
+      <FieldErr m={fe("particulars")} />
       <FieldRow>
         <Field label="Debit (₹)">
           <Input placeholder="0" keyboardType="decimal-pad" value={debit} onChangeText={amountInput(setDebit)} />
@@ -82,7 +86,7 @@ export function DayBookEntrySheet({ visible, onClose, entry, onSaved }: DayBookE
           <Input placeholder="0" keyboardType="decimal-pad" value={interest} onChangeText={amountInput(setInterest)} />
         </Field>
       </FieldRow>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+      <FieldErr m={fe("amount")} />
       <PrimaryButton label={entry ? "Save Changes" : "Add Entry"} onPress={submit} loading={save.isPending} />
     </Sheet>
   );

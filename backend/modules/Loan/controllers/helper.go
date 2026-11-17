@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"context"
+
 	common "cloudhouse/backend/common/controllers"
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/modules/Loan/models"
@@ -9,6 +11,14 @@ import (
 func init() {
 	common.LoansForCustomer = LoansForCustomer
 	common.HardDeleteLoan = PurgeLoan
+}
+
+// refreshSchemeLTV points the loan at its scheme's current LTV, so an edit checks the principal against the LTV in
+// force now and not the one frozen when the loan was opened. A scheme that no longer exists leaves the loan as it is.
+func refreshSchemeLTV(ctx context.Context, l *models.Loan) {
+	if sch, err := common.FindSchemeByID(ctx, l.SchemeID); err == nil {
+		l.SchemeLTVPercent = sch.LTVPercent
+	}
 }
 
 func applySchemeSnapshot(l *models.Loan, sch *commonModels.Scheme) {

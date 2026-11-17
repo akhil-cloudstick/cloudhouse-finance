@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from "@/common/theme/colors";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, TextInput, View, type TextInputInstance } from "react-native";
 import { C, EmptyText, FilterChipRow, Hit, PIcon, ServerFlatList, TopModal, Txt, openPage } from "@/common/components/ui";
@@ -65,7 +66,11 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
     if (!visible) setText("");
   }, [visible]);
 
+  // A finger that dragged to scroll a result list must not count as a tap on the row it lifted off
+  // (on iOS the row press is no longer cancelled by the scroll, so lift-off opened the row and closed the modal).
+  const touch = useRef({ x: 0, y: 0, moved: false });
   const go = (path: string) => {
+    if (touch.current.moved) return;
     onClose();
     openPage(path);
   };
@@ -97,7 +102,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
       ))}
       {allSchemes.length > 0 && <Txt style={sectionLabel}>Schemes</Txt>}
       {allSchemes.map((sc) => (
-        <Hit key={`s${sc.id}`} name={sc.name} meta={`${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
+        <Hit key={`s${sc.id}`} name={sc.name} meta={sc.ltvBased === false ? `${sc.interestRate}% p.a. · no LTV` : `${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
       ))}
       {!allLoading && allCustomers.length + allLoans.length + allSchemes.length === 0 ? <EmptyText>No results match your search.</EmptyText> : null}
       {allCustomers.length + allLoans.length + allSchemes.length > 0 ? <Txt style={{ ...sectionLabel, textAlign: "center" }}>Pick a category above to see more.</Txt> : null}
@@ -128,7 +133,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
         emptyText="No schemes match your search."
         keyOf={(sc) => `s${sc.id}`}
         renderItem={(sc) => (
-          <Hit name={sc.name} meta={`${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
+          <Hit name={sc.name} meta={sc.ltvBased === false ? `${sc.interestRate}% p.a. · no LTV` : `${sc.interestRate}% p.a. · LTV ${sc.ltvPercent}%`} tag="Scheme" onPress={() => go(`/loans?schemeId=${sc.id}`)} />
         )}
       />
     ) : (
@@ -160,6 +165,8 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
             onChangeText={setText}
             placeholder="Search customer, LN number, ID, scheme"
             placeholderTextColor={C.muted}
+            cursorColor={C.brand}
+            selectionColor={SELECTION_COLOR}
             autoCorrect={false}
             autoCapitalize="none"
             allowFontScaling={false}
@@ -184,7 +191,13 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
       </View>
       {/* Fixed-height placeholder while sliding, so the panel doesn't
           change size (or render the lists) mid-animation. */}
-      <View style={{ maxHeight: 460, paddingTop: 6 }}>{opened ? body : <View style={{ height: 300 }} />}</View>
+      <View
+        style={{ maxHeight: 460, paddingTop: 6 }}
+        onTouchStart={(e) => (touch.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, moved: false })}
+        onTouchMove={(e) => {
+          if (Math.abs(e.nativeEvent.pageY - touch.current.y) > 8 || Math.abs(e.nativeEvent.pageX - touch.current.x) > 8) touch.current.moved = true;
+        }}
+      >{opened ? body : <View style={{ height: 300 }} />}</View>
     </TopModal>
   );
 }

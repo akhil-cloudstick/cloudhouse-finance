@@ -33,8 +33,8 @@ func TestAuction_DefaultedLoanWithGoldAtBankIsNotAnAuctionCandidate(t *testing.T
 	if AvailableForAuction(pledged) {
 		t.Error("a defaulted loan whose gold is pledged to a bank must not be available for auction")
 	}
-	if isAuctionCase(pledged) {
-		t.Error("a defaulted loan whose gold is pledged to a bank must not be listed as an auction case")
+	if !isAuctionCase(pledged) {
+		t.Error("a defaulted loan whose gold is pledged to a bank must still be listed, so staff can release the gold")
 	}
 
 	released := &models.Loan{Status: models.StatusActive, IsDefaulted: true, BankPledgeStatus: "Released"}

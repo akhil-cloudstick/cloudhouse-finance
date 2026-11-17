@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
@@ -172,8 +173,21 @@ func validate(customerID uint, typ string, dueDate time.Time) error {
 	return nil
 }
 
+// maxNoteLength is the one limit for every free-text note in the app.
+const maxNoteLength = 150
+
+func validateNote(note string) error {
+	if utf8.RuneCountInString(note) > maxNoteLength {
+		return common.NewBadRequest("note can be at most 150 characters")
+	}
+	return nil
+}
+
 func SaveReminder(ctx context.Context, in CreateInput) (*models.Reminder, error) {
 	if err := validate(in.CustomerID, in.Type, in.DueDate); err != nil {
+		return nil, err
+	}
+	if err := validateNote(in.Note); err != nil {
 		return nil, err
 	}
 	if _, err := common.FindCustomerByID(ctx, in.CustomerID); err != nil {
@@ -215,6 +229,9 @@ func updateReminder(ctx context.Context, id uint, in UpdateInput) (*models.Remin
 		return nil, common.NewNotFound("reminder not found")
 	}
 	if err := validate(rec.CustomerID, in.Type, in.DueDate); err != nil {
+		return nil, err
+	}
+	if err := validateNote(in.Note); err != nil {
 		return nil, err
 	}
 	rec.Type = in.Type
@@ -618,7 +635,7 @@ func unsettledInterestOccurrences(openedDate, from, to, due time.Time, paid []ti
 	for _, occ := range monthlyOccurrences(openedDate, from, to) {
 		for i, a := range all {
 			if a.Equal(occ) {
-				if !settled[i] || occ.Equal(opened) {
+				if !settled[i] && !occ.Equal(opened) {
 					out = append(out, occ)
 				}
 				break

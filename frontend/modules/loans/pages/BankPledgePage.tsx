@@ -24,6 +24,11 @@ import { useScrollPageSize } from "@/common/utils/responsive";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { usePersistedPage, usePersistedState } from "@/common/hooks/use-persisted-state";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
+import { listActiveBranches } from "@/modules/branches/services/branchService";
+import { type BranchView } from "@/modules/branches/types/branch-types";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
+import { searchBanksPage } from "@/modules/banks/services/bankService";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 
@@ -67,8 +72,41 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 	// The date range bounds the pledge date on both tabs.
 	const [fromDate, setFromDate] = usePersistedState("bankpledge:from", "");
 	const [toDate, setToDate] = usePersistedState("bankpledge:to", "");
-	const filterCategories: FilterCategory[] = [{ key: "__date", label: "Pledge date", kind: "date" }];
-	const filterValue: FilterValue = { __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
+  // Branch / customer / bank: sent to the server with the search and date range, on both tabs.
+  const showBranch = useShowBranchFilter();
+  const [branchIds, setBranchIds] = usePersistedState<string[]>("bankpledge:branches", []);
+  const [customerIds, setCustomerIds] = usePersistedState<string[]>("bankpledge:customers", []);
+  const [bankNames, setBankNames] = usePersistedState<string[]>("bankpledge:banks", []);
+  const [branches, setBranches] = useState<BranchView[]>([]);
+  useEffect(() => { if (showBranch) listActiveBranches().then(setBranches).catch(() => {}); }, [showBranch]);
+  const filterCategories: FilterCategory[] = [
+    ...(!showBranch ? [] : [{
+      key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name",
+      options: branches.map((b) => ({ value: String(b.id), label: b.name })),
+    }]),
+    {
+      key: "customer", label: "Customer", kind: "async" as const, searchHint: "Searches: customer name, customer code, phone",
+      fetchOptions: (search: string, p: number) =>
+        listCustomersPage(search, p, { branchIds: branchIds.length ? branchIds : undefined, customerType: "Borrower" }, 20).then((res) => ({
+          items: res.items.map((c) => ({ value: String(c.id), label: `${c.name} (${c.code})` })),
+          hasMore: res.hasMore,
+        })),
+    },
+    {
+      key: "bank", label: "Bank", kind: "async" as const, searchHint: "Searches: bank name",
+      // FilterPanel pages are 1-based, searchBanksPage is 0-based.
+      fetchOptions: (search: string, p: number) =>
+        searchBanksPage(search, p - 1).then((res) => ({
+          items: res.items.map((b) => ({ value: b.name, label: b.name })),
+          hasMore: res.hasMore,
+        })),
+    },
+    { key: "__date", label: "Pledge date", kind: "date" as const },
+  ];
+  const filterValue: FilterValue = { __dateFrom: fromDate || undefined, __dateTo: toDate || undefined, branch: branchIds, customer: customerIds, bank: bankNames };
+  // A remembered branch choice is ignored while the page offers no branch filter (single branch / header-scoped).
+  const branchNums = showBranch ? branchIds.map(Number) : [];
+  const customerNums = customerIds.map(Number);
 	const [history, setHistory] = useState<BankPledgeRecordView[]>([]);
 	const [historyLoading, setHistoryLoading] = useState(false);
 	const [historyError, setHistoryError] = useState("");
@@ -100,7 +138,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 		setPledgedLoading(true);
 		setPledgedError("");
 		try {
-			const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", q: query || undefined, from: fromDate || undefined, to: toDate || undefined, page, limit: pageSize });
+      const res = await listLoansPage({ bankPledgeStatus: "Bank Pledged", q: query || undefined, from: fromDate || undefined, to: toDate || undefined, branchId: branchNums.length ? branchNums : undefined, customerId: customerNums.length ? customerNums : undefined, bank: bankNames.length ? bankNames : undefined, page, limit: pageSize });
 			setPledged(res.items);
 			setPledgedHasMore(res.hasMore);
 			setPledgedTotal(res.total);
@@ -109,13 +147,13 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 		} finally {
 			setPledgedLoading(false);
 		}
-	}, [pageSize, fromDate, toDate]);
+  }, [pageSize, fromDate, toDate, branchIds, customerIds, bankNames]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const loadHistory = useCallback(async (page: number, query: string) => {
 		setHistoryLoading(true);
 		setHistoryError("");
 		try {
-			const res = await listBankPledgeHistoryPage(page, pageSize, query || undefined, { from: fromDate || undefined, to: toDate || undefined });
+      const res = await listBankPledgeHistoryPage(page, pageSize, query || undefined, { from: fromDate || undefined, to: toDate || undefined }, { branchId: branchNums, customerId: customerNums, bank: bankNames });
 			setHistory(res.items);
 			setHistoryHasMore(res.hasMore);
 			setHistoryTotal(res.total);
@@ -124,7 +162,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 		} finally {
 			setHistoryLoading(false);
 		}
-	}, [pageSize, fromDate, toDate]);
+  }, [pageSize, fromDate, toDate, branchIds, customerIds, bankNames]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// Both tabs' data is kept in sync with the search box regardless of which
 	// one is open — a loan that's already been released/voided drops out of
@@ -153,7 +191,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 		// pageSize/cards: card mode grows pageSize on scroll, which must refetch
 		// page 1 with the larger size (rows stay on screen meanwhile).
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [trimmedQ, pageSize, cards, fromDate, toDate]);
+  }, [trimmedQ, pageSize, cards, fromDate, toDate, branchIds, customerIds, bankNames]);
 
 	function changePledgedPage(page: number) {
 		setPledgedPage(page);
@@ -274,6 +312,9 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 					onChange={(next) => {
 						setFromDate(next.__dateFrom || "");
 						setToDate(next.__dateTo || "");
+            setBranchIds(Array.isArray(next.branch) ? next.branch : []);
+            setCustomerIds(Array.isArray(next.customer) ? next.customer : []);
+            setBankNames(Array.isArray(next.bank) ? next.bank : []);
 					}}
 					hideChips
 					hideClearAll
@@ -295,7 +336,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 									<tr><td colSpan={9} className="empty">Loading…</td></tr>
 								) : pledged.length === 0 ? (
 									<tr><td colSpan={9} className="empty">No loans currently bank-pledged.</td></tr>
-								) : pledged.flatMap((l) => l.bankPledges.filter((p) => p.status === "Active").map((p) => ({ l, p }))).map(({ l, p: active }) => {
+                ) : pledged.flatMap((l) => l.bankPledges.filter((p) => p.status === "Active" && (!bankNames.length || bankNames.includes(p.bankName))).map((p) => ({ l, p }))).map(({ l, p: active }) => {
 									const treatment = active.cashTreatment ?? "CashIn";
 									// A pledge with no ornament list covers the whole loan.
 									const covered = active.ornamentIds.length ? l.ornaments.filter((o) => active.ornamentIds.includes(o.id)).map((o) => o.name) : [];

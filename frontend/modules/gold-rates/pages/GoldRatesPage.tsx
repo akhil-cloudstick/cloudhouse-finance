@@ -14,102 +14,108 @@ import { TableSearch } from "@/common/components/ui/TableSearch";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { type GoldRateView } from "@/modules/gold-rates/types/gold-rate-types";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { searchGoldRateSetByPage } from "@/modules/reports/services/reportsService";
 import { useResponsivePageSize, useScrollPageSize, useIsSmallScreen } from "@/common/utils/responsive";
 
 const timeOf = (iso: string) => {
-	const d = iso ? new Date(iso) : null;
-	return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "—";
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "—";
 };
 
 /* Name, with the setter's designation (role) under it when known. */
 function PublishedBy({ r }: { r: GoldRateView }) {
-	return (
-		<>
-			{r.setBy}
-			{r.setByDesignation && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.setByDesignation}</div>}
-		</>
-	);
+  return (
+    <>
+      {r.setBy}
+      {r.setByDesignation && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.setByDesignation}</div>}
+    </>
+  );
 }
 
 type RateTileProps = { k: string; r: number; small?: boolean };
 
 function RateTile({ k, r, small }: RateTileProps) {
-	return (
-		<div className={small ? "rate-tile rate-tile-sm" : "rate-tile"}>
-			<div className="k">{k}</div>
-			<div className="r">{fmt(r)}</div>
-			<div className="u">per gram</div>
-		</div>
-	);
+  return (
+    <div className={small ? "rate-tile rate-tile-sm" : "rate-tile"}>
+      <div className="k">{k}</div>
+      <div className="r">{fmt(r)}</div>
+      <div className="u">Per Gram</div>
+    </div>
+  );
 }
 
 /* Ported from legacy/app.js's `renderGoldRates()` / `rateTile()`. Now backed
  * by the real /gold-rates API via GoldRatesProvider instead of the mock
  * db.rates/db.rateHistory localStorage pair. */
 export function GoldRatesPage() {
-	const { latest, version } = useGoldRates();
-	const { openModal } = useModal();
-	const basePageSize = useResponsivePageSize(15, 15);
-	const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
-	const smallScreen = useIsSmallScreen();
-	// Hidden rather than disabled when the role cannot record a rate — see
-	// Customers.tsx.
-	const { can } = useAuth();
-	const canCreateRates = can("Gold_Rate_Management", "can_create_gold_rate");
+  const { latest, version } = useGoldRates();
+  const { openModal } = useModal();
+  const basePageSize = useResponsivePageSize(15, 15);
+  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
+  const smallScreen = useIsSmallScreen();
+  // Hidden rather than disabled when the role cannot record a rate — see
+  // Customers.tsx.
+  const { can } = useAuth();
+  const canCreateRates = can("Gold_Rate_Management", "can_create_gold_rate");
 
-	const [page, setPage] = useState(1);
-	const [rows, setRows] = useState<GoldRateView[]>([]);
-	const [total, setTotal] = useState(0);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState("");
-	// "YYYY-MM-DD", or "" for no limit.
-	const [from, setFrom] = useState("");
-	const [to, setTo] = useState("");
-	const filterCategories: FilterCategory[] = [{ key: "date", label: "Date", kind: "date" }];
-	// The typed search, and the value sent to the server once typing pauses.
-	const [q, setQ] = usePersistedState("gold-rates:q", "");
-	const [sentQ, setSentQ] = useState(q);
-	useEffect(() => {
-		const handle = setTimeout(() => { setSentQ(q); setPage(1); }, q === sentQ ? 0 : 300);
-		return () => clearTimeout(handle);
-	}, [q, sentQ]);
-	// Days whose list of changes is open.
-	const [openDays, setOpenDays] = useState<Set<string>>(new Set());
-	const toggleDay = (d: string) => setOpenDays((cur) => { const next = new Set(cur); if (next.has(d)) next.delete(d); else next.add(d); return next; });
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const [page, setPage] = useState(1);
+  const [rows, setRows] = useState<GoldRateView[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  // "YYYY-MM-DD", or "" for no limit.
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [setBy, setSetBy] = useState<string[]>([]);
+  // "Set by" names are paged and searched by the backend (the same list as the Gold Rate History report).
+  const filterCategories: FilterCategory[] = [
+    { key: "setBy", label: "Set By", kind: "async", searchHint: "Searches: name", fetchOptions: async (s, p) => { const r = await searchGoldRateSetByPage(s, p - 1); return { items: r.items.map((n) => ({ value: n, label: n })), hasMore: r.hasMore }; } },
+    { key: "date", label: "Date", kind: "date" },
+  ];
+  // The typed search, and the value sent to the server once typing pauses.
+  const [q, setQ] = usePersistedState("gold-rates:q", "");
+  const [sentQ, setSentQ] = useState(q);
+  useEffect(() => {
+    const handle = setTimeout(() => { setSentQ(q); setPage(1); }, q === sentQ ? 0 : 300);
+    return () => clearTimeout(handle);
+  }, [q, sentQ]);
+  // Days whose list of changes is open.
+  const [openDays, setOpenDays] = useState<Set<string>>(new Set());
+  const toggleDay = (d: string) => setOpenDays((cur) => { const next = new Set(cur); if (next.has(d)) next.delete(d); else next.add(d); return next; });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-	useEffect(() => {
-		let cancelled = false;
-		setLoading(true);
-		listGoldRateDaysPage(page, pageSize, from || undefined, to || undefined, sentQ)
-			.then((res) => {
-				if (cancelled) return;
-				setRows(res.items);
-				setTotal(res.total);
-				setError("");
-			})
-			.catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
-			.finally(() => { if (!cancelled) setLoading(false); });
-		return () => { cancelled = true; };
-	}, [page, pageSize, version, from, to, sentQ]);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listGoldRateDaysPage(page, pageSize, from || undefined, to || undefined, sentQ, setBy)
+      .then((res) => {
+        if (cancelled) return;
+        setRows(res.items);
+        setTotal(res.total);
+        setError("");
+      })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load rate history."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [page, pageSize, version, from, to, sentQ, setBy]);
 
-	return (
-		<>
-			<div className="page-h" >
-				<div><h1>Gold Rates</h1><p>Daily published rates by purity · full history maintained for audit</p></div>
-				<div className="sp"></div>
-				{canCreateRates && (
-					<button className="btn" onClick={() => openModal(<RateModalContent />)}>
-						<Icon name="coin" /> Set Today&apos;s Rate
-					</button>
-				)}
-			</div>
-			<hr className="gold-rule" />
-			<div className="rates3" style={{ maxWidth: smallScreen ? 480 : 720, marginBottom: 20 }}>
-				<RateTile k="24K · 999 · published" r={latest.k24} small={smallScreen} />
-				<RateTile k="22K · 916" r={latest.k22} small={smallScreen} />
-				<RateTile k="18K · 750" r={latest.k18} small={smallScreen} />
-			</div>
+  return (
+    <>
+      <div className="page-h" >
+        <div><h1>Gold Rates</h1><p>Daily published rates by purity · full history maintained for audit</p></div>
+        <div className="sp"></div>
+        {canCreateRates && (
+          <button className="btn" onClick={() => openModal(<RateModalContent />)}>
+            <Icon name="coin" /> Set Today&apos;s Rate
+          </button>
+        )}
+      </div>
+      <hr className="gold-rule" />
+      <div className="rates3" style={{ maxWidth: smallScreen ? 480 : 720, marginBottom: 20 }}>
+        <RateTile k="24K · 999 · published" r={latest.k24} small={smallScreen} />
+        <RateTile k="22K · 916" r={latest.k22} small={smallScreen} />
+        <RateTile k="18K · 750" r={latest.k18} small={smallScreen} />
+      </div>
       
       <div className="card tbl-card tbl-card-fill">
         <div className="hd">
@@ -119,8 +125,8 @@ export function GoldRatesPage() {
             <TableSearch value={q} onChange={setQ} placeholder="Search rates…" searches="date, 24K, 22K, 18K rate, set by" />
             <FilterPanel
               categories={filterCategories}
-              value={{ __dateFrom: from || undefined, __dateTo: to || undefined }}
-              onChange={(next) => { setFrom(next.__dateFrom || ""); setTo(next.__dateTo || ""); setPage(1); }}
+              value={{ __dateFrom: from || undefined, __dateTo: to || undefined, setBy }}
+              onChange={(next) => { setFrom(next.__dateFrom || ""); setTo(next.__dateTo || ""); setSetBy(Array.isArray(next.setBy) ? next.setBy : []); setPage(1); }}
               hideChips
             />
           </div>

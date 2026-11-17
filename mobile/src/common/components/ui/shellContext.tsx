@@ -357,7 +357,12 @@ export function resetTabs(nav: TabsNav, edit: (routes: TabRoute[], mint: ReturnT
   const live = tabsRef.live?.();
   if (!live) return false;
   const mint = tabRouteMinter(live);
-  const { routes, focusKey, replaced } = edit(live.routes, mint);
+  const edited = edit(live.routes, mint);
+  const { focusKey, replaced } = edited;
+  // A tab we aren't changing keeps its stack in `state`, which is the truth. Its params may still
+  // carry the nested target (`screen`/`params`) of an earlier push or tab press; re-sent in this RESET
+  // the stack followed it again on refocus — e.g. Back to a loan's detail, which then flipped to the list.
+  const routes = edited.routes.map((r) => (r.state && r.params ? { ...r, params: withoutNestedTarget(r.params) } : r));
   const keep = live.routes[live.index]?.key ?? "";
   const focus = focusKey ?? replaced?.get(keep) ?? keep;
   const remap = (key: string) => replaced?.get(key) ?? key;
@@ -702,17 +707,18 @@ export const s = StyleSheet.create({
     zIndex: 50,
     height: PTAB_HEIGHT,
     backgroundColor: C.card,
-    borderRadius: 26,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
     paddingHorizontal: 6,
     ...shadow(6, 16, 0.16),
   },
-  tab: { alignItems: "center", gap: 3 },
-  tabIc: { width: 54, height: 36, borderRadius: 18, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  tab: { alignItems: "center" },
+  // Icon + name stacked tightly inside one pill; the active highlight fills the whole pill.
+  tabIc: { width: 68, height: 54, borderRadius: 14, overflow: "hidden", alignItems: "center", justifyContent: "center", gap: 2 },
   tabIcActive: { backgroundColor: C.brandPale },
-  tabIcOverlay: { alignItems: "center", justifyContent: "center" },
+  tabIcOverlay: { alignItems: "center", justifyContent: "center", gap: 2 },
   tabLbl: { fontSize: 11.5, fontWeight: "600", color: C.muted },
   tabLblActive: { color: C.brandDeep },
   tabFab: { top: -22 },

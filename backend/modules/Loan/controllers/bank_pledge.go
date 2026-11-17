@@ -295,6 +295,19 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 		}
 	}
 	recordPledgeEvent(ctx, p, "Released", actorID, actorRole, pledgeReleaseRemark(p.CashTreatment))
+	if !stillPledged {
+		// The gold is back with the branch: a defaulted loan now enters the auction process (Auction Eligible),
+		// so its stored status is right; Auctioned is still set only by the sale.
+		if fresh, ferr := findLoanByID(ctx, loanID); ferr == nil {
+			accrueAndSave(ctx, fresh)
+			enrichLoan(ctx, fresh)
+			if fresh.IsDefaulted {
+				if _, aerr := openAuctionEligibility(ctx, loanID, branchID, actorID, actorRole); aerr != nil {
+					log.Printf("auto auction-eligible after bank release failed for loan %d: %v", loanID, aerr)
+				}
+			}
+		}
+	}
 	return GetLoan(ctx, l.ID, nil)
 }
 
@@ -361,8 +374,8 @@ func getBankPledgeHistory(ctx context.Context, loanID uint, branchID *uint) ([]m
 	return findBankPledgeHistoryByLoanID(ctx, loanID)
 }
 
-func listBankPledgeHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
-	return findAllHistory(ctx, branchID, query, from, to, limit, offset)
+func listBankPledgeHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int, pf pledgeListFilter) ([]BankPledgeHistoryRow, int64, error) {
+	return findAllHistory(ctx, branchID, query, from, to, limit, offset, pf)
 }
 
 func listBankPledgesForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerBankPledgeRow, int64, error) {
@@ -508,7 +521,14 @@ func findBankPledgeHistoryByLoanID(ctx context.Context, loanID uint) ([]models.B
 	return pledges, err
 }
 
-func findAllHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int) ([]BankPledgeHistoryRow, int64, error) {
+// pledgeListFilter is the Bank Pledge page's extra filters: any of the branches, customers and banks given.
+type pledgeListFilter struct {
+	BranchIDs   []uint
+	CustomerIDs []uint
+	Banks       []string
+}
+
+func findAllHistory(ctx context.Context, branchID *uint, query string, from, to *time.Time, limit, offset int, pf pledgeListFilter) ([]BankPledgeHistoryRow, int64, error) {
 	var pledges []BankPledgeHistoryRow
 	q := config.DB.
 		WithContext(ctx).Model(&models.BankPledgeRecord{}).
@@ -520,6 +540,15 @@ func findAllHistory(ctx context.Context, branchID *uint, query string, from, to 
 		Where("bank_pledge_records.status <> ?", models.BankPledgeStatusRecordActive)
 	if branchID != nil {
 		q = q.Where("loans.branch_id = ?", *branchID)
+	}
+	if len(pf.BranchIDs) > 0 {
+		q = q.Where("loans.branch_id IN ?", pf.BranchIDs)
+	}
+	if len(pf.CustomerIDs) > 0 {
+		q = q.Where("loans.customer_id IN ?", pf.CustomerIDs)
+	}
+	if len(pf.Banks) > 0 {
+		q = q.Where("bank_pledge_records.bank_name IN ?", pf.Banks)
 	}
 	if query != "" {
 		like := "%" + query + "%"
@@ -742,14 +771,15 @@ func ListBankPledgeHistory(c echo.Context) error {
 		return nil
 	}
 	page, limit, offset := common.PageParams(c)
+	pf := pledgeListFilter{BranchIDs: parseUintCSV(c.QueryParam("branch_id")), CustomerIDs: parseUintCSV(c.QueryParam("customer_id")), Banks: splitCSV(c.QueryParam("bank"))}
 	if limit > 0 {
-		recs, total, err := listBankPledgeHistory(ctx, branchID, query, from, to, limit, offset)
+		recs, total, err := listBankPledgeHistory(ctx, branchID, query, from, to, limit, offset, pf)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessPage(c, page, limit, total, recs)
 	}
-	recs, _, err := listBankPledgeHistory(ctx, branchID, query, from, to, 0, 0)
+	recs, _, err := listBankPledgeHistory(ctx, branchID, query, from, to, 0, 0, pf)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

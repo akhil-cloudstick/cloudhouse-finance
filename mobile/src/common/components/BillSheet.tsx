@@ -69,9 +69,12 @@ export function UploadImage({ path, style, title = "Photo", viewer = true }: Upl
   const [uri, setUri] = useState<string | null>(() => localCopies.get(path) ?? null);
   const [failed, setFailed] = useState(false);
   const [viewing, setViewing] = useState(false);
+  // Bumped when a cached local copy is gone (cache purged): refetch once.
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     const cached = localCopies.get(path);
     if (cached) {
+      setFailed(false);
       setUri(cached);
       return;
     }
@@ -95,12 +98,22 @@ export function UploadImage({ path, style, title = "Photo", viewer = true }: Upl
     return () => {
       live = false;
     };
-  }, [path]);
+  }, [path, retry]);
   return (
     <>
       <Pressable onPress={() => viewer && setViewing(true)} disabled={!viewer} accessibilityRole="imagebutton" accessibilityLabel={`View ${title}`}>
         {uri && !failed ? (
-          <Image source={{ uri }} resizeMode="cover" style={style} onError={() => setFailed(true)} />
+          <Image
+            source={{ uri }}
+            resizeMode="cover"
+            style={style}
+            onError={() => {
+              if (retry === 0 && localCopies.get(path) === uri) {
+                localCopies.delete(path);
+                setRetry(1);
+              } else setFailed(true);
+            }}
+          />
         ) : (
           <View style={[style as StyleProp<ViewStyle>, { alignItems: "center", justifyContent: "center", backgroundColor: C.card }]}>
             {failed ? <Txt style={{ fontSize: 11, color: C.muted }}>Photo unavailable</Txt> : <ActivityIndicator color={C.brandDeep} />}
@@ -112,17 +125,19 @@ export function UploadImage({ path, style, title = "Photo", viewer = true }: Upl
   );
 }
 
-type BillSheetProps = { path: string | null; onClose: () => void; /** What is being viewed (e.g. "Identity proof"); shown as the sheet title. */ title?: string };
+type BillSheetProps = { path: string | null; onClose: () => void; /** What is being viewed (e.g. "Identity proof"); shown as the sheet title. */ title?: string; /** Shows a Replace button below the viewer. */ onReplace?: () => void };
 
 /** A bill image in a sheet, authenticated, with a clear fallback if it won't
  * load (and Share/Open for PDFs, which an Image can't draw). */
-export function BillSheet({ path, onClose, title = "Bill" }: BillSheetProps) {
+export function BillSheet({ path, onClose, title = "Bill", onReplace }: BillSheetProps) {
   const [localUri, setLocalUri] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   // Bumped by Retry so the <Image> remounts and fetches again.
   const [attempt, setAttempt] = useState(0);
+  // Why the last load failed (e.g. "HTTP 404"), shown under the message so a failure can be told apart.
+  const [reason, setReason] = useState("");
   const pdf = !!path && isPdf(path);
   // Only ledger bills are "bills"; everything else (KYC documents, ornament photos…) is a document.
   const noun = title === "Bill" ? "bill" : "document";
@@ -132,22 +147,35 @@ export function BillSheet({ path, onClose, title = "Bill" }: BillSheetProps) {
   // some Android builds, and a download reports the real HTTP status.
   useEffect(() => {
     setFailed(false);
+    setReason("");
     setLoading(true);
     setLocalUri(null);
     if (!path || pdf) return;
     let live = true;
     (async () => {
-      try {
-        const token = await getToken();
-        const url = uploadUrl(path);
-        const target = `${FileSystem.cacheDirectory}doc-${Date.now()}`;
-        const res = await FileSystem.downloadAsync(url, target, { headers: token && isOwnUrl(url) ? { Authorization: `Bearer ${token}` } : {} });
-        if (!live) return;
-        if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
-        setLocalUri(res.uri);
-      } catch (e) {
-        if (__DEV__) console.warn("[bill] load failed", path, e);
-        if (live) setFailed(true);
+      // A bill just uploaded can miss its first fetch (a dropped connection, a token being refreshed): try twice
+      // before giving up, and leave a Retry button for the rest.
+      let lastErr: unknown;
+      for (let i = 0; i < 2 && live; i++) {
+        try {
+          const token = await getToken();
+          const url = uploadUrl(path);
+          const ext = (path.match(/\.([a-z0-9]{2,5})(\?|$)/i)?.[1] ?? "jpg").toLowerCase();
+          const target = `${FileSystem.cacheDirectory}doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+          const res = await FileSystem.downloadAsync(url, target, { headers: token && isOwnUrl(url) ? { Authorization: `Bearer ${token}` } : {} });
+          if (!live) return;
+          if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
+          setLocalUri(res.uri);
+          return;
+        } catch (e) {
+          lastErr = e;
+          if (__DEV__) console.warn("[bill] load failed", path, e);
+          if (i === 0) await new Promise((r) => setTimeout(r, 700));
+        }
+      }
+      if (live) {
+        setReason(lastErr instanceof Error ? lastErr.message : "");
+        setFailed(true);
       }
     })();
     return () => {
@@ -177,7 +205,7 @@ export function BillSheet({ path, onClose, title = "Bill" }: BillSheetProps) {
             resizeMode="contain"
             style={{ width: "100%", height: 420, backgroundColor: C.card }}
             onLoadEnd={() => setLoading(false)}
-            onError={() => setFailed(true)}
+            onError={() => { setReason("Image could not be shown"); setFailed(true); }}
           />
           {loading ? <ActivityIndicator color={C.brandDeep} style={{ position: "absolute" }} /> : null}
         </View>
@@ -186,10 +214,12 @@ export function BillSheet({ path, onClose, title = "Bill" }: BillSheetProps) {
           <Txt style={{ fontSize: 13, color: C.muted }}>
             {pdf ? `This ${noun} is a PDF — open it to view.` : failed ? "Document unavailable." : "Loading…"}
           </Txt>
-          {failed && !pdf ? <PrimaryButton label="Retry" onPress={() => { setAttempt((n) => n + 1); }} /> : null}
-          {pdf || failed ? <PrimaryButton label={pdf ? `Open ${noun}` : "Open instead"} variant={pdf ? undefined : "outline"} onPress={onShare} loading={busy} /> : null}
+          {failed && reason ? <Txt style={{ fontSize: 11, color: C.muted }}>{reason}</Txt> : null}
+          {pdf ? <PrimaryButton label={`Open ${noun}`} onPress={onShare} loading={busy} /> : null}
+          {failed && !pdf ? <PrimaryButton label="Retry" variant="outline" onPress={() => setAttempt((a) => a + 1)} /> : null}
         </View>
       )}
+      {onReplace ? <View style={{ marginTop: 12 }}><PrimaryButton label="Replace" variant="outline" onPress={onReplace} /></View> : null}
     </Sheet>
   );
 }

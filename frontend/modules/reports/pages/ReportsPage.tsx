@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import { Icon } from "@/common/components/Icon";
 import { useToast } from "@/common/components/ToastProvider";
+import { useModal } from "@/common/components/ModalProvider";
+import { ExportFormatModal, type ExportKind } from "@/modules/reports/components/ExportMenu";
 import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtW, fmtDate } from "@/common/utils/format";
 import { FormGReportView } from "@/modules/reports/components/FormGReportView";
@@ -13,14 +15,19 @@ import { DayBookReportView } from "@/modules/reports/components/DayBookReportVie
 import { getDisbursement, getPersonalLoans, getLoansStatus, getInterestCollection, getPaymentCollection, getGoldWeight, getPackets, getBankPledge, getLoanExtensions, getGoldRelease, getAuctions, getExpenseCashflow, getKYC, getGoldRateHistory, searchGoldRateSetByPage, getEmployeePerformance, getCommunicationHistory, getBalanceSheet, getProfitAndLoss, exportReport, getDepositRegister, getInterestPayoutRegister, getMaturityRegister } from "@/modules/reports/services/reportsService";
 import { searchCustomersPage } from "@/modules/customers/services/customerService";
 import { searchInvestorsPage } from "@/modules/investments/services/investorService";
+import { searchLockersPage } from "@/modules/lockers/services/lockerService";
+import { searchOrnamentTypesPage } from "@/modules/ornament-types/services/ornamentTypeService";
+import { fetchRoles } from "@/common/services/permissionService";
+import { DEFAULT_ROLES } from "@/modules/employees/components/EmployeeModalContent";
+import { AUCTION_OUTCOME_LABELS } from "@/modules/loans/services/loanService";
 import { searchLoansPage } from "@/modules/loans/services/loanService";
 import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
 import { searchBanksPage } from "@/modules/banks/services/bankService";
 import { listEmployeesPage } from "@/modules/employees/services/employeeService";
 import { searchInvestmentPlansPage } from "@/modules/investments/services/investmentService";
-import { searchExpenseCategoriesPage } from "@/modules/cash/services/expenseCategoryService";
+import { searchSelectableExpenseCategoriesPage } from "@/modules/cash/services/expenseCategoryService";
 import { searchPurityStandardsPage } from "@/modules/purity-standards/services/purityStandardService";
-import { type StatementStyle } from "@/modules/reports/types/reports-types";
+import { type ReportFilters, type StatementStyle } from "@/modules/reports/types/reports-types";
 import { useIsSmallScreen } from "@/common/utils/responsive";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { navigate } from "@/common/services/appRoutes";
@@ -31,24 +38,24 @@ import { navigate } from "@/common/services/appRoutes";
  * so both tiles need the same bold/indent treatment off style+indent
  * rather than a per-report render function. */
 function statementLabelCell(label: string, style: StatementStyle, indent: number) {
-	return <span style={{ fontWeight: style ? 700 : 400, paddingLeft: indent * 16 }}>{label}</span>;
+  return <span style={{ fontWeight: style ? 700 : 400, paddingLeft: indent * 16 }}>{label}</span>;
 }
 function statementAmountCell(amount: number, style: StatementStyle) {
-	if (style === "header") return null;
-	return <span style={{ fontWeight: style === "total" ? 700 : 400 }}>{fmt(amount)}</span>;
+  if (style === "header") return null;
+  return <span style={{ fontWeight: style === "total" ? 700 : 400 }}>{fmt(amount)}</span>;
 }
 
 function firstOfMonth(): string {
-	const d = new Date();
-	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 function today(): string {
-	return new Date().toISOString().slice(0, 10);
+  return new Date().toISOString().slice(0, 10);
 }
 function subMonths(dateStr: string, months: number): string {
-	const d = new Date(dateStr + "T00:00:00");
-	d.setMonth(d.getMonth() - months);
-	return d.toISOString().slice(0, 10);
+  const d = new Date(dateStr + "T00:00:00");
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString().slice(0, 10);
 }
 
 const dt = fmtDate;
@@ -92,7 +99,7 @@ const planGroup = (): Group => ({
 });
 const expenseCategoryGroup = (): Group => ({
   key: "expenseCategory", label: "Expense Category", param: "expenseCategoryId",
-  fetchOptions: async (q, p) => { const r = await searchExpenseCategoriesPage(q, p - 1); return { items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore }; },
+  fetchOptions: async (q, p) => { const r = await searchSelectableExpenseCategoriesPage(q, p - 1); return { items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore }; },
 });
 const purityGroup = (): Group => ({
   key: "purity", label: "Purity (karat)", param: "purity",
@@ -110,6 +117,28 @@ const purityGroup = (): Group => ({
       .filter((o) => !term || o.label.toLowerCase().includes(term));
     return { items, hasMore: false };
   },
+});
+const ornamentTypeGroup = (): Group => ({
+  key: "ornamentType", label: "Ornament Type", param: "ornamentType",
+  fetchOptions: async (q, p) => { const r = await searchOrnamentTypesPage(q, p - 1); return { items: r.items.map((t) => ({ value: t.name, label: t.name })), hasMore: r.hasMore }; },
+});
+const lockerGroup = (): Group => ({
+  key: "locker", label: "Locker", param: "lockerId",
+  fetchOptions: async (q, p) => { const r = await searchLockersPage(q, p - 1); return { items: r.items.map((l) => ({ value: String(l.id), label: l.code })), hasMore: r.hasMore }; },
+});
+// Roles come from the live role list (custom roles too); without the role-view permission the seeded roles are offered.
+const roleGroup = (): Group => ({
+  key: "role", label: "Role", param: "role",
+  fetchOptions: async (q, p) => {
+    if (p > 1) return { items: [], hasMore: false };
+    let names = DEFAULT_ROLES;
+    try { const rs = await fetchRoles(); if (rs.length) names = rs.map((r) => r.name); } catch { /* seeded roles */ }
+    const term = q.trim().toLowerCase();
+    return { items: names.filter((n) => !term || n.toLowerCase().includes(term)).map((n) => ({ value: n, label: n })), hasMore: false };
+  },
+});
+const verifyStatusGroup = (key: string, label: string, param: keyof ReportFilters): Group => ({
+  key, label, param, options: ["Verified", "Pending", "Failed", "Name Mismatch"],
 });
 const statusGroup = (options: string[]): Group => ({ key: "status", label: "Status", param: "status", options });
 
@@ -237,7 +266,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "gold-weight",
     fetchFn: getGoldWeight,
     rowKey: (r) => r.ornamentId,
-    filterGroups: [customerGroup(), purityGroup()],
+    filterGroups: [customerGroup(), ornamentTypeGroup(), purityGroup()],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },
@@ -261,7 +290,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "packets",
     fetchFn: getPackets,
     rowKey: (r) => r.packetId,
-    filterGroups: [customerGroup(), loanGroup()],
+    filterGroups: [customerGroup(), loanGroup(), statusGroup(["Locker Stored", "Bank Pledged", "Returned", "Released"]), lockerGroup()],
     columns: [
       { key: "code", label: "Packet Code", render: (r) => r.code },
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
@@ -319,7 +348,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "gold-release",
     fetchFn: getGoldRelease,
     rowKey: (r) => r.requestId,
-    filterGroups: [customerGroup(), loanGroup()],
+    filterGroups: [customerGroup(), loanGroup(), statusGroup(["Pending", "Approved", "Rejected"])],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "customerName", label: "Customer", render: (r) => r.customerName },
@@ -337,12 +366,12 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "auctions",
     fetchFn: getAuctions,
     rowKey: (r) => r.recordId,
-    filterGroups: [customerGroup(), loanGroup()],
+    filterGroups: [customerGroup(), loanGroup(), { key: "settlement", label: "Settlement", param: "settlement", options: Object.entries(AUCTION_OUTCOME_LABELS).map(([value, label]) => ({ value, label })) }],
     columns: [
       { key: "loanNumber", label: "Loan #", render: (r) => r.loanNumber },
       { key: "stage", label: "Stage", render: (r) => r.stage },
       { key: "auctionDate", label: "Auction Date", render: (r) => r.auctionDate ? dt(r.auctionDate) : "—" },
-      { key: "settlementStatus", label: "Settlement", render: (r) => r.settlementStatus },
+      { key: "settlementStatus", label: "Settlement", width: "24%", render: (r) => AUCTION_OUTCOME_LABELS[r.settlementStatus as keyof typeof AUCTION_OUTCOME_LABELS] ?? r.settlementStatus },
       { key: "saleAmount", label: "Sale Amount", numeric: true, render: (r) => fmt(r.saleAmount) },
     ],
     totals: (t) => [{ label: "Records", value: String(t.count) }, { label: "Total Sale Amount", value: fmt(t.totalSaleAmount) }],
@@ -376,7 +405,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "kyc",
     fetchFn: getKYC,
     rowKey: (r) => r.customerId,
-    filterGroups: [customerGroup()],
+    filterGroups: [customerGroup(), verifyStatusGroup("kycStatus", "KYC", "kycStatus"), verifyStatusGroup("panStatus", "PAN", "panStatus"), verifyStatusGroup("aadhaarStatus", "Aadhaar", "aadhaarStatus")],
     columns: [
       { key: "code", label: "Customer Code", render: (r) => r.code },
       { key: "name", label: "Name", render: (r) => r.name },
@@ -411,7 +440,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "employee-performance",
     fetchFn: getEmployeePerformance,
     rowKey: (r) => r.employeeId,
-    filterGroups: [employeeGroup()],
+    filterGroups: [employeeGroup(), roleGroup()],
     columns: [
       { key: "employeeCode", label: "Employee ID", render: (r) => r.employeeCode || "—" },
       { key: "name", label: "Employee", render: (r) => r.name },
@@ -432,7 +461,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     exportKey: "communication-history",
     fetchFn: getCommunicationHistory,
     rowKey: (r) => r.id,
-    filterGroups: [employeeGroup(), { key: "triggerType", label: "Trigger Type", param: "triggerType", options: ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"] }],
+    filterGroups: [employeeGroup(), { key: "channel", label: "Channel", param: "channel", options: ["WhatsApp"] }, statusGroup(["sent", "failed"]), { key: "triggerType", label: "Trigger Type", param: "triggerType", options: ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"] }],
     columns: [
       { key: "recipientName", label: "Recipient", render: (r) => r.recipientName },
       { key: "recipientPhone", label: "Phone", render: (r) => r.recipientPhone },
@@ -562,30 +591,30 @@ const REPORT_CONFIGS: ReportConfig[] = [
  * report above shares. Only title/description/icon are needed for the tile
  * grid itself. */
 const FORM_G_TILE = {
-	id: "form-g",
-	title: "Form G — Statement of Accounts",
-	description: "Kerala Money-Lenders Rules 1964, Rule 15(3) — quarterly/yearly statement",
-	icon: "doc",
+  id: "form-g",
+  title: "Form G — Statement of Accounts",
+  description: "Kerala Money-Lenders Rules 1964, Rule 15(3) — quarterly/yearly statement",
+  icon: "doc",
 };
 
 /* Ledger export's own tile — like Form G, kept out of REPORT_CONFIGS since
  * it's a party-selector (customer/branch/bank) feeding the existing
  * exportPartyStatementBy* calls, not a fixed-dataset Row/Totals report. */
 const LEDGER_EXPORT_TILE = {
-	id: "ledger-export",
-	title: "Ledger Report",
-	description: "Download a full ledger for one customer, branch or bank",
-	singleBranchDescription: "Download a full ledger for one customer or bank",
-	icon: "coin",
+  id: "ledger-export",
+  title: "Ledger Report",
+  description: "Download a full ledger for one customer, branch or bank",
+  singleBranchDescription: "Download a full ledger for one customer or bank",
+  icon: "coin",
 };
 
 /* Day Book's own tile — its entries are written by hand (add / edit / delete), which the
  * read-only generic ReportView has no place for, so it has its own DayBookReportView. */
 const DAY_BOOK_TILE = {
-	id: "day-book",
-	title: "Day Book",
-	description: "Record entries by hand — date, particulars, debit, credit and interest",
-	icon: "note",
+  id: "day-book",
+  title: "Day Book",
+  description: "Record entries by hand — date, particulars, debit, credit and interest",
+  icon: "note",
 };
 
 /* Ported from legacy/app.js's `renderReports()` tile grid, now wired to
@@ -594,7 +623,7 @@ const DAY_BOOK_TILE = {
  * export) in place, rather than firing a stub toast. */
 /* "Daily Loan Disbursement" → "daily-loan-disbursement": the report's segment in /reports/<slug>. */
 function reportSlug(title: string): string {
-	return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 /* Title of the report a /reports/<slug> URL points at — backs the Topbar breadcrumb. */
@@ -604,92 +633,97 @@ export function reportTitleFromSlug(slug?: string): string | undefined {
 }
 
 export function ReportsPage({ reportSlug: slugFromUrl }: { reportSlug?: string }) {
-	const toast = useToast();
-	const smallScreen = useIsSmallScreen();
-	const { hasModule, singleBranch } = useBranding();
-	// Single-branch plan: tile descriptions drop their branch wording.
-	const tileDescription = (r: { description: string; singleBranchDescription?: string }) =>
-		(singleBranch && r.singleBranchDescription) || r.description;
-	// Personal Loans/Investments reports carry a tenantModule the way
-	// Sidebar.tsx's own nav entries do for those pages — a business without
-	// the module doesn't see the report tile exist, matching the backend
-	// refusing the underlying API call too (see internal/reports/routes.go).
-	const visibleConfigs = REPORT_CONFIGS.filter((r) => !r.tenantModule || hasModule(r.tenantModule));
-	// Which report is open lives in the URL, so a refresh or a pasted link lands on it.
-	const activeId = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, DAY_BOOK_TILE].find((r) => reportSlug(r.title) === slugFromUrl)?.id ?? null;
-	const setActiveId = (id: string | null) => {
-		const tile = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, DAY_BOOK_TILE].find((r) => r.id === id);
-		navigate("reports", tile ? reportSlug(tile.title) : undefined);
-	};
-	const [printingId, setPrintingId] = useState<string | null>(null);
-	const active = visibleConfigs.find((r) => r.id === activeId) || null;
+  const toast = useToast();
+  const { openModal } = useModal();
+  const smallScreen = useIsSmallScreen();
+  const { hasModule, singleBranch } = useBranding();
+  // Single-branch plan: tile descriptions drop their branch wording.
+  const tileDescription = (r: { description: string; singleBranchDescription?: string }) =>
+    (singleBranch && r.singleBranchDescription) || r.description;
+  // Personal Loans/Investments reports carry a tenantModule the way
+  // Sidebar.tsx's own nav entries do for those pages — a business without
+  // the module doesn't see the report tile exist, matching the backend
+  // refusing the underlying API call too (see internal/reports/routes.go).
+  const visibleConfigs = REPORT_CONFIGS.filter((r) => !r.tenantModule || hasModule(r.tenantModule));
+  // Which report is open lives in the URL, so a refresh or a pasted link lands on it.
+  const activeId = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, DAY_BOOK_TILE].find((r) => reportSlug(r.title) === slugFromUrl)?.id ?? null;
+  const setActiveId = (id: string | null) => {
+    const tile = [...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, DAY_BOOK_TILE].find((r) => r.id === id);
+    navigate("reports", tile ? reportSlug(tile.title) : undefined);
+  };
+  const [printingId, setPrintingId] = useState<string | null>(null);
+  const active = visibleConfigs.find((r) => r.id === activeId) || null;
 
-	if (activeId === "form-g") {
-		return <FormGReportView onBack={() => setActiveId(null)} />;
-	}
-	if (activeId === "ledger-export") {
-		return <LedgerExportView onBack={() => setActiveId(null)} />;
-	}
-	if (activeId === "day-book") {
-		return <DayBookReportView onBack={() => setActiveId(null)} />;
-	}
-	if (active) {
-		return <ReportView key={active.id} config={active} onBack={() => setActiveId(null)} />;
-	}
+  if (activeId === "form-g") {
+    return <FormGReportView onBack={() => setActiveId(null)} />;
+  }
+  if (activeId === "ledger-export") {
+    return <LedgerExportView onBack={() => setActiveId(null)} />;
+  }
+  if (activeId === "day-book") {
+    return <DayBookReportView onBack={() => setActiveId(null)} />;
+  }
+  if (active) {
+    return <ReportView key={active.id} config={active} onBack={() => setActiveId(null)} />;
+  }
 
-	async function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE | typeof DAY_BOOK_TILE) { return singleFlight("reports:print:"+r.id, async () => {
-		e.stopPropagation();
-		if (r.id === "ledger-export") { setActiveId("ledger-export"); return; }
-		setPrintingId(r.id);
-		try {
-			// Form G defaults to the last 3 months everywhere else in this view
-			// (see FormGReportView); the quick-print button uses the same
-			// generic exportReport as every other tile (its export-key dispatch
-			// in backend/internal/reports/export.go special-cases "form-g"
-			// regardless of caller, so no separate handling is needed here beyond
-			// the date range), just with that 3-month default instead of
-			// firstOfMonth().
-			const range = r.id === "form-g" ? { from: subMonths(today(), 3), to: today() } : { from: firstOfMonth(), to: today() };
-			await exportReport(r.id === "form-g" || r.id === "day-book" ? r.id : (r as ReportConfig).exportKey, "pdf", range);
-		} catch (err) {
-			toast(err instanceof ApiError ? err.message : "Print failed.");
-		} finally {
-			setPrintingId(null);
-		}
-	}); }
+  function handlePrint(e: React.MouseEvent, r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE | typeof DAY_BOOK_TILE) {
+    e.stopPropagation();
+    if (r.id === "ledger-export") { setActiveId("ledger-export"); return; }
+    openModal(<ExportFormatModal onPick={(kind) => runPrint(r, kind)} />);
+  }
 
-	return (
-		<>
-			<div className="page-h">
-				<div><h1>Reports</h1><p>Filterable reports, exportable to PDF / Excel</p></div>
-			</div>
-			{/* Small-screen margin override (matches Loans.tsx's own hr override)
-			 * — without it this rule was reading as missing on small/short
-			 * (useIsSmallScreen) windows, sitting too close to the header to read
-			 * as its own divider line. */}
-			<hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
-			<div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>
-				{[...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, DAY_BOOK_TILE].map((r) => (
-					<div className="card" style={{ cursor: "pointer", minHeight: 120, display: "flex", flexDirection: "column", position: "relative" }} key={r.id} onClick={() => setActiveId(r.id)}>
-						<button
-							className="btn ghost sm"
-							style={{ position: "absolute", top: 10, right: 10, width: 30, height: 30, padding: 0, display: "grid", placeContent: "center" }}
-							disabled={printingId === r.id}
-							onClick={(e) => handlePrint(e, r)}
-							title={`Print ${r.title}`}
-							aria-label={`Print ${r.title}`}
-						>
-							<span style={{ display: "grid", placeContent: "center", transform: "translateY(2px)" }}>
-								<Icon name="print" />
-							</span>
-						</button>
-						<div className="bd" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-							<b style={{ fontSize: 14.5, color: "var(--charcoal)", paddingRight: 40 }}>{r.title}</b>
-							<div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, paddingRight: 40 }}>{tileDescription(r)}</div>
-						</div>
-					</div>
-				))}
-			</div>
-		</>
-	);
+  async function runPrint(r: ReportConfig | typeof FORM_G_TILE | typeof LEDGER_EXPORT_TILE | typeof DAY_BOOK_TILE, kind: ExportKind) { return singleFlight("reports:print:"+r.id, async () => {
+    setPrintingId(r.id);
+    try {
+      // Form G defaults to the last 3 months everywhere else in this view
+      // (see FormGReportView); the quick-print button uses the same
+      // generic exportReport as every other tile (its export-key dispatch
+      // in backend/internal/reports/export.go special-cases "form-g"
+      // regardless of caller, so no separate handling is needed here beyond
+      // the date range), just with that 3-month default instead of
+      // firstOfMonth().
+      const range = r.id === "form-g" ? { from: subMonths(today(), 3), to: today() } : { from: firstOfMonth(), to: today() };
+      await exportReport(r.id === "form-g" || r.id === "day-book" ? r.id : (r as ReportConfig).exportKey, kind, range);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Print failed.");
+    } finally {
+      setPrintingId(null);
+    }
+  }); }
+
+  return (
+    <>
+      <div className="page-h">
+        <div><h1>Reports</h1><p>Filterable reports, exportable to PDF / Excel</p></div>
+      </div>
+      {/* Small-screen margin override (matches Loans.tsx's own hr override)
+       * — without it this rule was reading as missing on small/short
+       * (useIsSmallScreen) windows, sitting too close to the header to read
+       * as its own divider line. */}
+      <hr className="gold-rule" style={smallScreen ? { margin: "4px 0 18px" } : undefined} />
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(250px,1fr))" }}>
+        {[...visibleConfigs, FORM_G_TILE, LEDGER_EXPORT_TILE, DAY_BOOK_TILE].map((r) => (
+          <div className="card" style={{ cursor: "pointer", minHeight: 120, display: "flex", flexDirection: "column", position: "relative" }} key={r.id} onClick={() => setActiveId(r.id)}>
+            <button
+              className="btn ghost sm"
+              style={{ position: "absolute", top: 10, right: 10, width: 30, height: 30, padding: 0, display: "grid", placeContent: "center" }}
+              disabled={printingId === r.id}
+              onClick={(e) => handlePrint(e, r)}
+              title={`Print ${r.title}`}
+              aria-label={`Print ${r.title}`}
+            >
+              <span style={{ display: "grid", placeContent: "center", transform: "translateY(2px)" }}>
+                <Icon name="print" />
+              </span>
+            </button>
+            <div className="bd" style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+              <b style={{ fontSize: 14.5, color: "var(--charcoal)", paddingRight: 40 }}>{r.title}</b>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, paddingRight: 40 }}>{tileDescription(r)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
 }

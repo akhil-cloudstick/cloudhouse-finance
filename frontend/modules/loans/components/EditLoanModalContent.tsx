@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useEffect, useRef, useState } from "react";
 import { MAX_ORN_PHOTOS } from "@/modules/loans/utils/ornamentPhotos";
 import { useModal } from "@/common/components/ModalProvider";
@@ -7,7 +8,8 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { PurityPicker } from "@/common/components/PurityPicker";
-import { fmt, roundRupee } from "@/common/utils/format";
+import { fmt, roundRupee, schemeOptionLabel } from "@/common/utils/format";
+import { DatePicker } from "@/common/components/ui/DatePicker";
 import { rateForPurityFull } from "@/common/utils/purity";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
@@ -18,7 +20,7 @@ import { customerRef } from "@/modules/customers/services/customerOffline";
 import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
 import { InterestChangesTable, type InterestChangeView } from "@/modules/loans/components/InterestChangesTable";
 import { GoldReleaseDependents, goldChoicesOf } from "@/modules/loans/components/GoldReleaseDependents";
-import { type LedgerEditDependent, type LedgerFollowingEntry, previewLoanEdit, updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
+import { type LedgerEditDependent, type LedgerFollowingEntry, previewLoanEdit, listTopUps, updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
 import { uploadFile } from "@/modules/customers/services/customerService";
 import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
 import { SafeImage } from "@/common/components/ui/SafeImage";
@@ -54,6 +56,12 @@ type EditLoanModalContentProps = { loan: LoanView; onSaved: () => void };
  * the loan for the sanction chain (ApprovalStage resets, Status goes back
  * to Pending Approval), so the warning below fires the moment either one
  * differs from what the loan already has; ornament-only edits do not. */
+// Local calendar date as YYYY-MM-DD (not UTC, so late evening does not read as tomorrow).
+function localISO(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProps) {
 	const { closeModal } = useModal();
 	const toast = useToast();
@@ -61,8 +69,18 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 
 	const [schemeId, setSchemeId] = useState(loan.schemeId); // string, matches SchemeView.id
 	const [schemeLabel, setSchemeLabel] = useState(`${loan.schemeName}`);
-	const [schemeLtv, setSchemeLtv] = useState(loan.schemeLtv);
-	const [principal, setPrincipal] = useState(String(loan.principal));
+  // The scheme's LTV now (what the server checks the amount against), not the one frozen on the loan.
+  const [schemeLtv, setSchemeLtv] = useState(loan.currentSchemeLtv ?? loan.schemeLtv);
+  // the newly picked scheme's service charge terms (null while the loan's own scheme is kept)
+  const [schemeObj, setSchemeObj] = useState<SchemeView | null>(null);
+  // How the service charge is taken: kept from the loan, or reset to the new scheme's own when the scheme is switched.
+  type ChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
+  const loanChargeMode: ChargeMode = loan.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout";
+  const [chargeMode, setChargeMode] = useState<ChargeMode>(loanChargeMode);
+  // The loan's opening date; changing it moves the due date and redoes the interest from the new date.
+  const [openedDate, setOpenedDate] = useState(loan.opened);
+  // The amount the customer asked for: the loan's principal, less the service charge when that was added on top of it.
+  const [amount, setAmount] = useState(String(Math.round((loan.principal - (loanChargeMode === "AddedToPrincipal" ? (loan.serviceChargeAmount || 0) : 0)) * 100) / 100));
 	const [rows, setRows] = useState<OrnRow[]>(loan.ornaments.map(toRow));
 	const [overallPhoto, setOverallPhoto] = useState(loan.overallPhotoUrl);
 	const [additionalInfo, setAdditionalInfo] = useState(loan.additionalInfo || "");
@@ -160,6 +178,8 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 	// Rounded to paise like the backend's common.RoundMoney — the raw float can
 	// carry hidden digits past the two shown, which made the exact eligible
 	// amount typed into Principal fail the "cannot exceed" check.
+  // A scheme not based on gold LTV (LTV 0) puts no cap on the amount.
+  const ltvBased = schemeLtv > 0;
 	const eligibleLoanAmount = roundRupee(((totalGoldValue * schemeLtv) / 100));
 
 	// Mirrors the backend's own materialChange check in Service.UpdateLoan —
@@ -171,7 +191,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 	// under it) instead of waiting for Save to refuse it.
 	const capToEligible = (value: string) => {
 		const n = +value;
-		return eligibleLoanAmount > 0 && n > eligibleLoanAmount ? String(Math.floor(eligibleLoanAmount)) : value;
+    return ltvBased && eligibleLoanAmount > 0 && n > eligibleLoanAmount ? String(Math.floor(eligibleLoanAmount)) : value;
 	};
 
 	// A loan already paid out: how its payout was made can be corrected here too. The total follows the principal
@@ -179,11 +199,33 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 	const paidOut = !!loan.disbursementDate;
 	// the payout in force: a loan edited the old way also keeps an earlier payout and its reversal
 	const disbursement = [...loan.payments].reverse().find((p) => p.type === "Disbursement");
-	const principalNum = +principal > 0 ? +principal : loan.principal;
-	const newSanctioned = (loan.sanctionedAmount || loan.principal) + (principalNum - loan.principal);
-	const serviceCharge = loan.serviceChargeType === "Percent"
-		? Math.round(newSanctioned * (loan.serviceChargeValue ?? 0)) / 100
-		: loan.serviceChargeAmount;
+  // Like New Loan: staff type the Amount; the service charge comes off it (Deduct) or rides on top of it (Add to loan),
+  // and the loan's principal follows.
+  const amountNum = +amount > 0 ? +amount : 0;
+  const useNew = schemeObj !== null && schemeId !== loan.schemeId;
+  const chargeType = useNew ? schemeObj.serviceChargeType : loan.serviceChargeType;
+  const chargeValue = useNew ? schemeObj.serviceChargeValue : (loan.serviceChargeValue ?? 0);
+  const serviceCharge = chargeType === "Percent"
+    ? Math.round(amountNum * chargeValue) / 100
+    : useNew ? (chargeType === "Flat" ? chargeValue : 0) : loan.serviceChargeAmount;
+  const hasCharge = !!chargeType && chargeType !== "None";
+  const principalTotal = amountNum > 0 ? Math.round((hasCharge && chargeMode === "AddedToPrincipal" ? amountNum + serviceCharge : amountNum) * 100) / 100 : loan.principal;
+  // The amount the loan started with is its principal less the top-ups paid out since — the same figure the server
+  // works from. Until the top-ups load, the stored sanction stands in for it.
+  const [topUpSum, setTopUpSum] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listTopUps(loan.numericId)
+      .then((ups) => { if (!cancelled) setTopUpSum(roundRupee(ups.filter((t) => t.status === "Active").reduce((s, t) => s + t.amount, 0))); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [loan.numericId]);
+  const newSanctioned = topUpSum !== null
+    ? principalTotal - topUpSum
+    : (loan.sanctionedAmount || loan.principal) + (principalTotal - loan.principal);
+  const modeChanged = hasCharge && chargeMode !== loanChargeMode;
+  // A switched scheme brings its own mode on the server, so the chosen one is always sent along with it.
+  const sendMode = hasCharge && (modeChanged || schemeId !== loan.schemeId);
 	const payout = roundRupee((newSanctioned - serviceCharge));
 	const payoutLines: SplitPaymentLine[] | undefined = disbursement ? [
 		disbursement.cashAmount > 0 && { mode: "Cash" as const, amount: String(disbursement.cashAmount) },
@@ -234,17 +276,17 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 	const [depList, setDepList] = useState<LedgerEditDependent[]>([]);
 	const [interestList, setInterestList] = useState<InterestChangeView[]>([]);
 	const [chosenDeps, setChosenDeps] = useState<Record<string, boolean>>({});
-	const reviewKey = `${schemeId}|${principal}`;
+  const reviewKey = `${schemeId}|${principalTotal}|${modeChanged ? chargeMode : ""}`;
 	const activeFollowing = reviewedFor === reviewKey ? following : [];
 	const activeDeps = reviewedFor === reviewKey ? depList : [];
 
-	const triggersReapproval = schemeId !== loan.schemeId || (+principal > 0 && +principal !== loan.principal);
+  const triggersReapproval = schemeId !== loan.schemeId || (amountNum > 0 && principalTotal !== loan.principal) || modeChanged;
 
 	async function save() { return singleFlight("modal:editloan:save", async () => {
 		setErr(""); setFe({}); setRowErr(null);
 		// Every problem is shown at once, each beside its own field.
 		const errors: Record<string, string> = {};
-		if (!(+principal > 0)) errors["principal"] ??= "Please enter a valid principal amount.";
+    if (!(amountNum > 0)) errors["principal"] ??= "Please enter a valid amount.";
 		if (!activeRows.length) errors["ornaments"] ??= "A loan must have at least one ornament.";
 		const incomplete = activeRows.find((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0));
 		if (incomplete) {
@@ -258,13 +300,14 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 		// Amount field above, not a stale pre-edit figure — the backend
 		// recomputes and enforces this independently on save too, but this
 		// gives immediate feedback consistent with what's already on screen.
-		if (roundRupee(+principal) > eligibleLoanAmount) errors["principal"] ??= `Principal amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`;
+    if (ltvBased && roundRupee(amountNum) > eligibleLoanAmount) errors["principal"] ??= `Amount cannot exceed the eligible loan amount (${fmt(eligibleLoanAmount)}).`;
 		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
 		if (showBranch && branchChanged && hasPacket && packetLocker && !lockerSel) {
 			setErr("Choose a locker in the new branch for the gold."); return;
 		}
-		const principalChanged = +principal !== loan.principal;
+    const principalChanged = principalTotal !== loan.principal;
+    if (hasCharge && payout <= 0) { setErr("The service charge must be less than the amount."); return; }
 		if (paidOut && (payoutChanged || principalChanged)) {
 			if (Math.abs(payoutRemaining) > 0.01) { setErr(`The payout breakdown must add up to ${fmt(payout)}.`); return; }
 			if (payoutSplit && (payoutSplit.upiAmount > 0 || payoutSplit.bankTransferAmount > 0) && !payoutBankId) { setErr("Select the bank for the UPI / Bank Transfer part of the payout."); return; }
@@ -274,13 +317,14 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 		try {
 			// A loan already paid out is recalculated by a scheme or amount change: look first at what that does to its
 			// later payments, so nothing is saved until the staff member has seen them.
-			const recalculates = paidOut && (schemeId !== loan.schemeId || principalChanged);
+      const recalculates = paidOut && (schemeId !== loan.schemeId || principalChanged || modeChanged);
 			// Any recalculating edit is looked at first: the later payments (and what a release did to the gold) are shown
 			// and nothing is saved until they have been seen and Save is pressed again.
 			if (recalculates && reviewedFor !== reviewKey) {
 				const probe = await previewLoanEdit(loan.numericId, {
 					schemeId: schemeId !== loan.schemeId ? Number(schemeId) : undefined,
-					principalAmount: principalChanged ? +principal : undefined,
+          principalAmount: principalChanged ? principalTotal : undefined,
+          serviceChargeMode: sendMode ? chargeMode : undefined,
 					...(paidOut && payoutSplit && (payoutChanged || principalChanged)
 						? { cashAmount: payoutSplit.cashAmount, upiAmount: payoutSplit.upiAmount, bankTransferAmount: payoutSplit.bankTransferAmount, bankId: payoutBankId }
 						: {}),
@@ -321,7 +365,9 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 			}
 			await updateLoan(loan.numericId, {
 				schemeId: schemeId !== loan.schemeId ? customerRef(schemeId) : undefined,
-				principalAmount: +principal !== loan.principal ? +principal : undefined,
+        principalAmount: principalChanged ? principalTotal : undefined,
+				serviceChargeMode: sendMode ? chargeMode : undefined,
+				openedDate: openedDate && openedDate !== loan.opened ? openedDate : undefined,
 				overallPhotoUrl: overallPhoto !== loan.overallPhotoUrl ? overallPhoto : undefined,
 				additionalInfo: additionalInfo.trim() !== (loan.additionalInfo || "").trim() ? additionalInfo.trim() : undefined,
 				...goldChoicesOf(activeDeps, chosenDeps),
@@ -352,30 +398,72 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 					<div className={fe.scheme ? "has-err" : undefined}><label className="f">Scheme</label>
 						<SearchableSelect<SchemeView>
 							value={schemeLabel}
-							onChange={(id, item) => { setFe((cur) => ({ ...cur, scheme: "" })); setSchemeId(id); setSchemeLabel(`${item.name} — ${item.ltv}% LTV @ ${item.rate}%`); setSchemeLtv(item.ltv); }}
+              onChange={(id, item) => { setFe((cur) => ({ ...cur, scheme: "" })); setSchemeId(id); setSchemeObj(item); setChargeMode(item.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout"); setSchemeLabel(schemeOptionLabel(item)); setSchemeLtv(item.ltvBased ? item.ltv : 0); }}
 							fetchFn={searchActiveSchemesPage}
 							searchHint="Searches: scheme name, scheme code"
-							getLabel={(s) => `${s.name} — ${s.ltv}% LTV @ ${s.rate}%`}
+              getLabel={schemeOptionLabel}
 							getId={(s) => s.id}
 							placeholder="Search active schemes…"
 						/><FieldError msg={fe.scheme} /></div>
-					<div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹)</label>
-						<input className="inp" type="number" min={1} max={eligibleLoanAmount} value={principal} onChange={(e) => { setPrincipal(capToEligible(e.target.value)); setFe((cur) => ({ ...cur, principal: "" })); }} /><FieldError msg={fe.principal} />
-						<p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+          <div className={fe.principal ? "has-err" : undefined}><label className="f">{hasCharge ? "Amount (₹)" : "Principal Amount (₹)"}</label>
+            <input className="inp" type="number" min={1} max={ltvBased ? eligibleLoanAmount : undefined} value={amount} onChange={(e) => { setAmount(capToEligible(e.target.value)); setFe((cur) => ({ ...cur, principal: "" })); }} /><FieldError msg={fe.principal} />
+            {ltvBased && <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
 							Max {fmt(eligibleLoanAmount)} (based on scheme LTV)
-						</p>
+            </p>}
 					</div>
 				</div>
-				<div className="frow c2">
+        <div className="frow c2" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+          <div>
+            <label className="f">Loan Date</label>
+            <DatePicker value={openedDate} onChange={setOpenedDate} max={localISO(new Date())} />
+          </div>
+          {ltvBased && (
 					<div>
 						<label className="f">Eligible Loan Amount</label>
 						<input className="inp" value={fmt(eligibleLoanAmount)} disabled />
 					</div>
+          )}
+        </div>
+        {ltvBased && (
+          <div className="frow c2">
 					<div>
 						<label className="f">LTV</label>
 						<input className="inp" value={`${schemeLtv}%`} disabled />
 					</div>
 				</div>
+        )}
+
+        {hasCharge && (
+          <div className="frow c2">
+            <div>
+              <label className="f">Service Charge{chargeType === "Percent" ? ` (${chargeValue}%)` : ""}</label>
+              <input className="inp" value={`${chargeMode === "WithheldFromPayout" ? "−" : "+"}${fmt(serviceCharge)}`} disabled />
+            </div>
+            <div>
+              <label className="f">Charge Method</label>
+              <Select
+                value={chargeMode}
+                onChange={(v) => setChargeMode(v as ChargeMode)}
+                options={[
+                  { value: "WithheldFromPayout", label: "Deduct from loan" },
+                  { value: "AddedToPrincipal", label: "Add to loan" },
+                ]}
+              />
+            </div>
+          </div>
+        )}
+        {hasCharge && (
+          <div className="frow c2">
+            <div>
+              <label className="f">Loan Principal</label>
+              <input className="inp" value={fmt(principalTotal)} disabled />
+            </div>
+            <div>
+              <label className="f">{chargeMode === "WithheldFromPayout" ? "Customer Receives" : "Customer Receives (full amount)"}</label>
+              <input className="inp" value={fmt(payout)} disabled />
+            </div>
+          </div>
+        )}
 
 				{showBranch && (
 					<div className="frow c2" style={{ marginBottom: 14 }}>
@@ -521,14 +609,13 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
 					Total net weight: {fmt(activeRows.reduce((s, r) => s + (+r.net || 0) * (+r.qty || 1), 0)).replace("₹", "")}g · eligible amount updates on save
 				</p>
 				<label className="f" htmlFor="edit-additional-info" style={{ marginTop: 10 }}>Additional Information</label>
-				<textarea id="edit-additional-info" className="inp" rows={3} maxLength={2000} placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChange={(e) => setAdditionalInfo(e.target.value)} style={{ resize: "vertical", width: "100%" }} />
+				<NoteField id="edit-additional-info" placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChange={setAdditionalInfo} />
 			</div>
 			{/* The sticky-within-`.modal-bg` treatment this used to declare inline
 					is now on `.modal .ft` in app.css, for every modal — nothing needed
 					here beyond the class. */}
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
 			</div>
 		</>

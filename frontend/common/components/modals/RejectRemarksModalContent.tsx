@@ -56,7 +56,6 @@ export function RejectRemarksModalContent({
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn danger" disabled={busy} onClick={confirm}>{busy ? "Rejecting…" : "Reject"}</button>
 			</div>
 		</>

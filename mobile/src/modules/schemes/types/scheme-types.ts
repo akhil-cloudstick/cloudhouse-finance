@@ -17,6 +17,8 @@ export type Scheme = {
   minimumDays?: number;
   durationMonths: number;
   ltvPercent: number;
+  /** false: loans on this scheme are not limited by gold LTV (ltvPercent is 0). Missing = true. */
+  ltvBased?: boolean;
   interestMethod?: string;
   /** How interest is accrued: each day, or once per month. Backend default is daily. */
   accrualBasis?: AccrualBasis;
@@ -43,6 +45,7 @@ export type SchemeInput = {
   minimumDays?: number;
   durationMonths: number;
   ltvPercent: number;
+  ltvBased?: boolean;
   interestMethod?: string;
   accrualBasis?: AccrualBasis;
   penalRate?: number;

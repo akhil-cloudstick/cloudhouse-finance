@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AsyncSelect,
@@ -35,55 +36,22 @@ import { createLoan, addOrnamentImage, saveDraft, updateDraft } from "@/modules/
 import { getLocker } from "@/modules/lockers/services/lockerService";
 import { type CreateOrnamentInput, type LoanDraft, type SaveDraftInput } from "@/modules/loans/types/loan-types";
 import { latestGoldRate } from "@/modules/gold-rates/services/goldRateService";
-import { formatPurity, isFinenessInRange, isKaratInRange, parsePurity, rateForPurityFull, type PurityUnit } from "@/common/utils/purity";
+import { parsePurity, rateForPurityFull } from "@/common/utils/purity";
 import { inr, todayISO } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { printPolicy } from "@/common/config/brand";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import type { Locker } from "@/modules/lockers/types/locker-types";
-import { OrnamentTypeField } from "./OrnamentTypeField";
+import { OrnamentFormCard, emptyOrnRow, netOf, rowPurity, type OrnFormRow } from "./OrnamentFormCard";
 
 // Create New Loan (prototype #loan-modal) — rise-up sheet opened from the
 // Loans page "+" and the dashboard's Create Loan quick action. Same business
 // rules as the web NewLoan form: blocked until today's gold rate is
 // published, ornament value = net wt × rate for its purity (quantity is not multiplied in), principal
 // capped at the scheme's LTV-eligible amount.
-type OrnRow = { name: string; purityUnit: PurityUnit; purityValue: string; grossWeight: string; lessWeight: string; quantity: string; imgs: string[]; netText?: string };
-const MAX_ORNAMENT_PHOTOS = 3;
-const emptyRow: OrnRow = { name: "", purityUnit: "karat", purityValue: "22", grossWeight: "", lessWeight: "", quantity: "1", imgs: [] };
-const KARATS = ["24", "23", "22", "21", "20", "18", "16", "14", "12", "10"];
-const FINENESS = ["99.9", "99.5", "91.6", "87.5", "83.3", "75", "58.5", "41.7"];
-
-type PurityInputProps = { unit: PurityUnit; value: string; onChange: (v: string) => void };
-
-/** Karat / fineness entry: type any value, or pick a standard one. */
-function PurityInput({ unit, value, onChange }: PurityInputProps) {
-  const opts = unit === "karat" ? KARATS : FINENESS;
-  return (
-    <ComboInput
-      value={value}
-      onChangeText={(v) => onChange(v.replace(/[^0-9.]/g, ""))}
-      keyboardType="decimal-pad"
-      placeholder={unit === "karat" ? "22" : "91.6"}
-      menu={(close) => (
-        <>
-          {opts.map((o) => (
-            <MenuItem
-              key={o}
-              title={unit === "karat" ? `${o}K` : `${o}%`}
-              selected={o === value}
-              onPress={() => {
-                onChange(o);
-                close();
-              }}
-            />
-          ))}
-        </>
-      )}
-    />
-  );
-}
+type OrnRow = OrnFormRow;
+const emptyRow = emptyOrnRow;
 
 /** Estimated interest over the scheme's full period, using the scheme's interest method (the backend does the
  * exact accrual; this is the up-front preview, like web's "Monthly premium"). */
@@ -105,21 +73,16 @@ function periodInterest(sc: Scheme, principal: number): number {
   return (principal * sc.interestRate) / 1200 * months;
 }
 
-const netOf = (r: OrnRow) => Math.max(0, (Number(r.grossWeight) || 0) - (Number(r.lessWeight) || 0));
-const trim3 = (n: number) => String(+n.toFixed(3));
-
-function rowPurity(r: OrnRow): string | null {
-  const n = Number(r.purityValue);
-  if (!r.purityValue.trim() || !(n > 0)) return null;
-  if (r.purityUnit === "karat" && !isKaratInRange(n)) return null;
-  if (r.purityUnit === "fineness" && !isFinenessInRange(n)) return null;
-  return formatPurity(r.purityUnit, n);
-}
-
 type CreateLoanSheetProps = { visible: boolean; onClose: () => void; /** Start with this customer already picked (opened from the customer page). */ initialCustomer?: Customer | null; /** A saved draft picked from the Loans screen's Draft loans list — loaded into the form when the sheet opens. */ initialDraft?: LoanDraft | null };
+
+/** Red message right under the field it is about. */
+function FieldErr({ m }: { m?: string }) {
+  return m ? <Txt style={{ fontSize: 12, color: C.red, fontWeight: "600", marginTop: -6, marginBottom: 10 }}>{m}</Txt> : null;
+}
 
 export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraft }: CreateLoanSheetProps) {
   const qc = useQueryClient();
+  const lockersAllFull = useRef(false);
   const { employee, can } = useAuth();
   const canCreate = can("Loan_Management", "can_create_loan");
   // Only a cross-branch user picks another branch — everyone else books into
@@ -182,35 +145,32 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
   const totalNet = valid.reduce((sum, r) => sum + netOf(r), 0);
   const goldValue = valid.reduce((sum, r) => sum + valueOf(r), 0);
   // Floored, like web, so the figure shown is never above what the server accepts.
-  const eligible = scheme ? Math.floor((goldValue * scheme.ltvPercent) / 100) : 0;
+  // A scheme not based on gold LTV has no eligible amount and no cap: any amount can be entered, and the gold value
+  // is still stored with the loan for releases.
+  const ltvBased = !scheme || scheme.ltvBased !== false;
+  const eligible = scheme && ltvBased ? Math.floor((goldValue * scheme.ltvPercent) / 100) : 0;
   // The principal field is prefilled with the eligible amount; typing is clamped to it.
   const pActive = pEdit && (pEdit.at === eligible || pEdit.at === null) ? pEdit : null;
-  const principal = pActive ? (pActive.v === "" ? "" : String(Math.min(+pActive.v || 0, eligible))) : eligible > 0 ? String(eligible) : "";
+  const principal = pActive ? (pActive.v === "" ? "" : String(ltvBased ? Math.min(+pActive.v || 0, eligible) : +pActive.v || 0)) : ltvBased && eligible > 0 ? String(eligible) : "";
   const showExceeds = exceeds && pActive?.at === eligible;
   const hasCharge = !!scheme && !!scheme.serviceChargeType && scheme.serviceChargeType !== "None";
-  // The first mandatory thing still missing, in form order. Create Loan stays disabled until there is none
-  // (permission is explained by its own banner).
-  const missingReason: string | null = !openedDate
-    ? "Choose the opening date."
-    : openedDate > today
-      ? "The opening date can't be after today."
-      : !branch
-        ? "Select a branch."
-        : !customer
-          ? "Select a customer."
-          : !scheme
-            ? "Select a scheme."
-            : valid.length === 0
-              ? "Add at least one ornament with its name, purity, gross weight and net weight."
-              : lessExceeds
-                ? "An ornament's less weight can't be more than its gross weight."
-                : !(Number(principal) > 0)
-                  ? "Enter the loan amount."
-                  : !isTodaySet
-                    ? "Today's gold rate hasn't been published yet."
-                    : overallPhotoRequired && !overallPhoto
-                      ? "Add the overall photo of the pledged gold."
-                      : null;
+  // Every mandatory thing still missing, keyed by field, so a failed Create shows them all at once, each
+  // under its own field. Create Loan stays enabled so the tap can reveal them (permission has its own banner).
+  const rowErr = (r: OrnRow): string | null =>
+    !r.name.trim() ? "Enter ornament name." : !rowPurity(r) ? "Enter valid purity." : !(Number(r.grossWeight) > 0) ? "Enter gross weight." : Number(r.lessWeight) > Number(r.grossWeight) ? "Less exceeds gross weight." : !(netOf(r) > 0) ? "Net weight must be positive." : null;
+  const errs: Record<string, string> = {};
+  if (!openedDate) errs.date = "Pick loan date.";
+  else if (openedDate > today) errs.date = "Date can't be future.";
+  if (!branch) errs.branch = "Select a branch.";
+  if (!customer) errs.customer = "Select a customer.";
+  if (!scheme) errs.scheme = "Select a scheme.";
+  if (valid.length === 0) errs.ornaments = "Complete ornament details.";
+  const ornErrs = rows.map((r) => (valid.length === 0 || Number(r.lessWeight) > Number(r.grossWeight) ? rowErr(r) : null));
+  if (!(Number(principal) > 0)) errs.amount = "Enter loan amount.";
+  if (!isTodaySet) errs.rate = "Set today's gold rate.";
+  if (overallPhotoRequired && !overallPhoto) errs.photo = "Add overall photo.";
+  const missingReason: string | null = Object.keys(errs).length || ornErrs.some(Boolean) ? "Fix the fields marked red." : null;
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   const reset = () => {
     setTried(false);
@@ -267,7 +227,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
       const photoResults = await Promise.all(
         valid.flatMap((r, i) => (created[i] ? r.imgs.map((img) => addOrnamentImage(created[i].id, img).then(() => true, () => false)) : []))
       );
-      if (photoResults.some((ok) => !ok)) toast.error("Some ornament photos weren't saved", "The loan was created — add the photos again from Edit Loan.");
+      if (photoResults.some((ok) => !ok)) toast.error("Photos not saved", "Re-add in Edit Loan.");
       qc.invalidateQueries({ queryKey: ["loans"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["loan-drafts"] });
@@ -275,10 +235,10 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
       onClose();
       openPage(`/loans/${loan.id}`);
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not create loan."),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Loan creation failed."),
   });
 
-  const schemeLabel = (sc: Scheme) => `${sc.name} — ${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%${sc.interestMethod ? ` · ${sc.interestMethod}` : ""}`;
+  const schemeLabel = (sc: Scheme) => `${sc.name} — ${sc.interestRate}% · ${sc.durationMonths}mo${sc.ltvBased === false ? "" : ` · LTV ${sc.ltvPercent}%`}${sc.interestMethod ? ` · ${sc.interestMethod}` : ""}`;
 
   // ---- Saved drafts — a half-entered loan kept per employee. They are listed from the Loans screen's
   // "Draft loans" button, which hands one back through `initialDraft`. ----
@@ -363,11 +323,12 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
   return (
     <Sheet visible={visible} onClose={onClose} title="Create New Loan" maxHeightPct={80}>
       {!canCreate ? (
-        <NoticeBanner>No permission to create.</NoticeBanner>
+        <NoticeBanner>No create permission.</NoticeBanner>
       ) : null}
       {canCreate && goldRate.data !== undefined && !isTodaySet ? (
-        <WarningBanner>Today&apos;s gold rate missing.</WarningBanner>
+        <WarningBanner>Gold rate missing.</WarningBanner>
       ) : null}
+      <FieldErr m={fe("rate")} />
 
       <AsyncSelect<Customer>
         label="Customer"
@@ -387,6 +348,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         keyOf={(c) => c.id}
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
+      <FieldErr m={fe("customer")} />
       <AsyncSelect<Scheme>
         label="Scheme"
         placeholder="Search active schemes"
@@ -398,6 +360,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         keyOf={(sc) => sc.id}
         renderItem={(sc) => ({ title: sc.name, sub: `${sc.interestRate}% · ${sc.durationMonths}mo · LTV ${sc.ltvPercent}%${sc.interestMethod ? ` · ${sc.interestMethod}` : ""}` })}
       />
+      <FieldErr m={fe("scheme")} />
 
       {canPickBranch && !customer ? (
         <AsyncSelect<{ id: number; name: string; code?: string }>
@@ -418,12 +381,20 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
           <Input value={branch?.name ?? ""} editable={false} />
         </Field>
       )}
+      <FieldErr m={fe("branch")} />
       <DateField label="Loan date" value={openedDate} onChange={setOpenedDate} max={today} />
+      <FieldErr m={fe("date")} />
       <AsyncSelect<Locker>
         label="Locker (optional)"
         placeholder="Assign later, or search locker code"
         queryKey={["lockers", "loan-picker", branch?.id]}
-        fetcher={async (q) => (await listLockersPage({ branchId: branch?.id, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+        fetcher={async (q) => {
+          const all = (await listLockersPage({ branchId: branch?.id, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? [];
+          const free = all.filter((l) => (l.occupied ?? 0) < l.capacity);
+          lockersAllFull.current = all.length > 0 && free.length === 0;
+          return free;
+        }}
+        emptyText={() => (lockersAllFull.current ? "All lockers full" : undefined)}
         selectedLabel={locker ? `${locker.code} (${locker.occupied}/${locker.capacity} packets)` : undefined}
         onClear={() => setLocker(null)}
         onSelect={setLocker}
@@ -435,85 +406,26 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         Ornaments
       </SectionTitle>
 
-      {rows.map((r, i) => {
-        const bad = Number(r.lessWeight) > Number(r.grossWeight);
-        return (
-          <OrnamentCard key={i} title={`Ornament ${i + 1}`} onRemove={rows.length > 1 ? () => setRows((p) => p.filter((_, x) => x !== i)) : undefined}>
-            <OrnamentTypeField value={r.name} onChange={(v) => update(i, { name: v })} />
-            <Field label="Purity unit">
-              <ChipToggle
-                options={["karat", "fineness"] as const}
-                labels={{ karat: "Karat", fineness: "Fineness" }}
-                value={r.purityUnit}
-                onChange={(u) => update(i, { purityUnit: u, purityValue: u === "karat" ? "22" : "91.6" })}
-              />
-            </Field>
-            <FieldRow>
-              <Field label={r.purityUnit === "karat" ? "Karat" : "Fineness %"}>
-                <PurityInput key={r.purityUnit} unit={r.purityUnit} value={r.purityValue} onChange={(v) => update(i, { purityValue: v })} />
-              </Field>
-              <Field label="Quantity">
-                <Input keyboardType="number-pad" value={r.quantity} onChangeText={(v) => update(i, { quantity: v })} />
-              </Field>
-            </FieldRow>
-            <FieldRow>
-              <Field label="Gross Wt (g)">
-                <Input keyboardType="decimal-pad" placeholder="0.0" value={r.grossWeight} onChangeText={(v) => update(i, { grossWeight: v, netText: undefined })} />
-              </Field>
-              <Field label="Less Wt (g)">
-                <Input keyboardType="decimal-pad" placeholder="0.0" value={r.lessWeight} onChangeText={(v) => update(i, { lessWeight: v, netText: undefined })} style={bad ? { borderColor: C.red } : undefined} />
-              </Field>
-            </FieldRow>
-            {bad ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 8 }}>Less Wt cannot be greater than Gross Wt</Txt> : null}
-            <Field label="Net Wt (g)">
-              <Input
-                keyboardType="decimal-pad"
-                placeholder="Auto"
-                value={r.netText ?? (r.grossWeight ? trim3(netOf(r)) : "")}
-                onChangeText={(v) => {
-                  // Net is gross − less, so editing it sets the less weight.
-                  const g = Number(r.grossWeight) || 0;
-                  const net = Math.min(Number(v) || 0, g);
-                  update(i, { netText: v, lessWeight: v === "" || !g ? r.lessWeight : trim3(Math.max(0, g - net)) });
-                }}
-              />
-            </Field>
-            {r.imgs.map((url, k) => (
-              <UploadField
-                key={`${i}-${k}-${url}`}
-                label={r.imgs.length > 1 ? `Ornament photo ${k + 1}` : "Ornament photo"}
-                value={url}
-                onChange={(u) => update(i, { imgs: u ? r.imgs.map((x, xi) => (xi === k ? u : x)) : r.imgs.filter((_, xi) => xi !== k) })}
-                allowPdf={false}
-              />
-            ))}
-            {r.imgs.length < MAX_ORNAMENT_PHOTOS ? (
-              <UploadField
-                key={`${i}-add-${r.imgs.length}`}
-                label={r.imgs.length ? "Add another photo" : "Ornament photo"}
-                value=""
-                onChange={(u) => u && update(i, { imgs: [...r.imgs, u].slice(0, MAX_ORNAMENT_PHOTOS) })}
-                maxFiles={MAX_ORNAMENT_PHOTOS - r.imgs.length}
-                onAddMany={(urls) => update(i, { imgs: [...r.imgs, ...urls].slice(0, MAX_ORNAMENT_PHOTOS) })}
-                allowPdf={false}
-              />
-            ) : null}
-          </OrnamentCard>
-        );
-      })}
+      {rows.map((r, i) => (
+        <View key={i}>
+          <OrnamentFormCard title={`Ornament ${i + 1}`} row={r} onChange={(patch) => update(i, patch)} onRemove={rows.length > 1 ? () => setRows((p) => p.filter((_, x) => x !== i)) : undefined} />
+          <FieldErr m={tried ? ornErrs[i] ?? undefined : undefined} />
+        </View>
+      ))}
 
       <DashedButton label="Add Ornament" onPress={() => setRows((p) => [...p, { ...emptyRow }])} />
 
       <UploadField label={overallPhotoRequired ? "Overall photo *" : "Overall photo (optional)"} value={overallPhoto} onChange={setOverallPhoto} allowPdf={false} />
+      <FieldErr m={fe("photo")} />
 
       <Card style={{ marginHorizontal: 0, marginBottom: 14, padding: 14 }}>
         <FieldGrid
           items={[
             { k: "Total Net Wt", v: `${+totalNet.toFixed(2)} g` },
             { k: "Gold Value", v: inr(Math.round(goldValue)) },
-            { k: "LTV", v: scheme ? `${scheme.ltvPercent}%` : "—" },
+            ...(ltvBased ? [{ k: "LTV", v: scheme ? `${scheme.ltvPercent}%` : "—" }] : []),
             { k: "Interest method", v: scheme?.interestMethod || "—" },
-            { k: "Eligible Amount", v: inr(eligible), color: C.brandDeep },
+            ...(ltvBased ? [{ k: "Eligible Amount", v: inr(eligible), color: C.brandDeep }] : []),
           ]}
         />
       </Card>
@@ -531,13 +443,13 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
       <Field label="Amount (₹)">
         <Input
           keyboardType="number-pad"
-          placeholder={eligible ? inr(eligible) : "₹"}
+          placeholder={ltvBased && eligible ? inr(eligible) : "₹"}
           value={principal}
           onChangeText={(v) => {
             // Digits only; the field is clamped to the eligible amount (a figure the server would refuse is never kept).
             const clean = v.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
             const num = clean === "" ? 0 : +clean;
-            if (num > eligible) {
+            if (ltvBased && num > eligible) {
               setPEdit({ v: String(eligible), at: eligible });
               setExceeds(true);
             } else {
@@ -547,6 +459,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
           }}
         />
       </Field>
+      <FieldErr m={fe("amount")} />
       {showExceeds ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>Amount can&apos;t exceed {inr(eligible)}.</Txt> : null}
       {(() => {
         // Same summary as web: the charge, then Principal and the amount actually paid out. A withheld charge
@@ -578,7 +491,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         );
       })()}
       <Field label="Additional information">
-        <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline />
+        <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline maxLength={150} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       {canCreate && !error && tried && missingReason ? <ErrorText>{missingReason}</ErrorText> : null}

@@ -82,6 +82,7 @@ type SheetProps = {
   title: React.ReactNode;
   children: React.ReactNode;
   maxHeightPct?: number;
+  fixedHeight?: boolean;
   scroll?: boolean;
   bodyStyle?: StyleProp<ViewStyle>;
   /** Rendered between the head and the body (e.g. filter chips, tabs). */
@@ -100,6 +101,7 @@ export function Sheet({
   title,
   children,
   maxHeightPct = 80,
+  fixedHeight = false,
   scroll = true,
   bodyStyle,
   headExtra,
@@ -108,7 +110,7 @@ export function Sheet({
   const { body, footer } = scroll && stickyFooter ? splitFooter(children) : { body: [children], footer: [] };
   const [slot] = useState(createSlot);
   return (
-    <BottomSheetModal visible={visible} onClose={onClose} maxHeightPct={maxHeightPct} bare>
+    <BottomSheetModal visible={visible} onClose={onClose} maxHeightPct={maxHeightPct} fixedHeight={fixedHeight} bare>
       <SlotContext.Provider value={slot}>
         {/* Rise-up sheets have no Close button — drag down, tap outside or back. */}
         <ModalHead title={title} onClose={onClose} hideClose />
@@ -123,7 +125,7 @@ export function Sheet({
             {body}
           </SheetScrollView>
         ) : (
-          <View style={[{ flexShrink: 1 }, bodyStyle]}>{children}</View>
+          <View style={[{ flexShrink: 1 }, fixedHeight ? { flex: 1 } : null, bodyStyle]}>{children}</View>
         )}
         <FooterSlot slot={slot} auto={footer} />
       </SlotContext.Provider>

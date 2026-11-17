@@ -8,6 +8,8 @@ import { ApiError, setUnauthorizedHandler } from "@/common/services/httpClient";
 import { fetchMyPermissions } from "@/common/services/permissionService";
 import { type PermissionMap } from "@/common/types/permission-types";
 import { useTheme } from "@/common/theme/ThemeProvider";
+import { queryClient } from "@/common/services/queryClient";
+import { clearPersistedState } from "@/common/hooks/use-persisted-state";
 import { toast } from "@/common/components/ui/ToastHost";
 
 type AuthState = {
@@ -83,7 +85,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         const token = await getToken();
         if (token) {
-          const emp = await authApi.me();
+          // Only a 401 means a bad session; network/408/5xx are retried with a
+          // short backoff, then the error propagates (and the session is kept).
+          let emp: Employee | null = null;
+          for (let attempt = 0; emp === null; attempt++) {
+            try {
+              emp = await authApi.me();
+            } catch (e) {
+              const transient = e instanceof ApiError && (e.status === 0 || e.status === 408 || e.status >= 500);
+              if (!transient || attempt >= 2) throw e;
+              await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+            }
+          }
           setEmployee(emp);
           await loadPermissions(emp);
         }
@@ -138,6 +151,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signOut = useCallback(async () => {
     await clearToken();
+    queryClient.clear();
+    clearPersistedState();
     setEmployee(null);
     setPermissions({});
     setPermissionsLoaded(false);

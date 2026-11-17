@@ -1,6 +1,5 @@
 "use client";
 
-import { SafeImage } from "@/common/components/ui/SafeImage";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
@@ -9,56 +8,42 @@ import { type ExpenseView } from "@/modules/cash/types/cash-types";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 
 type ExpenseRowProps = {
-	e: ExpenseView; categoryId?: number; onViewReceipt: () => void;
-	canApprove: boolean; awaiting?: string; busy: boolean; onApprove: () => void; onReject: () => void;
-	// Opens the edit form — offered on a pending or approved expense a person keyed in.
-	onEdit?: () => void;
-	// Opens the bank pledge editor — offered on a "Bank Pledge Release" entry, which is edited through its pledge.
-	onEditPledge?: () => void;
+  e: ExpenseView; categoryId?: number;
+  canApprove: boolean; awaiting?: string; busy: boolean; onApprove: () => void; onReject: () => void;
+  // Opens the info popup: every column, the additional information, the receipt preview and Edit.
+  onInfo: () => void;
 };
 
-// System note the backend stamped on bank pledge release expenses; not shown to users.
-const SYSTEM_REMARK = "Auto-recorded from bank pledge workflow";
 
 /* canApprove/onApprove/onReject drive the Approve/Reject pair shown on a
  * Pending row (the expense approval flow) — shown only to the role of the
  * step the expense waits at (or Administrator); awaiting names that role. */
-export function ExpenseRow({ e, categoryId, onViewReceipt, canApprove, awaiting, busy, onApprove, onReject, onEdit, onEditPledge }: ExpenseRowProps) {
-	const showBranch = useShowBranch();
-	return (
-		<tr data-ledger-key={`e-${e.id}`} data-ledger-date={e.d} data-ledger-amount={e.amt}>
-			<td data-label="Date">{fmtDate(e.d)}</td>
-			<td data-label="Category">
-				{categoryId ? <LedgerRefLink kind="category" id={categoryId} label={e.cat} /> : e.cat}
-			</td>
-			<td className="num" data-label="Amount">{fmt(e.amt)}</td>
-			<td data-label="Mode">{e.mode}</td>
-			{showBranch && <td data-label="Branch">{e.branch}</td>}
-			<td data-label="Status">
-				<StatusChip status={e.status} />
-				{e.remarks && e.remarks !== SYSTEM_REMARK ? <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{e.remarks}</div> : null}
-				{e.status === "Pending" && awaiting && !canApprove && (
-					<div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Awaiting {awaiting}</div>
-				)}
-				{e.status === "Pending" && canApprove && (
-					<div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 6 }}>
-						<button className="btn sm" disabled={busy} onClick={onApprove}><Icon name="check" /> Approve</button>
-						<button className="btn danger sm" disabled={busy} onClick={onReject}>Reject</button>
-					</div>
-				)}
-			</td>
-			<td data-label="Edit" style={{ textAlign: "center" }}>
-				{e.editable && onEdit
-					? <button type="button" title="Edit expense" aria-label="Edit expense" onClick={onEdit} style={{ border: 0, background: "none", cursor: "pointer", padding: 2, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}><Icon name="edit" /></button>
-					: e.bankPledgeId && onEditPledge
-					? <button type="button" title="Edit through its bank pledge" aria-label="Edit bank pledge release" onClick={onEditPledge} style={{ border: 0, background: "none", cursor: "pointer", padding: 2, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}><Icon name="edit" /></button>
-					: <span style={{ color: "var(--muted)" }}>—</span>}
-			</td>
-			<td data-label="Receipt" style={{ textAlign: "center" }}>
-				{e.img
-					? <SafeImage src={e.img} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer", verticalAlign: "middle" }} title="View receipt" onClick={onViewReceipt} />
-					: <span style={{ color: "var(--muted)" }}>—</span>}
-			</td>
-		</tr>
-	);
+export function ExpenseRow({ e, categoryId, canApprove, awaiting, busy, onApprove, onReject, onInfo }: ExpenseRowProps) {
+  const showBranch = useShowBranch();
+  return (
+    <tr data-ledger-key={`e-${e.id}`} data-ledger-date={e.d} data-ledger-amount={e.amt} data-ledger-ref={`e:${e.id}`}>
+      <td data-label="Date">{fmtDate(e.d)}</td>
+      <td data-label="Category">
+        {categoryId ? <LedgerRefLink kind="category" id={categoryId} label={e.cat} /> : e.cat}
+      </td>
+      <td className="num" data-label="Amount">{fmt(e.amt)}</td>
+      <td data-label="Mode">{e.mode}</td>
+      {showBranch && <td data-label="Branch">{e.branch}</td>}
+      <td data-label="Status">
+        <StatusChip status={e.status} />
+        {e.status === "Pending" && awaiting && !canApprove && (
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Awaiting {awaiting}</div>
+        )}
+        {e.status === "Pending" && canApprove && (
+          <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 6 }}>
+            <button className="btn sm" disabled={busy} onClick={onApprove}><Icon name="check" /> Approve</button>
+            <button className="btn danger sm" disabled={busy} onClick={onReject}>Reject</button>
+          </div>
+        )}
+      </td>
+      <td data-label="Info" style={{ textAlign: "center" }}>
+        <span className="ledger-info" style={{ right: "50%", transform: "translate(50%, -50%)" }}><button type="button" title="Details" aria-label="Expense details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }} onClick={onInfo}><Icon name="info" /></button></span>
+      </td>
+    </tr>
+  );
 }

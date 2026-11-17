@@ -1,38 +1,35 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AsyncSelect, C, ChipToggle, DashedButton, Field, FieldRow, Input, NoticeBanner, OrnamentCard, PrimaryButton, ResultBox, SectionTitle, Sheet, TextField, ThemeDropdown, Txt } from "@/common/components/ui";
+import { AsyncSelect, C, ChipToggle, DashedButton, DateField, Field, Input, NoticeBanner, PrimaryButton, ResultBox, SectionTitle, Sheet, TextField, Txt, toast } from "@/common/components/ui";
 import { useQuery } from "@tanstack/react-query";
 import { latestGoldRate } from "@/modules/gold-rates/services/goldRateService";
 import { rateForPurityFull } from "@/common/utils/purity";
-import { inr, fmtDate } from "@/common/utils/format";
+import { OrnamentFormCard, emptyOrnRow, netOf, ornFormFields, rowPurity, type OrnFormRow } from "@/common/components/OrnamentFormCard";
+import { inr, fmtDate, todayISO } from "@/common/utils/format";
 import { addOrnament, addOrnamentImage, deleteOrnament, previewLoanEdit, updateLoanWithFlags, updateOrnament, type LoanEditDependent, type LoanEditFollowing, type LoanEditInterestChange } from "@/modules/loans/services/loanService";
 import { type OrnamentRequestInput, type Loan, type Ornament } from "@/modules/loans/types/loan-types";
 import { listActiveSchemes } from "@/modules/schemes/services/schemeService";
 import type { Scheme } from "@/modules/schemes/types/scheme-types";
-import { OrnamentTypeField } from "@/common/components/OrnamentTypeField";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
-import { ErrorText } from "@/common/components/ErrorText";
+import { FieldErr } from "@/common/components/ErrorText";
 import { UploadField } from "@/common/components/UploadField";
-import { UploadImage } from "@/common/components/BillSheet";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { listLockersPage } from "@/modules/lockers/services/lockerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import type { Locker } from "@/modules/lockers/types/locker-types";
 
-type OrnRow = { id?: number; name: string; purity: string; gross: string; net: string; qty: string; removed?: boolean; photos: string[]; newPhotos: string[] };
-const PURITIES = ["24K", "23K", "22K", "21K", "20K", "18K", "16K", "14K"];
+// Same ornament fields as Create New Loan (shared OrnamentFormCard); `imgs` holds photos added in this edit,
+// `photos` the ones already saved.
+type OrnRow = OrnFormRow & { id?: number; removed?: boolean; edited?: boolean; photos: string[] };
 
 const toRow = (o: Ornament): OrnRow => ({
   id: o.id,
   name: o.name,
-  purity: o.purity,
-  gross: String(o.grossWeight),
-  net: String(o.netWeight),
-  qty: String(o.quantity),
+  ...ornFormFields(o),
   photos: (o.images ?? []).map((i) => i.imageUrl),
-  newPhotos: [],
+  imgs: [],
 });
 
 type EditLoanSheetProps = { loan: Loan; visible: boolean; onClose: () => void };
@@ -40,13 +37,24 @@ type EditLoanSheetProps = { loan: Loan; visible: boolean; onClose: () => void };
 /** Prototype #act-edit — scheme, principal and ornament details. Mirrors web
  * EditLoanModal.tsx: loan PATCH, then one call per ornament row. */
 export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps) {
+  const lockersAllFull = useRef(false);
   const qc = useQueryClient();
   const [schemeId, setSchemeId] = useState<number>(l.schemeId);
   const [schemeLabel, setSchemeLabel] = useState("");
   const [schemeLtv, setSchemeLtv] = useState(0);
+  // The loan's opening date; changing it moves the due date and redoes the interest from the new date.
+  const [openedDate, setOpenedDate] = useState(l.openedDate);
+  // A scheme not based on gold LTV (LTV 0) puts no cap on the amount.
+  const ltvBased = schemeLtv > 0;
+  // The Amount the customer asks for (like New Loan): the principal follows it, with the service charge added on top
+  // or taken off the payout depending on the charge method.
   const [principal, setPrincipal] = useState("");
+  type ChargeMode = "WithheldFromPayout" | "AddedToPrincipal";
+  const loanMode: ChargeMode = l.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout";
+  const [chargeMode, setChargeMode] = useState<ChargeMode>(loanMode);
+  const [newScheme, setNewScheme] = useState<Scheme | null>(null);
   const [rows, setRows] = useState<OrnRow[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const [overallPhoto, setOverallPhoto] = useState("");
   const [additionalInfo, setAdditionalInfo] = useState("");
   // Branch / locker: only for a role that may see every branch (backend enforces the same).
@@ -70,9 +78,12 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
     setSchemeId(l.schemeId);
     setSchemeLabel(l.scheme ? `${l.scheme.name} — ${l.schemeLtvPercent ?? l.scheme.ltvPercent}% LTV @ ${l.scheme.interestRate}%` : `Scheme #${l.schemeId}`);
     setSchemeLtv(l.schemeLtvPercent ?? l.scheme?.ltvPercent ?? 0);
-    setPrincipal(String(l.principalAmount));
+    setOpenedDate(l.openedDate);
+    setPrincipal(String(Math.round((l.principalAmount - (loanMode === "AddedToPrincipal" ? l.serviceChargeAmount ?? 0 : 0)) * 100) / 100));
+    setChargeMode(loanMode);
+    setNewScheme(null);
     setRows((l.ornaments ?? []).map(toRow));
-    setError(null);
+    setTried(false);
     setReviewedFor(null);
     setOverallPhoto(l.overallPhotoUrl ?? "");
     setAdditionalInfo(l.additionalInfo ?? "");
@@ -82,41 +93,63 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
   }, [visible]);
 
   const active = rows.filter((r) => !r.removed);
-  const upd = (i: number, patch: Partial<OrnRow>) => setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch } : r)));
+  const upd = (i: number, patch: Partial<OrnRow>) => setRows((rs) => rs.map((r, x) => (x === i ? { ...r, ...patch, edited: true } : r)));
 
   // Live estimate of what the loan can carry, from the same rates the backend uses (22K / 18K at their own
   // published rates). Net weight × rate per ornament — quantity is not multiplied in (the backend values
   // GoldValue = NetWeight × rate), so this matches what Save will accept.
   const goldRate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible });
   const rates = { k24: goldRate.data?.k24 ?? 0, k22: goldRate.data?.k22 ?? 0, k18: goldRate.data?.k18 ?? 0 };
-  const totalGoldValue = active.reduce((s, r) => s + (+r.net || 0) * (rateForPurityFull(rates, r.purity) ?? 0), 0);
+  const totalGoldValue = active.reduce((s, r) => {
+    const p = rowPurity(r);
+    return s + netOf(r) * (p ? rateForPurityFull(rates, p) ?? 0 : 0);
+  }, 0);
   const eligible = (totalGoldValue * schemeLtv) / 100;
   // The principal can never be typed above the eligible amount — pulled back to it (floored to a whole rupee).
-  const capToEligible = (value: string) => (eligible > 0 && +value > eligible ? String(Math.floor(eligible)) : value);
-  // Only a changed scheme or principal sends the loan back through the sanction chain (same as the backend).
-  const triggersReapproval = schemeId !== l.schemeId || (+principal > 0 && +principal !== l.principalAmount);
-  const reviewKey = `${schemeId}|${principal}`;
+  const capToEligible = (value: string) => (ltvBased && eligible > 0 && +value > eligible ? String(Math.floor(eligible)) : value);
+  // Service charge: the switched scheme's terms, else the loan's own; worked out on the Amount.
+  const useNew = newScheme !== null && schemeId !== l.schemeId;
+  const chargeType = useNew ? newScheme.serviceChargeType : l.serviceChargeType;
+  const chargeValue = useNew ? newScheme.serviceChargeValue ?? 0 : l.serviceChargeValue ?? 0;
+  const hasCharge = !!chargeType && chargeType !== "None";
+  const amountNum = +principal > 0 ? +principal : 0;
+  const charge = !hasCharge ? 0 : chargeType === "Percent" ? Math.round(amountNum * chargeValue) / 100 : useNew ? chargeValue : l.serviceChargeAmount ?? 0;
+  const principalTotal = amountNum > 0 ? Math.round((hasCharge && chargeMode === "AddedToPrincipal" ? amountNum + charge : amountNum) * 100) / 100 : l.principalAmount;
+  const payout = hasCharge && chargeMode === "WithheldFromPayout" ? amountNum - charge : amountNum;
+  const modeChanged = hasCharge && chargeMode !== loanMode;
+  // A switched scheme brings its own mode on the server, so the chosen one is always sent along with it.
+  const sendMode = hasCharge && (modeChanged || schemeId !== l.schemeId);
+  // Only a changed scheme, principal or charge method sends the loan back through the sanction chain (same as the backend).
+  const triggersReapproval = schemeId !== l.schemeId || (amountNum > 0 && principalTotal !== l.principalAmount) || modeChanged;
+  const reviewKey = `${schemeId}|${principalTotal}|${modeChanged ? chargeMode : ""}`;
   const reviewing = reviewedFor === reviewKey;
   const activeFollowing = reviewing ? following : [];
   const activeDeps = reviewing ? deps : [];
+  const branchChanged = !!branch && branch.id !== l.branchId;
+  const lockerChanged = !!locker && locker.id !== packetLockerId;
+  const ornamentsEdited = rows.some((r) => r.removed || !r.id || r.edited);
+  const errs: Record<string, string> = {};
+  if (!(amountNum > 0)) errs.amount = "Enter valid amount.";
+  else if (hasCharge && payout <= 0) errs.amount = "Charge exceeds amount.";
+  else if ((principalTotal !== l.principalAmount || schemeId !== l.schemeId || ornamentsEdited) && goldRate.data && eligible > 0 && amountNum > Math.floor(eligible)) errs.amount = "Exceeds eligible amount.";
+  if (!active.length) errs.ornaments = "Add an ornament.";
+  else if (active.some((r) => !r.name.trim() || !rowPurity(r) || !(Number(r.grossWeight) > 0) || !(netOf(r) > 0))) errs.ornaments = "Complete ornament details.";
+  else if (active.some((r) => Number(r.lessWeight) > Number(r.grossWeight))) errs.ornaments = "Less exceeds gross weight.";
+  if (additionalInfo.trim().length > 150) errs.info = "Info max 150 characters.";
+  if (canMove && branchChanged && hasPacket && packetLockerId && !locker) errs.locker = "Choose new locker.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
   const save = useMutation({
     mutationFn: async () => {
-      if (!(+principal > 0)) throw new Error("__v__Please enter a valid principal amount.");
-      if (!active.length) throw new Error("__v__A loan must have at least one ornament.");
-      if (active.some((r) => !r.name.trim() || !(+r.gross > 0) || !(+r.net > 0))) throw new Error("__v__Every ornament needs a name, gross weight and net weight.");
-      if (active.some((r) => +r.net > +r.gross)) throw new Error("__v__Net Wt cannot be greater than Gross Wt for any ornament.");
-      if (additionalInfo.trim().length > 2000) throw new Error("__v__Additional information cannot be longer than 2000 characters.");
-      const branchChanged = !!branch && branch.id !== l.branchId;
-      const lockerChanged = !!locker && locker.id !== packetLockerId;
-      if (canMove && branchChanged && hasPacket && packetLockerId && !locker) throw new Error("__v__Choose a locker in the new branch for the gold.");
-      if (goldRate.data && eligible > 0 && +principal > eligible) throw new Error("__v__Principal exceeds eligible amount.");
+      // Checked against today's live rate only when the amount, scheme or ornaments are being changed — an untouched
+      // loan (say, just a new note) must stay saveable even if the gold rate has fallen since it was opened.
       // A disbursed loan recalculated by a scheme / principal change is looked at first: nothing is saved until the
       // staff member has seen the later payments it affects and pressed Save again (same as web).
-      const principalChanged = +principal !== l.principalAmount;
-      if (l.disbursementDate && (schemeId !== l.schemeId || principalChanged) && !reviewing) {
+      const principalChanged = principalTotal !== l.principalAmount;
+      if (l.disbursementDate && (schemeId !== l.schemeId || principalChanged || modeChanged) && !reviewing) {
         const probe = await previewLoanEdit(l.id, {
           schemeId: schemeId !== l.schemeId ? schemeId : undefined,
-          principalAmount: principalChanged ? +principal : undefined,
+          principalAmount: principalChanged ? principalTotal : undefined,
+          serviceChargeMode: sendMode ? chargeMode : undefined,
         });
         if (probe.following.length || probe.dependents.length || probe.interestChanges.length) {
           setFollowing(probe.following);
@@ -134,23 +167,25 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
       for (const r of rows) {
         const input: OrnamentRequestInput = {
           name: r.name.trim(),
-          purity: r.purity,
-          grossWeight: +r.gross,
-          deductionWeight: Math.round(Math.max(0, +r.gross - +r.net) * 1000) / 1000,
-          quantity: +r.qty || 1,
+          purity: rowPurity(r)!,
+          grossWeight: Number(r.grossWeight),
+          deductionWeight: Math.round((Number(r.lessWeight) || 0) * 1000) / 1000,
+          quantity: Number(r.quantity) || 1,
         };
         if (r.removed) {
           if (r.id) await deleteOrnament(r.id);
         } else if (r.id) {
           await updateOrnament(r.id, input);
-          for (const url of r.newPhotos) await addOrnamentImage(r.id, url);
-        } else await addOrnament(l.id, { ...input, images: r.newPhotos });
+          for (const url of r.imgs) await addOrnamentImage(r.id, url);
+        } else await addOrnament(l.id, { ...input, images: r.imgs });
       }
       await updateLoanWithFlags(
         l.id,
         {
           schemeId: schemeId !== l.schemeId ? schemeId : undefined,
-          principalAmount: +principal !== l.principalAmount ? +principal : undefined,
+          principalAmount: principalChanged ? principalTotal : undefined,
+          serviceChargeMode: sendMode ? chargeMode : undefined,
+          openedDate: openedDate && openedDate !== l.openedDate ? openedDate : undefined,
           overallPhotoUrl: overallPhoto !== (l.overallPhotoUrl ?? "") ? overallPhoto : undefined,
           additionalInfo: additionalInfo.trim() !== (l.additionalInfo ?? "").trim() ? additionalInfo.trim() : undefined,
           ...(canMove && branchChanged ? { branchId: branch!.id } : {}),
@@ -169,25 +204,24 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
     },
     onError: (e) => {
       if (e instanceof Error && e.message === "__review__") return;
-      if (e instanceof Error && e.message.startsWith("__v__")) return setError(e.message.slice(5));
-      setError(apiErr(e, "Could not save changes — try again."));
+      toast.error(apiErr(e, "Save failed."));
       // Part of the edit may have landed — refresh so the sheet reopens on the truth.
       invalidateLoan(qc, l.id);
     },
   });
 
-  const totalNet = active.reduce((s, r) => s + (+r.net || 0), 0);
+  const totalNet = active.reduce((s, r) => s + netOf(r), 0);
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Edit Loan Details" maxHeightPct={90}>
       {triggersReapproval ? (
         l.disbursementDate ? (
           <NoticeBanner>
-            This loan is already disbursed. Changing the scheme or principal applies immediately: interest is recalculated from the opening date and the loan's ledger and cash entries are rewritten. It is not sent for re-approval.
+            Applies immediately; interest recalculated.
           </NoticeBanner>
         ) : (
           <NoticeBanner>
-            Changing the scheme or principal amount requires re-approval before the loan is active again — saving will resubmit it through the sanction chain from its first enabled stage.
+            Needs re-approval after saving.
           </NoticeBanner>
         )
       ) : null}
@@ -199,15 +233,36 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
         fetcher={(q) => listActiveSchemes(q || undefined)}
         selectedLabel={schemeLabel}
         keyOf={(s) => s.id}
-        renderItem={(s) => ({ title: `${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`, sub: s.code })}
+        renderItem={(s) => ({ title: s.ltvBased === false ? `${s.name} — @ ${s.interestRate}%` : `${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`, sub: s.code })}
         onSelect={(s) => {
           setSchemeId(s.id);
-          setSchemeLabel(`${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`);
-          setSchemeLtv(s.ltvPercent);
+          setSchemeLabel(s.ltvBased === false ? `${s.name} — @ ${s.interestRate}%` : `${s.name} — ${s.ltvPercent}% LTV @ ${s.interestRate}%`);
+          setSchemeLtv(s.ltvBased === false ? 0 : s.ltvPercent);
+          setNewScheme(s);
+          setChargeMode(s.serviceChargeMode === "AddedToPrincipal" ? "AddedToPrincipal" : "WithheldFromPayout");
         }}
       />
-      <ResultBox k="Eligible loan amount" v={eligible > 0 ? inr(Math.floor(eligible)) : "—"} />
-      <TextField label={`Principal amount${eligible > 0 ? ` (max ${inr(Math.floor(eligible))})` : ""}`} keyboardType="decimal-pad" value={principal} onChangeText={(v) => setPrincipal(capToEligible(v))} />
+      {ltvBased ? <ResultBox k="Eligible loan amount" v={eligible > 0 ? inr(Math.floor(eligible)) : "—"} /> : null}
+      <DateField label="Loan date" value={openedDate} onChange={setOpenedDate} max={todayISO()} />
+      {hasCharge ? (
+        <Field label="Charge method">
+          <ChipToggle
+            options={["WithheldFromPayout", "AddedToPrincipal"] as const}
+            labels={{ WithheldFromPayout: "Deduct from loan", AddedToPrincipal: "Add to loan" }}
+            value={chargeMode}
+            onChange={setChargeMode}
+          />
+        </Field>
+      ) : null}
+      <TextField label={`${hasCharge ? "Amount" : "Principal amount"}${eligible > 0 ? ` (max ${inr(Math.floor(eligible))})` : ""}`} keyboardType="decimal-pad" value={principal} onChangeText={(v) => setPrincipal(capToEligible(v))} />
+      <FieldErr m={fe("amount")} />
+      {hasCharge ? (
+        <>
+          <ResultBox k={`Service charge${chargeType === "Percent" ? ` (${chargeValue}%)` : ""}`} v={`${chargeMode === "WithheldFromPayout" ? "−" : "+"}${inr(charge)}`} />
+          <ResultBox k="Principal" v={inr(principalTotal)} />
+          <ResultBox k="Customer receives" v={inr(Math.max(0, payout))} />
+        </>
+      ) : null}
 
       {canMove ? (
         <>
@@ -229,13 +284,20 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
               label="Locker"
               placeholder="Search locker code"
               queryKey={["lockers", "edit-loan", branch?.id ?? l.branchId]}
-              fetcher={async (q) => (await listLockersPage({ branchId: branch?.id ?? l.branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? []}
+              fetcher={async (q) => {
+                const all = (await listLockersPage({ branchId: branch?.id ?? l.branchId, status: "active", q: q || undefined, limit: 20, offset: 0 })).items ?? [];
+                const free = all.filter((x) => (x.occupied ?? 0) < x.capacity);
+                lockersAllFull.current = all.length > 0 && free.length === 0;
+                return free;
+              }}
+              emptyText={() => (lockersAllFull.current ? "All lockers full" : undefined)}
               selectedLabel={locker ? `${locker.code} (${locker.occupied}/${locker.capacity} packets)` : undefined}
               onSelect={setLocker}
               keyOf={(x) => x.id}
               renderItem={(x) => ({ title: `${x.code} (${x.occupied}/${x.capacity} packets)`, sub: x.branch?.name })}
             />
           ) : null}
+          <FieldErr m={fe("locker")} />
         </>
       ) : null}
 
@@ -244,52 +306,16 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
       </SectionTitle>
       {rows.map((r, i) =>
         r.removed ? null : (
-          <OrnamentCard key={r.id ?? `new-${i}`} title={r.name.trim() || `Ornament ${i + 1}`} onRemove={() => upd(i, { removed: true })}>
-            <OrnamentTypeField value={r.name} onChange={(v) => upd(i, { name: v })} />
-            <FieldRow>
-              <Field label="Purity">
-                <ThemeDropdown value={r.purity} options={PURITIES.includes(r.purity) ? PURITIES : [r.purity, ...PURITIES]} onChange={(v) => upd(i, { purity: v })} labelOf={(p) => p} />
-              </Field>
-              <Field label="Qty">
-                <Input keyboardType="number-pad" value={r.qty} onChangeText={(v) => upd(i, { qty: v })} />
-              </Field>
-            </FieldRow>
-            <FieldRow>
-              <Field label="Gross (g)">
-                <Input keyboardType="decimal-pad" value={r.gross} onChangeText={(v) => upd(i, { gross: v })} />
-              </Field>
-              <Field label="Net (g)">
-                <Input keyboardType="decimal-pad" value={r.net} onChangeText={(v) => upd(i, { net: v })} />
-              </Field>
-            </FieldRow>
-            {r.photos.length ? (
-              <>
-                <Txt style={{ fontSize: 11.5, color: C.muted, marginBottom: 6 }}>{r.photos.length} saved photo{r.photos.length > 1 ? "s" : ""}</Txt>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-                  {r.photos.map((p) => (
-                    <UploadImage key={p} path={p} title={`${r.name || "Ornament"} photo`} style={{ width: 72, height: 72, borderRadius: 8 }} />
-                  ))}
-                </View>
-              </>
-            ) : null}
-            {r.newPhotos.map((url, k) => (
-              <UploadField key={`${i}-${k}-${url}`} label={`New photo ${k + 1}`} value={url} allowPdf={false}
-                onChange={(u) => upd(i, { newPhotos: u ? r.newPhotos.map((x, xi) => (xi === k ? u : x)) : r.newPhotos.filter((_, xi) => xi !== k) })} />
-            ))}
-            {r.photos.length + r.newPhotos.length < 3 ? (
-              <UploadField key={`${i}-add-${r.newPhotos.length}`} label="Add ornament photo" value="" allowPdf={false}
-                onChange={(u) => u && upd(i, { newPhotos: [...r.newPhotos, u] })}
-                maxFiles={3 - r.photos.length - r.newPhotos.length}
-                onAddMany={(urls) => upd(i, { newPhotos: [...r.newPhotos, ...urls].slice(0, 3 - r.photos.length) })} />
-            ) : null}
-          </OrnamentCard>
+          <OrnamentFormCard key={r.id ?? `new-${i}`} title={r.name.trim() || `Ornament ${i + 1}`} row={r} savedPhotos={r.photos} onChange={(patch) => upd(i, patch)} onRemove={() => upd(i, { removed: true })} />
         )
       )}
-      <DashedButton label="Add Ornament" onPress={() => setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", net: "", qty: "1", photos: [], newPhotos: [] }])} />
+      <FieldErr m={fe("ornaments")} />
+      <DashedButton label="Add Ornament" onPress={() => setRows((rs) => [...rs, { ...emptyOrnRow, photos: [] }])} />
       <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginBottom: 12 }}>Total net weight: {totalNet.toFixed(2)} g</Txt>
 
       <UploadField label="Overall photo" value={overallPhoto} onChange={setOverallPhoto} allowPdf={false} />
-      <TextField label="Additional information" multiline maxLength={2000} placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChangeText={setAdditionalInfo} style={{ minHeight: 70 }} />
+      <TextField label="Additional information" multiline maxLength={150} placeholder="Anything else worth recording on this loan…" value={additionalInfo} onChangeText={setAdditionalInfo} style={{ minHeight: 70 }} />
+      <FieldErr m={fe("info")} />
 
       {reviewing && (activeFollowing.length || activeDeps.length || interest.length) ? (
         <View style={{ marginBottom: 12 }}>
@@ -337,11 +363,10 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
         </View>
       ) : null}
 
-      <ErrorText>{error}</ErrorText>
       <PrimaryButton
         label="Save Changes"
         onPress={() => {
-          setError(null);
+          if (Object.keys(errs).length) return setTried(true);
           save.mutate();
         }}
         loading={save.isPending}

@@ -6,7 +6,7 @@ import {
   FlatHeader,
   GroupedFilter,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   ServerFlatList,
   SummaryCard,
   emptyGroupedFilter,
@@ -76,7 +76,7 @@ export default function LoanRiskScreen() {
 
   return (
     <Screen header={<FlatHeader title="Loan Risk" subtitle="Risk assessment across active loans" />}>
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(r) => String(r.loanId)}
@@ -99,15 +99,14 @@ export default function LoanRiskScreen() {
                 ]}
               />
             </View>
-            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-              <GroupedFilter title="Filter Loan Risk" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+            <View style={{ paddingTop: 12 }}>
+              <SearchFilterRow
+                value={list.search}
+                onChangeText={list.setSearch}
+                placeholder="Search by loan ID, customer name or ID"
+                filter={<GroupedFilter title="Filter Loan Risk" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
+              />
             </View>
-            <SearchInput
-              value={list.search}
-              onChangeText={list.setSearch}
-              placeholder="Search by loan ID, customer name or ID"
-              style={{ paddingTop: 8 }}
-            />
           </>
         }
         renderItem={(r, i) => {

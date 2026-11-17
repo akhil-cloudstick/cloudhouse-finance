@@ -14,8 +14,12 @@ type AccGroupState = { open: string | null | undefined; setOpen: (k: string | nu
 export const AccGroupContext = createContext<AccGroupState | null>(null);
 export const AccRowKey = createContext<string | null>(null);
 
+const ROW_SHADOW = { shadowColor: "#000", shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 } as const;
+
 export const s = StyleSheet.create({
-  row: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 16, marginBottom: 10, overflow: "hidden" },
+  // Soft shadow under every row. No `overflow: hidden` here — it would clip the iOS shadow — so the
+  // expanded body rounds its own bottom corners instead.
+  row: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 16, marginBottom: 10, ...ROW_SHADOW },
   head: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
   lid: { flexShrink: 0, maxWidth: 110 },
   lidTxt: { fontWeight: "700", fontSize: 12.5, color: C.brandDeep },
@@ -25,7 +29,7 @@ export const s = StyleSheet.create({
   right: { alignItems: "flex-end", flexShrink: 0 },
   amt: { fontWeight: "700", fontSize: 13.5 },
   chev: { flexShrink: 0 },
-  body: { backgroundColor: C.brandFaint },
+  body: { backgroundColor: C.brandFaint, borderBottomLeftRadius: 15, borderBottomRightRadius: 15 },
   detail: { paddingTop: 4, paddingHorizontal: 14, paddingBottom: 14, flexDirection: "row", flexWrap: "wrap", rowGap: 10 },
   detailCell: { width: "50%", paddingRight: 16 },
   k: { fontSize: 10.5, color: C.muted, fontWeight: "600" },
@@ -35,7 +39,7 @@ export const s = StyleSheet.create({
   btnPrimary: { backgroundColor: C.brandDeep, borderColor: C.brandDeep },
   btnTxt: { fontSize: 11.5, fontWeight: "700", color: C.brandDeep },
 
-  pkt: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 16, paddingVertical: 13, paddingHorizontal: 14, marginBottom: 10 },
+  pkt: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 16, paddingVertical: 13, paddingHorizontal: 14, marginBottom: 10, ...ROW_SHADOW },
   pktRow1: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   pktId: { fontWeight: "700", fontSize: 13, color: C.brandDeep },
   pktRow2: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
@@ -44,12 +48,12 @@ export const s = StyleSheet.create({
   pktMeta: { textAlign: "right", fontSize: 11, color: C.muted },
   pktMetaB: { color: C.ink, fontWeight: "700", fontSize: 11 },
 
-  custRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13, paddingHorizontal: 18, backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.line },
+  custRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13, paddingHorizontal: 18, backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.line, ...ROW_SHADOW },
   custName: { fontWeight: "700", fontSize: 13.5 },
   custSub: { fontSize: 11.5, color: C.muted, marginTop: 1 },
 
   reportLabel: { fontSize: 11, fontWeight: "700", color: C.muted, letterSpacing: 0.55, paddingTop: 16, paddingHorizontal: 18, paddingBottom: 6 },
-  reportRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 13, paddingHorizontal: 18, backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.line },
+  reportRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 13, paddingHorizontal: 18, backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.line, ...ROW_SHADOW },
   reportTitle: { fontWeight: "700", fontSize: 13, flex: 1 },
 
   sli: { flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 14, paddingHorizontal: 2 },

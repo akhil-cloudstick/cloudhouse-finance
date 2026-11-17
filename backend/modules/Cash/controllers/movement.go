@@ -200,14 +200,43 @@ func movementQueryFilter(c echo.Context) MovementFilter {
 	}
 }
 
+// bankPledgeBranchClause also matches a bank pledge's cash lines by the branch of the pledged loan: they are booked
+// under Head Office, so a branch scope on branch_id alone hides them from the branch that owns the loan.
+// It is used only where the ledger is narrowed to bank pledge entries, so no branch balance changes.
+func bankPledgeBranchClause(col, groupCol string, branchIDs []uint) (string, []any) {
+	sub := "SELECT bp.cash_transaction_group_id FROM bank_pledge_records bp JOIN loans lo ON lo.id = bp.loan_id WHERE lo.branch_id IN ? AND bp.cash_transaction_group_id <> ''" +
+		" UNION SELECT bp.release_cash_transaction_group_id FROM bank_pledge_records bp JOIN loans lo ON lo.id = bp.loan_id WHERE lo.branch_id IN ? AND bp.release_cash_transaction_group_id <> ''"
+	return "(" + col + " IN ? OR " + groupCol + " IN (" + sub + "))", []any{branchIDs, branchIDs, branchIDs}
+}
+
+func wantsBankPledge(categories []string) bool {
+	for _, c := range categories {
+		if strings.EqualFold(strings.TrimSpace(c), "bank pledge") {
+			return true
+		}
+	}
+	return false
+}
+
 func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string) *gorm.DB {
 	q := config.DB.
 		WithContext(ctx).Model(&models.CashMovement{})
+	pledgeWide := wantsBankPledge(filter.Categories)
 	if branchID != nil {
+		if pledgeWide {
+			clause, args := bankPledgeBranchClause("branch_id", "transaction_group_id", []uint{*branchID})
+			q = q.Where(clause, args...)
+		} else {
 		q = q.Where("branch_id = ?", *branchID)
 	}
+	}
 	if len(filter.BranchIDs) > 0 {
+		if pledgeWide {
+			clause, args := bankPledgeBranchClause("branch_id", "transaction_group_id", filter.BranchIDs)
+			q = q.Where(clause, args...)
+		} else {
 		q = q.Where("branch_id IN ?", filter.BranchIDs)
+	}
 	}
 	if len(filter.CustomerIDs) > 0 {
 		q = q.Where("party_customer_id IN ?", filter.CustomerIDs)
@@ -247,19 +276,29 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 		}
 	}
 	if search != "" {
-		like := "%" + search + "%"
-		// Text columns, the party's name, the date (DD-MM-YYYY or ISO) and the
-		// amount ("5,000" and "5000" both find 5000.00).
-		amount := searchAmountLike(search)
-		q = q.Where(
-			"purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ? OR mode ILIKE ? OR remarks ILIKE ? OR loan_number ILIKE ?"+
-				" OR party_customer_id IN (SELECT id FROM customers WHERE name ILIKE ?)"+
-				" OR party_investor_id IN (SELECT id FROM investors WHERE name ILIKE ?)"+
-				" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ?"+
-				" OR CAST(amount AS TEXT) LIKE ?",
-			like, like, like, like, like, like, like, like, like, like, amount)
+		clause, args := movementSearchClause(search)
+		q = q.Where(clause, args...)
 	}
 	return q
+}
+
+// movementSearchClause is the ledger search over every column the Ledger tab shows: date, ref no (the loan /
+// investment number inside purpose, a loan-source's bank loan number, the bank), particulars (purpose, source,
+// remarks), mode, bank, party and the amount. cash_movements has no loan_number column of its own: the number
+// lives in purpose, in loan_cash_sources (Add Cash from a loan) and on the loan's category.
+func movementSearchClause(search string) (string, []any) {
+	like := "%" + search + "%"
+	amount := searchAmountLike(search)
+	clause := "purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ? OR mode ILIKE ? OR remarks ILIKE ?" +
+		" OR id IN (SELECT cash_movement_id FROM loan_cash_sources WHERE loan_number ILIKE ?)" +
+		" OR EXISTS (SELECT 1 FROM categories c WHERE c.tenant_id = cash_movements.tenant_id AND c.loan_number ILIKE ?" +
+		" AND (LOWER(cash_movements.source) = LOWER(c.name) OR LOWER(cash_movements.purpose) IN (LOWER('Expense — ' || c.name), LOWER('Self transfer — ' || c.name))))" +
+		" OR bank_id IN (SELECT id FROM banks WHERE name ILIKE ?)" +
+		" OR party_customer_id IN (SELECT id FROM customers WHERE name ILIKE ?)" +
+		" OR party_investor_id IN (SELECT id FROM investors WHERE name ILIKE ?)" +
+		" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ?" +
+		" OR CAST(amount AS TEXT) LIKE ?"
+	return clause, []any{like, like, like, like, like, like, like, like, like, like, like, like, amount}
 }
 
 func findByCashMovementIDs(ctx context.Context, ids []uint) map[uint]*models.LoanCashSource {

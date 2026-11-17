@@ -941,6 +941,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/reports/export/:key` | `GET /api/v1/users/:user_id/reports/export/:key` |
 | `GET /api/v1/reports/form-g` | `GET /api/v1/users/:user_id/reports/form-g` |
 | `GET /api/v1/reports/gold-rate-history` | `GET /api/v1/users/:user_id/reports/gold-rate-history` |
+| `GET /api/v1/reports/gold-rate-history/set-by` | `GET /api/v1/users/:user_id/reports/gold-rate-history/set-by` |
 | `GET /api/v1/reports/gold-release` | `GET /api/v1/users/:user_id/reports/gold-release` |
 | `GET /api/v1/reports/gold-weight` | `GET /api/v1/users/:user_id/reports/gold-weight` |
 | `GET /api/v1/reports/interest-collection` | `GET /api/v1/users/:user_id/reports/interest-collection` |

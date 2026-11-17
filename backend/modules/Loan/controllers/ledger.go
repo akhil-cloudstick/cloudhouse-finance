@@ -257,8 +257,9 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 			if !at.Before(p.PaidOn) {
 				at = p.PaidOn.Add(-time.Millisecond)
 			}
-		} else if now := time.Now(); at.After(now) {
-			// interest charged ahead (the first month of a new loan): shown from when it was charged, not skipped
+		} else if now := time.Now(); !accruing && at.After(now) {
+			// interest charged ahead (the first month of a new loan): shown from when it was charged, not skipped.
+			// A projected row keeps its own date: it is interest for that date, never moved to today.
 			at = now
 			if !a.CreatedAt.IsZero() && a.CreatedAt.Before(now) {
 				at = a.CreatedAt
@@ -384,10 +385,10 @@ func buildLoanLedger(l *models.Loan, payments []models.LoanPayment, topUps []mod
 				}
 			}
 			// A repayment is shown the way it paid the loan down: one credit row per component (processing fee,
-			// penal interest, interest, principal), each in the mode it was paid by. Components are met from
-			// the modes in order: cash first, then UPI, then bank transfer, and a mode that was not used is
-			// skipped, so the next one covers that part.
-			if comps := ledgerPaymentComponents(p); comps != nil {
+				// penal interest, interest, principal), each in the mode it was paid by. Components are met from
+				// the modes in order: cash first, then UPI, then bank transfer, and a mode that was not used is
+				// skipped, so the next one covers that part.
+				if comps := ledgerPaymentComponents(p); comps != nil {
 				type modePart struct {
 					mode   string
 					amount float64

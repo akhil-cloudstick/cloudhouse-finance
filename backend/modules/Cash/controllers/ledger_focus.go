@@ -18,6 +18,12 @@ type ledgerFocus struct {
 	// paymentID, when set, is the exact loan_payments.id the user followed: only that payment's rows are
 	// focused, never another loan's payment that happens to share the date and amount.
 	paymentID uint
+	// ref, when set, is the unique row identity "<kind>:<id>" (see ledgerRef) the user followed: only that
+	// entry's rows are focused, whatever else shares its date and amount.
+	ref string
+	// loan, when set, is the loan number of the loan page the user came from: with no exact ref, only rows of that
+	// loan are focused, because two loans can share a date and an amount.
+	loan string
 }
 
 // matchesPayment reports whether r is a row of the focused loan payment.
@@ -32,12 +38,15 @@ func LedgerFocus() echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			if c.Request().Method == http.MethodGet {
 				amount, err := strconv.ParseFloat(strings.TrimSpace(c.QueryParam("focus_amount")), 64)
-				if err == nil {
+				ref := strings.TrimSpace(c.QueryParam("focus_ref"))
+				if err == nil || ref != "" {
 					req := c.Request()
 					f := ledgerFocus{date: strings.TrimSpace(c.QueryParam("focus_date")), amount: amount}
 					if pid, perr := strconv.ParseUint(strings.TrimSpace(c.QueryParam("focus_payment")), 10, 64); perr == nil {
 						f.paymentID = uint(pid)
 					}
+					f.ref = ref
+					f.loan = strings.TrimSpace(c.QueryParam("focus_loan"))
 					c.SetRequest(req.WithContext(context.WithValue(req.Context(), ledgerFocusKey{}, f)))
 				}
 			}
@@ -54,4 +63,26 @@ func focusRowIndex(rows []ledgerSourceRow, f ledgerFocus) int {
 		return exact
 	}
 	return fallback
+}
+
+// ledgerRef is the unique identity of a ledger entry: a short kind code plus the id of the record behind it.
+// Two different records never share a ref, even when their date, amount and description are identical.
+func ledgerRef(r ledgerSourceRow) string {
+	code := map[string]string{
+		"cash_movement": "m", "expense": "e", "gold_sale": "g", "loan_payment": "lp", "loan_discount": "ld",
+		"personal_loan_payment": "pp", "loan_accrual": "la",
+	}[r.Kind]
+	if code == "" || r.ID == 0 {
+		return ""
+	}
+	return code + ":" + strconv.FormatUint(uint64(r.ID), 10)
+}
+
+// matchesRef reports whether r is the entry the focus ref names. A loan payment's discount row shares the
+// payment's id, so the payment's own "lp:<id>" ref (what loan ledgers carry) finds it too.
+func (f ledgerFocus) matchesRef(r ledgerSourceRow) bool {
+	if ledgerRef(r) == f.ref {
+		return true
+	}
+	return r.Kind == "loan_discount" && f.ref == "lp:"+strconv.FormatUint(uint64(r.ID), 10)
 }

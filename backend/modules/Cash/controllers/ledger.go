@@ -39,6 +39,8 @@ type LedgerRow struct {
 	CustomerID     uint      `json:"customer_id"`
 	CustomerName   string    `json:"customer_name"`
 	ReceiptImage   string    `json:"receipt_image,omitempty"`
+	// Ref is the unique row identity ("m:12", "e:7", "lp:42"): carried through ledger links so the exact entry opens.
+	Ref string `json:"ref,omitempty"`
 	// EntryID is the cash movement behind a row; the info popup opens it. Editable is true only for a
 	// cash-in, debit or self transfer a person keyed in (it alone offers Edit).
 	EntryID  uint `json:"entry_id,omitempty"`
@@ -77,6 +79,9 @@ type ledgerSourceRow struct {
 	CustomerID     uint
 	CustomerName   string
 	IsOut          bool
+	// PartyView: the row belongs to a category (party) ledger, which reads from the party's side — an expense is
+	// a Credit and cash received from the category a Debit, the opposite of the daybook.
+	PartyView bool
 	Memo           bool
 	Split          []LedgerSplitLine
 }
@@ -667,8 +672,15 @@ func discountLedgerRow(id, loanID uint, on time.Time, kind, method, loanNumber s
 
 func toLedgerRow(r ledgerSourceRow) LedgerRow {
 	debitOrCredit := "credit"
-	if (r.Kind == "cash_movement" || r.Kind == "loan_accrual" || r.Kind == "loan_discount") && r.IsOut {
+	if (r.Kind == "cash_movement" || r.Kind == "loan_accrual" || r.Kind == "loan_discount" || r.Kind == "expense") && r.IsOut {
 		debitOrCredit = "debit"
+	}
+	if r.PartyView {
+		if debitOrCredit == "debit" {
+			debitOrCredit = "credit"
+		} else {
+			debitOrCredit = "debit"
+		}
 	}
 	row := LedgerRow{
 		ID:             r.ID,
@@ -686,6 +698,7 @@ func toLedgerRow(r ledgerSourceRow) LedgerRow {
 		CustomerName:   r.CustomerName,
 		Memo:           r.Memo,
 		Split:          r.Split,
+		Ref:            ledgerRef(r),
 	}
 	switch r.Kind {
 	case "loan_payment", "loan_discount":
@@ -928,7 +941,7 @@ func listCashModeLedger(ctx context.Context, branchID *uint, branchIDs []uint, s
 
 func listModeLedger(ctx context.Context, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, types []string, search string, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
 	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
-		return modeLedger(ctx, mode, bankIDs, branchID, branchIDs, from, to)
+		return modeLedger(ctx, mode, bankIDs, branchID, branchIDs, wantsBankPledge(types), from, to)
 	}
 	keep := withLedgerSearch(func(rows []ledgerSourceRow) []ledgerSourceRow { return filterLedgerRowsByType(rows, types) }, search)
 	// The mode ledgers span the whole cash book: cache their closed years' totals.
@@ -937,11 +950,11 @@ func listModeLedger(ctx context.Context, mode string, bankIDs []uint, branchID *
 	return paginateLedgerWindowedCached(ctx, key, modeLedgerFingerprint, fetch, keep, fromDate, toDate, limit, offset)
 }
 
-func modeLedger(ctx context.Context, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func modeLedger(ctx context.Context, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, pledgeWide bool, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	db := config.DB.
 		WithContext(ctx)
 	var rows []ledgerSourceRow
-	cmRows, err := scanCashMovementsForModeLedger(db, mode, bankIDs, branchID, branchIDs, fromDate, toDate)
+	cmRows, err := scanCashMovementsForModeLedger(db, mode, bankIDs, branchID, branchIDs, pledgeWide, fromDate, toDate)
 	if err != nil {
 		return nil, err
 	}
@@ -983,7 +996,7 @@ const movementNotShownByPaymentSQL = `(m.source IS DISTINCT FROM 'Collection' OR
 	WHERE m.transaction_group_id <> '' AND lp.cash_transaction_group_id = m.transaction_group_id
 	AND lp.cash_amount + lp.upi_amount + lp.bank_transfer_amount + lp.cheque_amount > 0)))`
 
-func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
+func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, pledgeWide bool, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID              uint
 		OccurredOn      time.Time
@@ -1012,7 +1025,18 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, br
 	if len(bankIDs) > 0 {
 		q = q.Where("m.bank_id IN ?", bankIDs)
 	}
+	if pledgeWide && (branchID != nil || len(branchIDs) > 0) {
+		// A bank pledge's cash lines are booked under Head Office: when the ledger is narrowed to bank pledges they
+		// are also matched by the branch of the pledged loan, so the branch that owns the loan sees them.
+		scope := branchIDs
+		if branchID != nil {
+			scope = []uint{*branchID}
+		}
+		clause, args := bankPledgeBranchClause("m.branch_id", "m.transaction_group_id", scope)
+		q = q.Where(clause, args...)
+	} else {
 	q = applyBranchScope(q, "m.branch_id", branchID, branchIDs)
+	}
 	if !fromDate.IsZero() {
 		q = q.Where("m.occurred_on >= ?", fromDate)
 	}
@@ -1277,7 +1301,12 @@ func expenseLedgerByCategory(ctx context.Context, categoryName string, branchID 
 		WithContext(ctx).Table("expenses e").
 		Select(`e.id, e.occurred_on, e.category, e.payee, e.mode, e.amount, e.remarks`).
 		Where("e.category ILIKE ?", categoryName)
+	if branchID != nil && strings.EqualFold(categoryName, bankPledgeReleaseCategory) {
+		// the release expense is booked under Head Office: match it by the pledged loan's branch too
+		q = q.Where("(e.branch_id = ? OR e.id IN (SELECT bp.release_expense_id FROM bank_pledge_records bp JOIN loans lo ON lo.id = bp.loan_id WHERE lo.branch_id = ? AND bp.release_expense_id IS NOT NULL))", *branchID, *branchID)
+	} else {
 	q = applyBranchScope(q, "e.branch_id", branchID, nil)
+	}
 	if !fromDate.IsZero() {
 		q = q.Where("e.occurred_on >= ?", fromDate)
 	}
@@ -1306,6 +1335,7 @@ func expenseLedgerByCategory(ctx context.Context, categoryName string, branchID 
 			Method:      e.Mode,
 			Amount:      e.Amount,
 			IsOut:       true,
+			PartyView:   true,
 		}
 	}
 	return out, nil
@@ -1470,6 +1500,7 @@ func loanSourceLedgerRows(ctx context.Context, src *models.CashSource) ([]Ledger
 	for i := range merged {
 		out[i] = merged[i].row
 		meta[i] = ledgerSourceRow{Kind: merged[i].kind, ID: merged[i].id}
+		out[i].Ref = ledgerRef(meta[i])
 	}
 	if err := attachEntryMeta(ctx, meta, out); err != nil {
 		return nil, err
@@ -1482,6 +1513,29 @@ func listLedgerByCashInCategory(ctx context.Context, name string, branchID *uint
 		return cashInLedgerByCategory(ctx, name, branchID, from, to)
 	}
 	return paginateLedgerWindowed(ctx, fetch, nil, fromDate, toDate, limit, offset)
+}
+
+// listLedgerByCommonCategory is the party ledger of a category used for both
+// expenses and Credit In: its expenses plus its credit-in cash movements.
+func listLedgerByCommonCategory(ctx context.Context, name string, branchID *uint, fromDate, toDate time.Time, limit, offset int) ([]LedgerRow, int64, LedgerTotals, error) {
+	fetch := func(from, to time.Time) ([]ledgerSourceRow, error) {
+		return mergeCategoryLedgerSources(ctx, name, branchID, from, to)
+	}
+	return paginateLedgerWindowed(ctx, fetch, nil, fromDate, toDate, limit, offset)
+}
+
+func mergeCategoryLedgerSources(ctx context.Context, name string, branchID *uint, from, to time.Time) ([]ledgerSourceRow, error) {
+	exp, err := expenseLedgerByCategory(ctx, name, branchID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	in, err := cashInLedgerByCategory(ctx, name, branchID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	out := append(exp, in...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
+	return out, nil
 }
 
 func cashInLedgerByCategory(ctx context.Context, name string, branchID *uint, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
@@ -1518,7 +1572,7 @@ func cashInLedgerByCategory(ctx context.Context, name string, branchID *uint, fr
 		}
 		out[i] = ledgerSourceRow{
 			Kind: "cash_movement", ID: m.ID, Date: m.OccurredOn, Description: desc, Type: name,
-			Method: m.Mode, Amount: m.Amount, BankID: m.BankID, BankName: m.BankName,
+			Method: m.Mode, Amount: m.Amount, BankID: m.BankID, BankName: m.BankName, PartyView: true,
 		}
 	}
 	return out, nil

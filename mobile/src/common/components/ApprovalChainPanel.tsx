@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import { View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
-import { BtnRow2, C, ConfirmSheet, PrimaryButton, ReviewWarning, SheetFooter, Stepper, TextField, Txt, toast } from "@/common/components/ui";
+import { BtnRow2, C, ConfirmSheet, PrimaryButton, ReviewWarning, SheetFooter, Stepper, Txt, toast } from "@/common/components/ui";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { flowOf, isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
@@ -18,15 +18,20 @@ type ApprovalChainPanelProps = {
   rejectMessage?: string;
   /** Extra gate on top of the stage permission (e.g. can_update_loan). */
   canDecide?: boolean;
+  /** When set, Approve is disabled and this is shown (e.g. branch balance in hand too low to disburse). */
+  approveBlockedReason?: string;
   decide: (input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }) => Promise<unknown>;
   onSaved: () => void;
   onError: (message: string) => void;
 };
 
+const DUPLICATE_TAP = Symbol("duplicate-tap");
+
 /* The tenant-configured approval chain for one item — the Stepper (enabled
  * stages, plus the item's own stage if it's parked on a disabled one), whose
  * turn it is, and — when the signed-in employee holds that stage's
- * permission — decision remarks with Reject / Approve. Shared by the
+ * permission — Reject / Approve (Reject asks for an optional reason in its
+ * confirm sheet; Approve has no remarks box). Shared by the
  * extension, top-up and personal-loan reviews; the
  * caller supplies the actual API call (`decide`) and what to do after.
  * Renders nothing but the rejection note when the flow has no stages. */
@@ -38,6 +43,7 @@ export function ApprovalChainPanel({
   noun,
   rejectMessage,
   canDecide = true,
+  approveBlockedReason,
   decide,
   onSaved,
   onError,
@@ -59,7 +65,8 @@ export function ApprovalChainPanel({
   const inFlight = useRef(false);
   const run = useMutation({
     mutationFn: async ({ action, note }: { action: "Approved" | "Rejected"; note: string }) => {
-      if (inFlight.current) throw new ApiError(0, "Already submitting — please wait.", undefined);
+      // Duplicate tap while one is in flight: ignore silently (no error, no toast).
+      if (inFlight.current) return DUPLICATE_TAP;
       inFlight.current = true;
       try {
         return await decide({ stage: stage!.key, action, remarks: note.trim() || undefined });
@@ -67,7 +74,8 @@ export function ApprovalChainPanel({
         inFlight.current = false;
       }
     },
-    onSuccess: (_d, v) => {
+    onSuccess: (d, v) => {
+      if (d === DUPLICATE_TAP) return;
       setRemarks("");
       setConfirmReject(false);
       toast.success(`${noun} ${v.action === "Rejected" ? "rejected" : "approved"}`);
@@ -94,7 +102,6 @@ export function ApprovalChainPanel({
 
       {stage && canActOnStage ? (
         <>
-          <TextField label="Decision remarks (optional)" placeholder="Add a note" value={remarks} onChangeText={setRemarks} />
           <SheetFooter>
             <BtnRow2>
               <PrimaryButton label="Reject" variant="reject" onPress={() => setConfirmReject(true)} disabled={run.isPending} />
@@ -102,10 +109,11 @@ export function ApprovalChainPanel({
                 label="Approve"
                 onPress={() => run.mutate({ action: "Approved", note: remarks })}
                 loading={run.isPending && run.variables?.action === "Approved"}
-                disabled={run.isPending}
+                disabled={run.isPending || !!approveBlockedReason}
               />
             </BtnRow2>
           </SheetFooter>
+          {approveBlockedReason ? <Txt style={{ fontSize: 12, color: C.red, marginTop: 8 }}>{approveBlockedReason}</Txt> : null}
           <ConfirmSheet
             visible={confirmReject}
             onClose={() => setConfirmReject(false)}

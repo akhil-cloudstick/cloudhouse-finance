@@ -532,6 +532,12 @@ func applyEntryUpdate(c echo.Context, ctx context.Context, m *models.CashMovemen
 	if err != nil {
 		return common.FailErr(c, err)
 	}
+	// An auction surplus settlement's remark is shown in Auction History, not the ledger: keep the auction record in step.
+	if p := old[0].Purpose; strings.HasPrefix(p, "Auction surplus settlement — ") {
+		_ = config.DB.WithContext(ctx).Exec(
+			"UPDATE auction_records SET surplus_remarks = ? WHERE loan_id = (SELECT id FROM loans WHERE loan_number = ? LIMIT 1) AND sale_amount > 0",
+			remarks, strings.TrimPrefix(p, "Auction surplus settlement — ")).Error
+	}
 	return common.Success(c, http.StatusOK, echo.Map{"id": newID})
 }
 
@@ -920,4 +926,12 @@ func attachAuctionLoan(ctx context.Context, loanNumber, kind string, info *entry
 		return
 	}
 	info.LoanEntry, info.LoanID = kind, loan.ID
+	// The remark entered when the auction's surplus was settled belongs to every cash line of that auction.
+	if strings.TrimSpace(info.Remarks) == "" {
+		var rec struct{ SurplusRemarks string }
+		if err := config.DB.WithContext(ctx).Table("auction_records").Select("surplus_remarks").
+			Where("loan_id = ? AND sale_amount > 0 AND COALESCE(surplus_remarks, '') <> ''", loan.ID).Order("id desc").Limit(1).Scan(&rec).Error; err == nil {
+			info.Remarks = rec.SurplusRemarks
+		}
+	}
 }

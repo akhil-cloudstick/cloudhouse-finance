@@ -63,7 +63,6 @@ export function IssueNoticeModalContent({ loan, onSaved, onError }: IssueNoticeM
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Sending…" : "Log Notice"}</button>
 			</div>
 		</>

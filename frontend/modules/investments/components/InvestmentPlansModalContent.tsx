@@ -1,5 +1,6 @@
 "use client";
 
+import { Icon } from "@/common/components/Icon";
 import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
@@ -205,17 +206,16 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
             </div>
             {error && <div className="notice">{error}</div>}
             <div className="tbl-wrap tbl-wrap-auto tbl-scroll-paged" ref={wrapRef} onScroll={onWrapScroll}><table className="tbl tbl-center plans-tbl tbl-cards-sm tbl-compact">
-              <TableCols widths={[19, 9, 7, 11, 8, 13, 12, 10, canDelete ? "150px" : "76px"]} />
-              <thead><tr><th>Name</th><th>Type</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
+              <TableCols widths={[22, 8, 12, 9, 14, 13, 10, 12]} />
+              <thead><tr><th>Name</th><th className="num">Rate</th><th>Frequency</th><th className="num">Tenure</th><th className="num">Min Principal</th><th>Payout</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={9} className="empty compact">Loading…</td></tr>
+                  <tr><td colSpan={8} className="empty compact">Loading…</td></tr>
                 ) : plans.length === 0 ? (
-                  <tr><td colSpan={9} className="empty compact">{debouncedQ ? "No plans match your search." : "No plans yet."}</td></tr>
+                  <tr><td colSpan={8} className="empty compact">{debouncedQ ? "No plans match your search." : "No plans yet."}</td></tr>
                 ) : shownPlans.map((p) => (
                   <tr key={p.id} className="click" onClick={() => startEdit(p)}>
                     <td>{p.name}<div className="sub">{p.interestRateType}</div></td>
-                    <td data-label="Type"><span className="chip info">Bond</span></td>
                     <td className="num" data-label="Rate">{p.interestRatePercent}%</td>
                     <td data-label="Frequency">{p.payoutFrequency}</td>
                     <td className="num" data-label="Tenure">{p.tenureMonths}mo</td>
@@ -223,8 +223,8 @@ export function InvestmentPlansModalContent({ onChanged }: InvestmentPlansModalC
                     <td data-label="Payout">{p.engine === "Live" ? "Single Payout" : "Fixed Payout"}</td>
                     <td data-label="Status"><StatusChip status={p.isActive ? "Active" : "Closed"} /></td>
                     <td className="tbl-acts" style={{ whiteSpace: "nowrap" }}>
-                      <button className="btn plain sm" onClick={(e) => { e.stopPropagation(); startEdit(p); }}>Edit</button>
-                      {canDelete && <button className="btn plain sm" style={{ color: "var(--red)" }} onClick={(e) => { e.stopPropagation(); confirmDelete(p); }}>Delete</button>}
+                      <button type="button" className="tbl-ibtn" title="Edit plan" aria-label={`Edit ${p.name}`} onClick={(e) => { e.stopPropagation(); startEdit(p); }}><Icon name="edit" /></button>
+                      {canDelete && <button type="button" className="tbl-ibtn danger" title="Delete plan" aria-label={`Delete ${p.name}`} onClick={(e) => { e.stopPropagation(); confirmDelete(p); }}><Icon name="trash" /></button>}
                     </td>
                   </tr>
                 ))}

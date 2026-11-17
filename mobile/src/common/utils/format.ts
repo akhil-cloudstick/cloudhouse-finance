@@ -25,8 +25,10 @@ export const inr = (n?: number | null) => {
 export const inrShort = (n?: number | null) => {
   const v = Math.abs(n ?? 0);
   const sign = (n ?? 0) < 0 ? "−" : "";
-  if (v >= 1e7) return `${sign}₹${(v / 1e7).toFixed(1).replace(/\.0$/, "")}Cr`;
-  if (v >= 1e5) return `${sign}₹${(v / 1e5).toFixed(1).replace(/\.0$/, "")}L`;
+  const cr = Math.round(v / 1e6) / 10;
+  if (cr >= 1) return `${sign}₹${cr}Cr`;
+  const lk = Math.round(v / 1e4) / 10;
+  if (lk >= 1) return `${sign}₹${lk}L`;
   return `${sign}₹${Math.round(v).toLocaleString("en-IN")}`;
 };
 
@@ -45,4 +47,12 @@ export const todayISO = () => {
 export const addDaysISO = (iso: string, days: number) => {
   const d = new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10) + days);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// "14-08-2026 16:05" — local date + time (web fmtDateTime). "—" when empty/invalid.
+export const dmyTime = (v?: string | null) => {
+  const d = v ? new Date(v) : null;
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };

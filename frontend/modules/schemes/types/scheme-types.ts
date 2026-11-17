@@ -21,6 +21,8 @@ export type BackendScheme = {
 	minimumDays?: number;
 	durationMonths: number;
 	ltvPercent: number;
+  // false: loans on this scheme are not limited by gold value (ltvPercent is 0).
+  ltvBased?: boolean;
 	interestMethod: string;
 	penalRate: number;
 	accrualBasis?: AccrualBasis;
@@ -48,6 +50,7 @@ export type SchemeView = {
 	minimumDays: number;
 	durationMonths: number;
 	ltv: number;
+  ltvBased: boolean;
 	method: string;
 	penal: number;
 	accrualBasis: AccrualBasis;
@@ -66,6 +69,7 @@ export type SchemeFormInput = {
 	minimumDays: number;
 	durationMonths: number;
 	ltv: number;
+  ltvBased: boolean;
 	method: string;
 	penal: number;
 	accrualBasis: AccrualBasis;

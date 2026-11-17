@@ -19,6 +19,7 @@ function toView(s: BackendScheme): SchemeView {
 		minimumDays: s.minimumDays || 0,
 		durationMonths: s.durationMonths,
 		ltv: s.ltvPercent,
+    ltvBased: s.ltvBased !== false,
 		method: s.interestMethod,
 		penal: s.penalRate,
 		accrualBasis: s.accrualBasis || "daily",
@@ -39,7 +40,8 @@ function toRequestBody(input: SchemeFormInput) {
 		rateTiers: input.rateTiers,
 		minimumDays: input.minimumDays,
 		durationMonths: input.durationMonths,
-		ltvPercent: input.ltv,
+    ltvBased: input.ltvBased,
+    ltvPercent: input.ltvBased ? input.ltv : 0,
 		interestMethod: input.method,
 		penalRate: input.penal,
 		accrualBasis: input.accrualBasis,
@@ -108,6 +110,13 @@ async function listSchemesLive(filters?: { q?: string; methods?: string[] }): Pr
 	const qs = params.toString();
 	const rec = await apiFetch<BackendScheme[]>(`/schemes${qs ? `?${qs}` : ""}`);
 	return (rec || []).map(toView);
+}
+
+/* The scheme's terms as they are now (name search, then matched on id): the Edit Loan screens check the amount
+ * against its current LTV, not the one frozen on the loan. Undefined when it can't be found. */
+export async function findCurrentScheme(id: string, name: string): Promise<SchemeView | undefined> {
+  const list = await listSchemes({ q: name });
+  return list.find((s) => s.id === id);
 }
 
 /* One page of the Loan Schemes list — same search/method filters as
@@ -186,7 +195,7 @@ export async function updateScheme(id: string, input: SchemeFormInput): Promise<
 		entry.targets = [entry.id];
 		const draft = {
 			uuid: entry.id, editOf: Number(id), id: 0, code: "", name: input.name, interestRate: input.rate, rateTiers: input.rateTiers,
-			minimumDays: input.minimumDays, durationMonths: input.durationMonths, ltvPercent: input.ltv, interestMethod: input.method,
+			minimumDays: input.minimumDays, durationMonths: input.durationMonths, ltvPercent: input.ltvBased ? input.ltv : 0, ltvBased: input.ltvBased, interestMethod: input.method,
 			penalRate: input.penal, accrualBasis: input.accrualBasis, conditions: input.cond, isActive: input.active, branchId: input.branchId,
 			serviceChargeType: input.serviceChargeType, serviceChargeValue: body.serviceChargeValue, serviceChargeMode: body.serviceChargeMode,
 		} as unknown as SchemeLocal;

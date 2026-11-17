@@ -67,6 +67,7 @@ function toView(p: BackendPacket): PacketView {
 		})),
 		status: p.status,
 		currentLockerId: p.currentLockerId,
+    lockerCode: p.lockerCode || "",
 	};
 }
 

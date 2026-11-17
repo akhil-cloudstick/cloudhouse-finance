@@ -147,6 +147,7 @@ export function toView(l: BackendLoan): LoanView {
     schemeName: l.scheme?.name || "—",
     schemeRate: l.schemeInterestRate || 0,
     schemeLtv: l.schemeLtvPercent || 0,
+    currentSchemeLtv: l.currentSchemeLtvPercent,
     schemeMethod: l.schemeInterestMethod || "—",
     schemePenal: l.schemePenalRate || 0,
     opened: l.openedDate ? l.openedDate.slice(0, 10) : "",
@@ -446,6 +447,7 @@ async function listLoansPageLive(
   if (hasValue(filters.branchId)) params.set("branchId", csv(filters.branchId!));
   if (hasValue(filters.customerId)) params.set("customerId", csv(filters.customerId!));
   if (hasValue(filters.bankPledgeStatus)) params.set("bankPledgeStatus", csv(filters.bankPledgeStatus!));
+  if (hasValue(filters.bank)) params.set("bank", csv(filters.bank!));
   if (hasValue(filters.schemeId)) params.set("schemeId", csv(filters.schemeId!));
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
@@ -1184,14 +1186,17 @@ async function withPendingReleases(rows: BankPledgeRecordView[]): Promise<BankPl
 
 /* Re-pledges recorded on this PC that the server has not numbered yet: the history lists them (Active, with a local
  * negative id) so they can be released or voided before they are sent. */
-function unsentPledges(loanId?: number, query?: string): BankPledgeRecordView[] {
+function unsentPledges(loanId?: number, query?: string, filters?: { branchId?: number[]; customerId?: number[]; bank?: string[] }): BankPledgeRecordView[] {
   if (!offlineReady()) return [];
   const q = (query ?? "").trim().toLowerCase();
   const out: BankPledgeRecordView[] = [];
   for (const l of localLoans()) {
     if (loanId !== undefined && l.id !== loanId) continue;
+    if (filters?.branchId?.length && !filters.branchId.includes(l.branchId)) continue;
+    if (filters?.customerId?.length && !filters.customerId.includes(l.customerId)) continue;
     for (const p of l.bankPledges ?? []) {
       if (p.id >= 0) continue;
+      if (filters?.bank?.length && !filters.bank.includes(p.bankName ?? "")) continue;
       const row = toBankPledgeRecordView({ ...p, loanId: l.id, loanNumber: l.loanNumber || (l.uuid ? pendingKey(l.uuid) : ""), customerName: l.customer?.name } as BackendBankPledgeRecord & { loanNumber?: string; customerName?: string });
       if (q && !JSON.stringify(row).toLowerCase().includes(q)) continue;
       out.push(row);
@@ -1219,7 +1224,8 @@ export async function listBankPledgeHistoryPage(
   page: number,
   limit?: number,
   query?: string,
-  range?: { from?: string; to?: string }
+  range?: { from?: string; to?: string },
+  filters?: { branchId?: number[]; customerId?: number[]; bank?: string[] }
 ): Promise<{ items: BankPledgeRecordView[]; hasMore: boolean; total: number }> {
   const pageSize = limit ?? (isSmallScreen() ? 7 : 10);
   const offset = (page - 1) * pageSize;
@@ -1227,10 +1233,13 @@ export async function listBankPledgeHistoryPage(
   if (query) params.set("q", query);
   if (range?.from) params.set("from", range.from);
   if (range?.to) params.set("to", range.to);
+  if (filters?.branchId?.length) params.set("branchId", filters.branchId.join(","));
+  if (filters?.customerId?.length) params.set("customerId", filters.customerId.join(","));
+  if (filters?.bank?.length) params.set("bank", filters.bank.join(","));
   const res = await apiFetch<{ items: (BackendBankPledgeRecord & { loanNumber?: string; customerName?: string })[] | null; hasMore: boolean; total?: number }>(
     `/loans/bank-pledges/history?${params.toString()}`
   );
-  const unsent = page === 1 ? unsentPledges(undefined, query) : [];
+  const unsent = page === 1 ? unsentPledges(undefined, query, filters) : [];
   return { items: await withPendingReleases([...unsent, ...(res.items || []).map(toBankPledgeRecordView)]), hasMore: res.hasMore, total: (res.total ?? 0) + unsent.length };
 }
 
@@ -1296,9 +1305,9 @@ export function isAuctionConcluded(stage: AuctionStage): boolean {
 export const AUCTION_OUTCOME_LABELS: Record<AuctionSettlementStatus, string> = {
   Pending: "Awaiting settlement",
   SettledByRepayment: "Settled by repayment",
-  WrittenOff: "Closed — written off",
-  SettledToCustomer: "Settled — surplus refunded",
-  SettledToLoanCo: "Settled — surplus retained",
+  WrittenOff: "Written off",
+  SettledToCustomer: "Settled to customer",
+  SettledToLoanCo: "Settled to company",
 };
 
 export const AUCTION_EVENT_LABELS: Record<string, string> = {
@@ -1336,6 +1345,10 @@ export function toAuctionRecordView(r: BackendAuctionRecord): AuctionRecordView 
     auctionExpenses: r.auctionExpenses,
     surplusShortfall: roundRupee(r.surplusShortfall),
     surplusPayableAmount: roundRupee(r.surplusPayableAmount ?? 0),
+    duePrincipal: r.duePrincipal ?? null,
+    dueInterest: r.dueInterest ?? null,
+    duePenal: r.duePenal ?? null,
+    dueTotal: r.dueTotal ?? null,
     surplusDisposition: r.surplusDisposition || "",
     surplusRemarks: r.surplusRemarks || "",
     finalSettlementStatus: r.finalSettlementStatus,

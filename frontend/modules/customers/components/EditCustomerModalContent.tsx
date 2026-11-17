@@ -232,7 +232,7 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
 						</div>
 					)}
 					<div><label className="f">Date of Birth</label><DatePicker value={dob} onChange={setDob} placeholder="Select date of birth…" max={new Date().toISOString().slice(0, 10)} /></div>
-					<div><label className="f">Age</label><input className="inp" readOnly tabIndex={-1} placeholder="Auto from date of birth" value={ageFromDob(dob) ?? ""} style={{ background: "var(--bg-soft, #f6f6f8)" }} /></div>
+          <div><label className="f">Age</label><input className="inp" readOnly disabled tabIndex={-1} aria-readonly="true" placeholder="Auto from date of birth" value={ageFromDob(dob) ?? ""} style={{ background: "var(--bg-soft, #f6f6f8)", pointerEvents: "none", userSelect: "none", caretColor: "transparent" }} /></div>
 					<div><label className="f">Address</label><input className="inp" placeholder="House / street, town, district" value={addr} onChange={(e) => setAddr(e.target.value)} /></div>
           <div className={fe.pan || panLiveError(pan) ? "has-err" : undefined}><label className="f">PAN Number</label><input className="inp" placeholder="ABCDE1234F" maxLength={10} style={{ textTransform: "uppercase" }} value={pan} onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} /><FieldError msg={fe.pan || panLiveError(pan)} /></div>
 					<div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number</label><input className="inp" placeholder="Leave blank to keep on-file Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
@@ -282,7 +282,6 @@ export function EditCustomerModalContent({ customer, onSaved }: EditCustomerModa
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
 			</div>
 		</>

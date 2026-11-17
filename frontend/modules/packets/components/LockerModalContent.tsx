@@ -129,7 +129,6 @@ export function LockerModalContent({ locker, onSaved }: LockerModalContentProps)
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {locker ? "Save Changes" : "Add Locker"}</button>
 			</div>
 		</>

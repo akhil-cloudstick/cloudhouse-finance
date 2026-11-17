@@ -2,38 +2,38 @@ import { apiFetchEnveloped as apiFetch } from "@/common/services/httpClient";
 import type { NeedsAttentionApprovalFlow, NeedsAttentionItem, BackendNeedsAttentionItem, NeedsAttentionResult, BackendNeedsAttentionResult } from "@/modules/dashboard/types/dashboard-types";
 
 function toNeedsAttentionItem(r: BackendNeedsAttentionItem): NeedsAttentionItem {
-	if (r.kind === "approval") {
-		return {
-			kind: "approval",
-			flow: (r.flow as NeedsAttentionApprovalFlow) || "loan_sanction",
-			entityId: r.entityId || r.loanId || 0,
-			detail: r.detail || "",
-			loanId: r.loanId || 0,
-			loanNumber: r.loanNumber || "",
-			customerName: r.customerName || "—",
-			principal: r.principal || 0,
-			approvalStage: r.approvalStage || "",
-		};
-	}
-	if (r.kind === "request") {
-		return {
-			kind: "request",
-			requestId: r.requestId || 0,
-			loanId: r.loanId || 0,
-			loanNumber: r.loanNumber || "",
-			customerName: r.customerName || "—",
-			requestType: (r.requestType as "Extension" | "Release") || "Extension",
-			detail: r.detail || "",
-		};
-	}
-	return {
-		kind: "auction",
-		loanId: r.loanId || 0,
-		loanNumber: r.loanNumber || "",
-		customerName: r.customerName || "—",
-		outstanding: r.outstanding || 0,
-		status: r.status || "",
-	};
+  if (r.kind === "approval") {
+    return {
+      kind: "approval",
+      flow: (r.flow as NeedsAttentionApprovalFlow) || "loan_sanction",
+      entityId: r.entityId || r.loanId || 0,
+      detail: r.detail || "",
+      loanId: r.loanId || 0,
+      loanNumber: r.loanNumber || "",
+      customerName: r.customerName || "—",
+      principal: r.principal || 0,
+      approvalStage: r.approvalStage || "",
+    };
+  }
+  if (r.kind === "request") {
+    return {
+      kind: "request",
+      requestId: r.requestId || 0,
+      loanId: r.loanId || 0,
+      loanNumber: r.loanNumber || "",
+      customerName: r.customerName || "—",
+      requestType: (r.requestType as "Extension" | "Release") || "Extension",
+      detail: r.detail || "",
+    };
+  }
+  return {
+    kind: "auction",
+    loanId: r.loanId || 0,
+    loanNumber: r.loanNumber || "",
+    customerName: r.customerName || "—",
+    outstanding: r.outstanding || 0,
+    status: r.status || "",
+  };
 }
 
 /* Backs Dashboard.tsx's "Needs Attention" card — real server-side
@@ -41,22 +41,28 @@ function toNeedsAttentionItem(r: BackendNeedsAttentionItem): NeedsAttentionItem 
  * pending-request/auction-eligible rows, 15 per page (fixed server-side,
  * matching backend/internal/dashboard/service.go's NeedsAttentionPageSize). */
 export async function getNeedsAttentionPage(page: number): Promise<NeedsAttentionResult> {
-	const rec = await apiFetch<BackendNeedsAttentionResult>(`/dashboard/needs-attention?page=${page}`);
-	return {
-		items: (rec.items || []).map(toNeedsAttentionItem),
-		totalCount: rec.totalCount,
-		approvalsCount: rec.approvalsCount,
-		requestsCount: rec.requestsCount,
-		auctionsCount: rec.auctionsCount,
-	};
+  const rec = await apiFetch<BackendNeedsAttentionResult>(`/dashboard/needs-attention?page=${page}`);
+  return {
+    items: (rec.items || []).map(toNeedsAttentionItem),
+    totalCount: rec.totalCount,
+    approvalsCount: rec.approvalsCount,
+    requestsCount: rec.requestsCount,
+    auctionsCount: rec.auctionsCount,
+  };
 }
 
 /* Whole-loan-book figures for the dashboard (today's new loans, last six
  * months of sanctioned principal), aggregated server-side — the app shell
  * only keeps the open loans in memory. */
-export type DashboardLoanStats = { openedToday: number; disbursedMonths: { month: string; amount: number }[] };
+export type DashboardLoanStats = { openedToday: number; disbursedMonths: { month: string; amount: number }[]; bankPledgedCount: number; bankPledgedAmount: number };
 
 export async function getDashboardLoanStats(): Promise<DashboardLoanStats> {
-	const rec = await apiFetch<DashboardLoanStats>("/dashboard/loan-stats");
-	return { openedToday: rec?.openedToday ?? 0, disbursedMonths: rec?.disbursedMonths ?? [] };
+  const rec = await apiFetch<DashboardLoanStats & { bank_pledged_count?: number; bank_pledged_amount?: number }>("/dashboard/loan-stats");
+  // The contract adapter has no rename for the two bank-pledge fields, so they can arrive snake_case — read either.
+  return {
+    openedToday: rec?.openedToday ?? 0,
+    disbursedMonths: rec?.disbursedMonths ?? [],
+    bankPledgedCount: rec?.bankPledgedCount ?? rec?.bank_pledged_count ?? 0,
+    bankPledgedAmount: rec?.bankPledgedAmount ?? rec?.bank_pledged_amount ?? 0,
+  };
 }

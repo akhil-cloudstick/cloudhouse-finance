@@ -1,3 +1,4 @@
+import { SELECTION_COLOR } from "@/common/theme/colors";
 import { useState } from "react";
 import { Pressable, TextInput, View, type StyleProp, type ViewStyle } from "react-native";
 import { textStyle } from "@/common/theme/typography";
@@ -22,11 +23,14 @@ export function SearchInput({
   const [focused, setFocused] = useState(false);
   return (
     <View style={[s.searchWrap, style]}>
+      <View style={{ position: "relative", justifyContent: "center" }}>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={C.placeholder}
+        cursorColor={C.brand}
+        selectionColor={SELECTION_COLOR}
         autoComplete="off"
         importantForAutofill="no"
         textContentType="none"
@@ -40,7 +44,7 @@ export function SearchInput({
       />
       {value ? (
         <Pressable
-          style={{ position: "absolute", right: 28, top: 0, bottom: 10, width: 28, alignItems: "center", justifyContent: "center" }}
+          style={{ position: "absolute", right: 8, top: 0, bottom: 0, width: 28, alignItems: "center", justifyContent: "center" }}
           hitSlop={8}
           onPress={() => onChangeText("")}
           accessibilityLabel="Clear search"
@@ -48,6 +52,7 @@ export function SearchInput({
           <PIcon name="close" color={C.muted} size={14} />
         </Pressable>
       ) : null}
+      </View>
     </View>
   );
 }

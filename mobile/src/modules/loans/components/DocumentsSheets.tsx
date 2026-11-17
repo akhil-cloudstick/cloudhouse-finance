@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Buffering, C, Field, FieldGrid, NoticeBanner, PIcon, PrimaryButton, SectionTitle, Sheet, SheetListItem, Txt } from "@/common/components/ui";
-import { checkIndemnityBondEsign, listLoanRequests, startIndemnityBondEsign } from "@/modules/loans/services/loanService";
+import { Buffering, C, Field, FieldGrid, NoticeBanner, PIcon, PrimaryButton, SectionTitle, Sheet, SheetListItem, Txt, toast } from "@/common/components/ui";
+import { checkIndemnityBondEsign, checkPledgeSlipEsign, listLoanRequests, startIndemnityBondEsign, startPledgeSlipEsign } from "@/modules/loans/services/loanService";
 import { type BondDeliverBy, type BondLang, type Loan } from "@/modules/loans/types/loan-types";
 import {
   printLabelAndSlipOnePage,
@@ -18,8 +18,8 @@ import {
   type DocLang,
 } from "@/modules/loans/utils/loanPrint";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
-import { ErrorText } from "@/common/components/ErrorText";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { printPolicy } from "@/common/config/brand";
 
 // Short mark shown in the language tile.
 const LANG_MARKS: Record<DocLang, string> = { en: "EN", ta: "த", ml: "മ", gu: "ગ" };
@@ -42,7 +42,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
   const qc = useQueryClient();
   const isFinished = l.status === "Closed" || l.status === "Rejected";
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [bondOpen, setBondOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [partialOpen, setPartialOpen] = useState(false);
@@ -66,20 +65,18 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
   // Each opening starts clean — a failure from an earlier print shouldn't
   // greet the next visit to this sheet.
   useEffect(() => {
-    if (visible) setError(null);
-  }, [visible]);
+      }, [visible]);
 
   async function run(key: string, fn: () => Promise<unknown>, fail: string) {
     if (busy) return;
     setBusy(key);
-    setError(null);
     try {
       await fn();
     } catch (e) {
       // Backing out of the system print dialog rejects printAsync with
       // "Printing did not complete" — that's the user's choice, not an error.
       const msg = e instanceof Error ? e.message : String(e ?? "");
-      if (!/did not complete|cancel/i.test(msg)) setError(apiErr(e, fail));
+      if (!/did not complete|cancel/i.test(msg)) toast.error(apiErr(e, fail));
     } finally {
       setBusy(null);
     }
@@ -88,6 +85,33 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
   const st = l.indemnityBondSignStatus;
   const signed = st === "sign_complete" && !!l.indemnityBondSignedUrl;
   const status = esignStatusText(l);
+  // Pledge slip eSign (GML only) — the customer is the only signer; delivery is WhatsApp or an in-person link.
+  const [slipOpen, setSlipOpen] = useState(false);
+  const [slipNotice, setSlipNotice] = useState<string | null>(null);
+  const slipSt = l.pledgeSlipSignStatus ?? l.pledge_slip_sign_status;
+  const slipSignedUrl = l.pledgeSlipSignedUrl ?? l.pledge_slip_signed_url;
+  const slipSigned = slipSt === "sign_complete" && !!slipSignedUrl;
+  const slipStatus = slipSt === "sign_complete" ? { text: "Signed", color: C.green } : slipSt === "sign_initiated" ? { text: "Awaiting customer signature", color: C.amber } : slipSt === "failed" ? { text: "Last attempt failed", color: C.red } : { text: "Not signed", color: C.amber };
+  const isGml = printPolicy() === "gml";
+  const slipStart = useMutation({
+    mutationFn: (deliverBy: BondDeliverBy) => startPledgeSlipEsign(l.id, "cloudhouse://esign-callback", deliverBy),
+    onSuccess: (started, deliverBy) => {
+      if (deliverBy === "open" && started.url) {
+        Linking.openURL(started.url).catch(() => toast.error("Could not open the Aadhaar eSign link."));
+        setSlipNotice("eSign link is ready — complete it, then check the status here.");
+      } else setSlipNotice("Pledge slip eSign link sent to the customer via WhatsApp.");
+      invalidateLoan(qc, l.id);
+    },
+    onError: (e) => toast.error(apiErr(e)),
+  });
+  const slipCheck = useMutation({
+    mutationFn: () => checkPledgeSlipEsign(l.id),
+    onSuccess: (r) => {
+      setSlipNotice(r.status === "sign_complete" ? "Pledge slip signed successfully." : r.status === "failed" ? "Aadhaar eSign failed — send it again." : "Still waiting on the customer to complete Aadhaar eSign.");
+      invalidateLoan(qc, l.id);
+    },
+    onError: (e) => toast.error(apiErr(e)),
+  });
 
   // deliverBy: open the link here, or send it to the customer's WhatsApp / dashboard.
   const start = useMutation({
@@ -95,7 +119,7 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
     onSuccess: (started, deliverBy) => {
       setEsignOpen(false);
       if (deliverBy === "open" && started.url) {
-        Linking.openURL(started.url).catch(() => setError("Could not open the Aadhaar eSign link."));
+        Linking.openURL(started.url).catch(() => toast.error("Could not open the Aadhaar eSign link."));
         setNotice(null);
       } else if (deliverBy === "whatsapp") setNotice("Sent via WhatsApp to the customer's phone on file.");
       else setNotice("Sent to the customer's dashboard — they'll see it next time they open the app.");
@@ -103,7 +127,7 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
       setBondOpen(true);
       invalidateLoan(qc, l.id);
     },
-    onError: (e) => setError(apiErr(e)),
+    onError: (e) => toast.error(apiErr(e)),
   });
 
   const check = useMutation({
@@ -112,12 +136,11 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
       setNotice(r.status === "sign_complete" ? "Signed successfully." : r.status === "failed" ? "Aadhaar eSign failed — send it again." : "Still waiting on the customer to complete Aadhaar eSign.");
       invalidateLoan(qc, l.id);
     },
-    onError: (e) => setError(apiErr(e)),
+    onError: (e) => toast.error(apiErr(e)),
   });
 
   const sub = (key: string, text: string) => (busy === key ? "Preparing…" : text);
   const openEsign = (lang: BondLang) => {
-    setError(null);
     setEsignLang(lang);
     setLangFor(null);
     setBondOpen(false);
@@ -126,7 +149,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
   const printBond = (lang: DocLang) => run(`pledge-${lang}`, () => printPledgeAgreementPdf(l.id, l.loanNumber, lang), "Could not print the Pledge Agreement — try again.");
   // One language: nothing to choose, run straight away.
   const chooseAction = (action: BondAction) => {
-    setError(null);
     if (bondLangs.length === 1) {
       if (action === "print") printBond(bondLangs[0]);
       else openEsign(bondLangs[0]);
@@ -143,6 +165,18 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
         <SheetListItem first icon="layers" title="Print Label" sub={sub("label", "Packet label with QR code")} onPress={() => run("label", () => printPacketLabel(l), "Could not print the label — try again.")} />
         <SheetListItem icon="doc" title="Print Slip" sub={sub("slip", "Pledge slip for the customer")} onPress={() => run("slip", () => printPledgeSlip(l), "Could not print the slip — try again.")} />
         <SheetListItem icon="doc" title="Print Slip + Label" sub={sub("slipLabel", "Both on one A4 page")} onPress={() => run("slipLabel", () => printLabelAndSlipOnePage(l), "Could not print the slip and label — try again.")} />
+        {isGml && (slipSigned || (canSendEsign && !isFinished)) ? (
+          <SheetListItem
+            icon="doc"
+            title="Pledge Slip eSign"
+            sub={slipSigned ? "Pledge slip · eSigned" : slipSt === "sign_initiated" ? "Awaiting customer signature — check status" : "Send the slip for Aadhaar eSign"}
+            onPress={() => {
+              setSlipNotice(null);
+              onClose();
+              setSlipOpen(true);
+            }}
+          />
+        ) : null}
         {canExport ? (
           <SheetListItem icon="note" title="Statement" sub={sub("statement", "Statement of account for this loan")} onPress={() => run("statement", () => printStatement(l), "Could not print the statement — try again.")} />
         ) : null}
@@ -151,7 +185,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
           title="Bond"
           sub={signed ? "Pledge agreement · eSigned" : "Pledge agreement PDF and Aadhaar eSign"}
           onPress={() => {
-            setError(null);
             onClose();
             setBondOpen(true);
           }}
@@ -162,7 +195,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             title="Partial Release Receipt"
             sub={`${partialReleases.length} approved partial release${partialReleases.length > 1 ? "s" : ""}`}
             onPress={() => {
-              setError(null);
               onClose();
               setPartialOpen(true);
             }}
@@ -174,14 +206,46 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             title="Release Agreement"
             sub="Gold handed back to the customer"
             onPress={() => {
-              setError(null);
               onClose();
               setReleaseOpen(true);
             }}
           />
         ) : null}
         {busy ? <Buffering /> : null}
-        <ErrorText>{error}</ErrorText>
+      </Sheet>
+
+      <Sheet visible={slipOpen} onClose={() => setSlipOpen(false)} title="Pledge Slip eSign">
+        <FieldGrid
+          style={{ marginTop: 8, marginBottom: 14 }}
+          items={[
+            { k: "Loan", v: `${l.loanNumber} · ${l.customer?.name ?? `Customer #${l.customerId}`}` },
+            { k: "eSign status", v: slipStatus.text, color: slipStatus.color },
+          ]}
+        />
+        {slipSigned ? (
+          <PrimaryButton label="Open Signed Slip" variant="outline" style={{ marginBottom: 10 }} onPress={() => Linking.openURL(slipSignedUrl!).catch(() => toast.error("Could not open the signed slip."))} />
+        ) : (
+          <>
+            {slipStart.isPending ? (
+              <Buffering block />
+            ) : canSendEsign && !isFinished ? (
+              <>
+                <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginBottom: 4 }}>Send signing link by</Txt>
+                <SheetListItem first icon="card" title="WhatsApp" sub={`Send signing link to the customer's WhatsApp${l.customer?.phone ? ` (${l.customer.phone})` : ""}`} onPress={() => slipStart.mutate("whatsapp")} />
+                <SheetListItem icon="share" title="Signing Link" sub="Open the link here, for in-person signing at the branch" onPress={() => slipStart.mutate("open")} />
+              </>
+            ) : null}
+            {slipSt === "sign_initiated" ? (
+              <PrimaryButton label={slipCheck.isPending ? "Checking…" : "Check eSign Status"} variant="outline" style={{ marginTop: 10, marginBottom: 10 }} loading={slipCheck.isPending} onPress={() => slipCheck.mutate()} />
+            ) : null}
+          </>
+        )}
+        <Txt style={{ fontSize: 11.5, color: C.muted, marginVertical: 8 }}>Only the customer signs, with their own Aadhaar OTP.</Txt>
+        {slipNotice ? (
+          <View style={{ marginTop: 4 }}>
+            <NoticeBanner>{slipNotice}</NoticeBanner>
+          </View>
+        ) : null}
       </Sheet>
 
       <Sheet visible={bondOpen && !langFor} onClose={() => setBondOpen(false)} title="Bond">
@@ -209,7 +273,7 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             label="Open Signed Bond"
             variant="outline"
             style={{ marginBottom: 10 }}
-            onPress={() => Linking.openURL(l.indemnityBondSignedUrl!).catch(() => setError("Could not open the signed bond."))}
+            onPress={() => Linking.openURL(l.indemnityBondSignedUrl!).catch(() => toast.error("Could not open the signed bond."))}
           />
         ) : null}
         {!isFinished && !signed && st === "sign_initiated" ? (
@@ -226,7 +290,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             <NoticeBanner>{notice}</NoticeBanner>
           </View>
         ) : null}
-        <ErrorText>{error}</ErrorText>
       </Sheet>
 
       <Sheet visible={bondOpen && !!langFor} onClose={() => setLangFor(null)} title={langFor === "esign" ? "Send Bond for eSign" : "Print Bond"}>
@@ -259,7 +322,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             </Pressable>
           );
         })}
-        <ErrorText>{error}</ErrorText>
       </Sheet>
 
       <Sheet visible={partialOpen} onClose={() => setPartialOpen(false)} title="Partial Release Receipt">
@@ -281,7 +343,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             ))}
           </View>
         ))}
-        <ErrorText>{error}</ErrorText>
       </Sheet>
 
       <Sheet visible={releaseOpen} onClose={() => setReleaseOpen(false)} title="Release Agreement">
@@ -299,7 +360,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             onPress={() => run(`release-${lang}`, () => printReleaseAgreementPdf(l.id, l.loanNumber, lang), "Could not print the Release Agreement — try again.")}
           />
         ))}
-        <ErrorText>{error}</ErrorText>
       </Sheet>
 
       <Sheet visible={esignOpen} onClose={() => setEsignOpen(false)} title="Send Bond for eSign">
@@ -318,7 +378,6 @@ export function DocumentsSheets({ loan: l, visible, onClose }: DocumentsSheetsPr
             <SheetListItem icon="home" title="Dashboard" sub="Sent to the customer's dashboard" onPress={() => start.mutate("dashboard")} />
           </>
         )}
-        <ErrorText>{error}</ErrorText>
       </Sheet>
     </>
   );

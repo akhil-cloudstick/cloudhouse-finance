@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from "react-native";
-import { C, Field, Sheet, SheetListItem, Txt } from "@/common/components/ui";
+import { Icon } from "@/common/components/ui/Icon";
+import { C, Field, Sheet, SheetListItem, Txt, toast } from "@/common/components/ui";
 import { fromCamera, fromFiles, fromLibrary, fromLibraryMany, PermissionError } from "@/common/components/ui/DocumentField";
 import { uploadFile } from "@/common/services/uploadService";
 import { type PickedFile } from "@/common/types/upload-types";
@@ -33,7 +34,6 @@ export function UploadField({
 }: UploadFieldProps) {
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
   // The just-picked file's own uri: shown at once (no wait for the server image to download) and used as the
   // thumbnail until the field is cleared.
@@ -44,7 +44,6 @@ export function UploadField({
 
   async function pick(run: () => Promise<PickedFile | null>) {
     setChoosing(false);
-    setError(null);
     try {
       const file = await run();
       if (!file) return;
@@ -57,7 +56,7 @@ export function UploadField({
       onChange(url);
     } catch (e) {
       setLocalUri(null);
-      setError(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
+      toast.error(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
     } finally {
       setBusy(false);
     }
@@ -66,7 +65,6 @@ export function UploadField({
   // Several photos picked from the gallery in one go: upload them all, then hand back the URLs together.
   async function pickMany() {
     setChoosing(false);
-    setError(null);
     try {
       const files = await fromLibraryMany(maxFiles);
       if (!files.length) return;
@@ -75,13 +73,13 @@ export function UploadField({
       for (const f of files) urls.push(await uploadFile(f));
       onAddMany?.(urls);
     } catch (e) {
-      setError(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
+      toast.error(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  const isImage = !!value && !/\.pdf$/i.test(value);
+  const isImage = !!value && !/\.(pdf|docx?|xlsx?|txt|csv)(\?|$)/i.test(value);
   // /uploads/* is only served to a signed-in caller — send the session token.
   const thumbSource = useUploadSource(value || "");
   const localThumb = value && localUri && localUri.url === value ? { uri: localUri.uri } : null;
@@ -105,7 +103,11 @@ export function UploadField({
               ) : (
                 <UploadImage path={value} title={label} style={s.thumb} />
               )
-            ) : null}
+            ) : (
+              <Pressable onPress={() => setViewing(true)} hitSlop={6} style={[s.thumb, { alignItems: "center", justifyContent: "center" }]}>
+                <Icon name="doc" size={22} color={C.brandDeep} />
+              </Pressable>
+            )}
             <Txt style={s.doneTxt} numberOfLines={1}>
               {name ?? "Attached"}
               {canUpload ? " · Tap to replace" : ""}
@@ -132,7 +134,6 @@ export function UploadField({
         </View>
       ) : null}
       <BillSheet path={viewing && value ? value : null} onClose={() => setViewing(false)} title={label} />
-      {error ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 6 }}>{error}</Txt> : null}
       <Sheet visible={choosing} onClose={() => setChoosing(false)} title={label} maxHeightPct={50}>
         <SheetListItem first icon="scan" title="Take a photo" onPress={() => pick(fromCamera)} />
         <SheetListItem

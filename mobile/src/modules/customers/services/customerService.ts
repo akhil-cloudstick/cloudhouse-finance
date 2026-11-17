@@ -19,7 +19,7 @@ export function listCustomers(q?: string) {
 // customers whose home branch is one of these (a customer belongs to
 // exactly one branch — see customer.model.go) — used by the Cash Movements
 // filter's Branch→Customer narrowing (mirrors web's listCustomersPage).
-export function listCustomersPage(params: { q?: string; limit: number; offset: number; branchIds?: number[]; panStatus?: string; aadhaarStatus?: string }) {
+export function listCustomersPage(params: { q?: string; limit: number; offset: number; branchIds?: number[]; panStatus?: string; aadhaarStatus?: string; customerType?: string }) {
   const { branchIds, ...rest } = params;
   return apiRequest<{ items: Customer[]; hasMore: boolean; total?: number }>("/customers", {
     params: { ...rest, branchIds: branchIds?.length ? branchIds.join(",") : undefined },

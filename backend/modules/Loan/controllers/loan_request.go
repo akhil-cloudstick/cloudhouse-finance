@@ -34,6 +34,10 @@ type loanRequest struct {
 type updateLoanRequest struct {
 	SchemeID        *uint    `json:"scheme_id"`
 	PrincipalAmount *float64 `json:"principal_amount"`
+	// the loan's opening date (YYYY-MM-DD); empty leaves it
+	OpenedDate *string `json:"opened_date"`
+	// how the service charge is taken (WithheldFromPayout / AddedToPrincipal); nil leaves it (or the new scheme's own)
+	ServiceChargeMode *string `json:"service_charge_mode"`
 	OverallPhotoURL *string  `json:"overall_photo_url"`
 	// nil leaves the loan's additional information alone; "" clears it
 	AdditionalInfo *string `json:"additional_info"`
@@ -231,7 +235,11 @@ func FindLoanRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRe
 func ListRequests(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := common.PageParams(c)
-	f := LoanRequestFilter{Status: c.QueryParam("status"), Query: strings.TrimSpace(c.QueryParam("search"))}
+	search := strings.TrimSpace(c.QueryParam("search"))
+	if search == "" {
+		search = strings.TrimSpace(c.QueryParam("q")) // the Requests page sends q
+	}
+	f := LoanRequestFilter{Status: c.QueryParam("status"), Query: search}
 	var types []string
 	for _, t := range splitCSV(c.QueryParam("type")) {
 		switch strings.ToLower(t) {

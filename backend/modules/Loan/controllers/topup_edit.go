@@ -475,7 +475,7 @@ func checkTopUpEligible(ctx context.Context, l *models.Loan, initial float64, up
 		}
 	}
 	principal = common.RoundMoney(principal)
-	if principal > common.RoundMoney(lc.EligibleLoanAmount)+0.01 {
+	if lc.SchemeLTVPercent > 0 && principal > common.RoundMoney(lc.EligibleLoanAmount)+0.01 {
 		return common.NewBadRequest(fmt.Sprintf("the top-up would take the principal to ₹%.2f, above the eligible loan amount ₹%.2f (based on scheme LTV)", principal, lc.EligibleLoanAmount))
 	}
 	return nil

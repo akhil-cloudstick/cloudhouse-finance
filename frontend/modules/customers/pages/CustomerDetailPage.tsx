@@ -1,5 +1,6 @@
 "use client";
 
+import { clipText } from "@/modules/cash/utils/ledgerCells";
 import { TableCols } from "@/common/components/ui/TableCols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
@@ -744,7 +745,7 @@ export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
                             : r.reference || "—"}
                         </td>
                         <td data-label="Particulars" className="td-particulars">
-                          {r.description || r.type}
+                          {clipText(r.description || r.type)}
                           {r.bankId ? (
                             <div style={{ marginTop: 4 }}>
                               <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} />

@@ -39,27 +39,27 @@ export function BranchesPage() {
   const curPage = Math.min(page, lastPage);
   const pageRows = (branches ?? []).slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
 
-	async function load() {
-		try {
-			setBranches(await listBranches(q));
-			setError("");
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Failed to load branches.");
-		}
-		// Loaded separately so a failure here never hides the branch list —
-		// without it the page simply behaves as before and the server still
-		// refuses an over-limit create.
-		try {
-			setQuota(await getBranchQuota());
-		} catch {
-			setQuota(null);
-		}
-	}
+  async function load() {
+    try {
+      setBranches(await listBranches(q));
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load branches.");
+    }
+    // Loaded separately so a failure here never hides the branch list —
+    // without it the page simply behaves as before and the server still
+    // refuses an over-limit create.
+    try {
+      setQuota(await getBranchQuota());
+    } catch {
+      setQuota(null);
+    }
+  }
 
-	const atLimit = quota !== null && !quota.unlimited && quota.used >= quota.quota;
-	const limitMessage = quota
-		? `Your current plan (${quota.plan}) allows ${quota.quota} branch${quota.quota === 1 ? "" : "es"}. To add more branches, contact your administrator to upgrade your plan.`
-		: "";
+  const atLimit = quota !== null && !quota.unlimited && quota.used >= quota.quota;
+  const limitMessage = quota
+    ? `Your current plan (${quota.plan}) allows ${quota.quota} branch${quota.quota === 1 ? "" : "es"}. To add more branches, contact your administrator to upgrade your plan.`
+    : "";
 
   // Typing searches on the server (debounced); the first load is immediate.
   useEffect(() => { setPage(1); }, [q]);
@@ -69,25 +69,25 @@ export function BranchesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-	function onSaved() {
-		load();
-	}
+  function onSaved() {
+    load();
+  }
 
-	function onDeactivate(b: BranchView) {
-		openModal(
-			<ConfirmModalContent
-				title="Deactivate Branch"
-				message={`Deactivate branch "${b.name}"? It will no longer be selectable for new records.`}
-				confirmLabel="Deactivate"
-				busyLabel="Deactivating…"
-				onConfirm={async () => {
-					await deactivateBranch(b.id);
-					toast(`Branch "${b.name}" deactivated`);
-					load();
-				}}
-			/>
-		);
-	}
+  function onDeactivate(b: BranchView) {
+    openModal(
+      <ConfirmModalContent
+        title="Deactivate Branch"
+        message={`Deactivate branch "${b.name}"? It will no longer be selectable for new records.`}
+        confirmLabel="Deactivate"
+        busyLabel="Deactivating…"
+        onConfirm={async () => {
+          await deactivateBranch(b.id);
+          toast(`Branch "${b.name}" deactivated`);
+          load();
+        }}
+      />
+    );
+  }
 
   useErrorToast(error);
   return (
@@ -107,11 +107,9 @@ export function BranchesPage() {
         )}
       </div>
       <hr className="gold-rule" />
-      {quota && (
+      {quota && !quota.unlimited && (
         <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 10px" }}>
-          {quota.unlimited
-            ? `${quota.used} active branch${quota.used === 1 ? "" : "es"} · ${quota.plan} plan (no branch limit)`
-            : `${quota.used} of ${quota.quota} branch${quota.quota === 1 ? "" : "es"} used · ${quota.plan} plan`}
+          {`${quota.used} of ${quota.quota} branch${quota.quota === 1 ? "" : "es"} used · ${quota.plan} plan`}
         </p>
       )}
       {atLimit && canCreateBranches && (

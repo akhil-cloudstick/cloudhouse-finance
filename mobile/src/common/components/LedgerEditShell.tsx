@@ -1,7 +1,6 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { View } from "react-native";
-import { C, Field, Input, PrimaryButton, Sheet, Txt } from "@/common/components/ui";
-import { ErrorText } from "@/common/components/ErrorText";
+import { C, Field, Input, PrimaryButton, Sheet, Txt, toast } from "@/common/components/ui";
 import { inr } from "@/common/utils/format";
 
 /** One line of the before / after table shown by the first (preview) press. */
@@ -31,6 +30,8 @@ type LedgerEditShellProps = {
 /** The two-step edit / delete sheet every ledger correction uses: the first press only previews what the change
  * would do (nothing is saved), the second press saves. Mirrors the web *EditModalContent footer and preview table. */
 export function LedgerEditShell({ visible, onClose, title, notice, mode, form, deleteText, previewTitle, preview, error, busy, onSubmit, extra }: LedgerEditShellProps) {
+  // Server / preview failures are not about a field: raise them as a toast.
+  useEffect(() => { if (error) toast.error(error); }, [error]);
   return (
     <Sheet visible={visible} onClose={onClose} title={title}>
       {notice ? <Txt style={{ fontSize: 11.5, color: C.muted, marginVertical: 8 }}>{notice}</Txt> : null}
@@ -52,7 +53,6 @@ export function LedgerEditShell({ visible, onClose, title, notice, mode, form, d
         </View>
       ) : null}
       {preview ? extra : null}
-      <ErrorText>{error}</ErrorText>
       <PrimaryButton label={preview ? (mode === "delete" ? "Confirm delete" : "Confirm") : "Preview the change"} onPress={onSubmit} loading={busy} />
     </Sheet>
   );

@@ -12,6 +12,13 @@ export function listInvestmentsPage(params: {
   q?: string;
   status?: string; // one status or a comma-separated list
   customerId?: number;
+  /** Comma-joined investor ids (any of). */
+  customerIds?: string;
+  /** Comma-joined plan ids (any of) — the backend's own name for it. */
+  plan_ids?: string;
+  /** YYYY-MM-DD bounds on the start date (inclusive). */
+  from?: string;
+  to?: string;
   limit: number;
   offset: number;
 }) {
@@ -138,4 +145,19 @@ export function editInvestmentLedgerEntry(
 
 export function deleteInvestmentLedgerEntry(investmentId: number, entryId: string, dryRun = false, reason?: string) {
   return apiRequest<InvestmentLedgerEditPreview>(`/investments/${investmentId}/ledger/${encodeURIComponent(entryId)}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, { method: "DELETE" });
+}
+
+// Closes an Active/Matured investment that owes the investor nothing more — no cash moves; the backend says what is still owed otherwise.
+export function closeInvestment(investmentId: number) {
+  return apiRequest<Investment>(`/investments/${investmentId}/close`, { method: "POST" });
+}
+
+// Deletes an investment at any stage, reversing every cash entry it booked (needs can_delete_investment).
+export function deleteInvestment(investmentId: number) {
+  return apiRequest<void>(`/investments/${investmentId}/delete`, { method: "DELETE" });
+}
+
+// Refused by the server while any investment still uses the plan.
+export function deleteInvestmentPlan(id: number) {
+  return apiRequest<void>(`/investment-plans/${id}/delete`, { method: "DELETE" });
 }

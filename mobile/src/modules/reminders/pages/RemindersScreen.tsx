@@ -44,7 +44,7 @@ const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "
 const GROUPS: { key: string; label: string; fg: string; bg: string; types: CalendarEvent["type"][] }[] = [
   { key: "overdue", label: "Overdue", fg: C.red, bg: C.redBg, types: ["Overdue", "PersonalLoanOverdue"] },
   { key: "due", label: "Loan due", fg: C.amber, bg: C.amberBg, types: ["LoanDue", "PersonalLoanDue"] },
-  { key: "auction", label: "Auction", fg: C.amber, bg: C.amberBg, types: ["AuctionScheduled"] },
+  { key: "auction", label: "Auction", fg: C.red, bg: C.redBg, types: ["AuctionScheduled"] },
   { key: "interest", label: "Interest", fg: C.green, bg: C.greenBg, types: ["InterestDue"] },
   { key: "followup", label: "Follow-up", fg: C.blue, bg: C.blueBg, types: ["FollowUp"] },
   { key: "promise", label: "Promise to pay", fg: C.blue, bg: C.blueBg, types: ["PromiseToPay"] },
@@ -52,7 +52,8 @@ const GROUPS: { key: string; label: string; fg: string; bg: string; types: Calen
 const GROUPED_TYPES = GROUPS.flatMap((g) => g.types);
 
 function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" {
-  if (t === "Overdue" || t === "PersonalLoanOverdue") return "red";
+  // Blue is only for the reminders staff add themselves (custom, follow-up, promise to pay); auctions read as red.
+  if (t === "Overdue" || t === "PersonalLoanOverdue" || t === "AuctionScheduled") return "red";
   if (t === "LoanDue" || t === "InterestDue" || t === "PersonalLoanDue") return "amber";
   return "blue";
 }
@@ -106,6 +107,7 @@ export default function RemindersScreen() {
     key: ["reminders", "day-list"],
     filters: range,
     fetchPage: (p) => listCalendarEventsPage(p),
+    enabled: searching, // the day view reads the month already loaded; the list is only shown while searching
   });
   // Day view (not searching): the selected day's events from the month already loaded, split into the groups above.
   const [openGroup, setOpenGroup] = useState<string | null>(null);
@@ -154,7 +156,21 @@ export default function RemindersScreen() {
             {MONTHS[m]} {y} ▾
           </Txt>
         </Pressable>
-        <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          {selected !== today || today.slice(0, 7) !== isoOf(y, m, 1).slice(0, 7) ? (
+            <Pressable
+              onPress={() => {
+                goTo(todayYear, +today.slice(5, 7) - 1);
+                selectDay(today);
+              }}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Go to today"
+              style={{ paddingHorizontal: 12, height: 34, borderRadius: 11, borderWidth: 1, borderColor: C.line, backgroundColor: C.card, alignItems: "center", justifyContent: "center" }}
+            >
+              <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.brandDeep }}>Today</Txt>
+            </Pressable>
+          ) : null}
           <Pressable onPress={() => goMonth(-1)} hitSlop={4} accessibilityLabel="Previous month" style={navBtn}>
             <PIcon name="back" color={C.brandDeep} />
           </Pressable>
@@ -241,17 +257,17 @@ export default function RemindersScreen() {
                       e.loanId && canViewLoans
                         ? () => openPage(`/loans/${e.loanId}`)
                         : e.personalLoanId != null && canViewPersonalLoans
-                          ? () => openPage(`/personal-loans?id=${e.personalLoanId}&from=reminders`)
+                          ? () => openPage(`/personal-loans/${e.personalLoanId}`)
                           : undefined
                     }
                     onOpenLoan={
                       e.personalLoanId != null && canViewPersonalLoans
-                        ? () => openPage(`/personal-loans?id=${e.personalLoanId}&from=reminders`)
+                        ? () => openPage(`/personal-loans/${e.personalLoanId}`)
                         : undefined
                     }
                     onDone={e.reminderId != null && canUpdateReminder && e.status !== "Done" ? () => done.mutate(e.reminderId!) : undefined}
                     onDelete={e.reminderId != null && canDeleteReminder ? () => remove.mutate(e.reminderId!) : undefined}
-                    busy={done.isPending || remove.isPending}
+                    busy={(done.isPending && done.variables === e.reminderId) || (remove.isPending && remove.variables === e.reminderId)}
                   />
                 ))}
                 {list.isFetchingNextPage ? <Buffering /> : null}

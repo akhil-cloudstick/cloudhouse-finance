@@ -7,7 +7,7 @@ import { refuse, requirePositive, requireNotNegative, requireValidSplit, require
 import { auctionStageOf } from "@/common/offline/auctionStages";
 import { currentActor } from "@/common/offline/actor";
 import { getSelectedBranchId } from "@/common/services/branchSelection";
-import { roundRupee } from "@/common/utils/format";
+import { roundRupee, addMonthsISO } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import type { StageView } from "@/common/types/approval-workflow-types";
 import type {
@@ -247,7 +247,7 @@ function chargeFor(type: string | undefined, value: number, principal: number): 
  * so the loan shows the figures the server will arrive at rather than the old scheme's. */
 export function applyEditLocally(
   rec: BackendLoan,
-  input: { schemeId?: number | string; principalAmount?: number; overallPhotoUrl?: string },
+  input: { schemeId?: number | string; principalAmount?: number; overallPhotoUrl?: string; openedDate?: string; serviceChargeMode?: string },
   firstStage: string,
   actor: Actor,
   scheme?: EditSchemeTerms,
@@ -259,7 +259,8 @@ export function applyEditLocally(
   const newPrincipal = input.principalAmount !== undefined ? roundRupee(input.principalAmount) : undefined;
   if (newPrincipal !== undefined && newPrincipal <= 0) throw new ApiError("principal amount must be greater than zero", 400);
   const principalChanged = newPrincipal !== undefined && newPrincipal !== roundRupee(rec.principalAmount);
-  const material = newScheme !== undefined || principalChanged;
+  const modeChanged = !!input.serviceChargeMode && input.serviceChargeMode !== (rec.serviceChargeMode || "WithheldFromPayout");
+  const material = newScheme !== undefined || principalChanged || modeChanged;
   const now = new Date().toISOString();
   const next = { ...rec, updatedAt: now } as BackendLoan;
   if (newScheme !== undefined) {
@@ -277,6 +278,16 @@ export function applyEditLocally(
       next.eligibleLoanAmount = roundRupee(((rec.totalGoldValue ?? 0) * scheme.ltv) / 100);
     }
   }
+  // a new opening date moves the term with it: the due date keeps the same length from the new start (the server
+  // starts accrual from the new date when nothing was paid out)
+  if (input.openedDate && dayOf(input.openedDate) !== dayOf(rec.openedDate)) {
+    if (dayOf(input.openedDate) > dayOf(now)) throw new ApiError("opening date cannot be in the future", 400);
+    const o = new Date(rec.openedDate), d = new Date(rec.dueDate);
+    const months = (d.getFullYear() - o.getFullYear()) * 12 + d.getMonth() - o.getMonth();
+    next.openedDate = input.openedDate;
+    next.dueDate = addMonthsISO(input.openedDate.slice(0, 10), months) as BackendLoan["dueDate"];
+  }
+  if (input.serviceChargeMode) next.serviceChargeMode = input.serviceChargeMode;
   if (input.overallPhotoUrl !== undefined) next.overallPhotoUrl = input.overallPhotoUrl.trim();
   if (newPrincipal !== undefined) {
     const delta = newPrincipal - rec.principalAmount;
@@ -304,7 +315,7 @@ export function applyEditLocally(
   }
   const eligible = next.eligibleLoanAmount ?? 0;
   // the server compares whole rupees, with a paisa of slack (RoundMoney on both sides)
-  if ((newScheme !== undefined || newPrincipal !== undefined) && roundRupee(capped) > roundRupee(eligible) + 0.01) {
+  if ((newScheme !== undefined || newPrincipal !== undefined || modeChanged) && (next.schemeLtvPercent ?? 0) > 0 && roundRupee(capped) > roundRupee(eligible) + 0.01) {
     throw new ApiError(`principal amount ₹${round2(capped).toFixed(2)} cannot exceed the eligible loan amount ₹${roundRupee(eligible).toFixed(2)} (based on scheme LTV)`, 400);
   }
   if (material) {
@@ -486,6 +497,7 @@ export function filterLocalLoans(list: BackendLoan[], f?: LoanFilters): BackendL
   const pledges = asArray(f.bankPledgeStatus as string | string[] | undefined).filter(Boolean);
   // the auction stage lives on the loan's latest auction case, not on the loan: this PC keeps it per loan (auctionStages.ts)
   const stagesWanted = asArray(f.auctionStage as string | string[] | undefined).filter(Boolean);
+  const banksWanted = asArray(f.bank).filter(Boolean);
   const q = (f.q ?? "").trim().toLowerCase();
   return list.filter((l) => {
     if (q) {
@@ -502,6 +514,8 @@ export function filterLocalLoans(list: BackendLoan[], f?: LoanFilters): BackendL
     if (schemes.length && !schemes.includes(l.schemeId)) return false;
     // the Loans page sends this as a list, empty when nothing is picked ("any"), exactly like the other filters
     if (pledges.length > 0 && !pledges.includes(l.bankPledgeStatus)) return false;
+    // the Bank Pledge page's bank filter: an active pledge with any of the picked banks
+    if (banksWanted.length > 0 && !activePledges(l).some((p) => banksWanted.includes((p as { bankName?: string }).bankName ?? ""))) return false;
     if (stagesWanted.length > 0) {
       const stage = auctionStageOf(l.id, l.status);
       if (!stage || !stagesWanted.includes(stage)) return false;

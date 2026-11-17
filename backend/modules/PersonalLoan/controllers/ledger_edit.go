@@ -347,6 +347,13 @@ func applyReplayFrom(l *models.PersonalLoan, ordered []models.PersonalLoanPaymen
 	}
 	total := sumPayments(ordered)
 	newInsts := replayInstallments(insts, total)
+	if outstanding <= epsilon {
+		// settled in full: no installment may stay Pending / Partially Paid, whatever the schedule's own total is
+		for i := range newInsts {
+			newInsts[i].PaidAmount = newInsts[i].Amount
+			newInsts[i].Status = InstallmentStatusPaid
+		}
+	}
 	l.OutstandingAmount, l.TotalPaid = outstanding, total
 	switch {
 	case outstanding <= epsilon:

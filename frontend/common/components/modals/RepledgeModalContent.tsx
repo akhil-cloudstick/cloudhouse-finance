@@ -281,7 +281,6 @@ export function RepledgeModalContent({ loan, onSaved }: RepledgeModalContentProp
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving || !ready} title={ready ? undefined : "Fill in every field marked * and select at least one ornament"}><Icon name="check" /> {saving ? "Saving…" : "Repledge to Bank"}</button>
 			</div>
 		</>

@@ -492,6 +492,7 @@ function goldSaleToView(g: BackendGoldSale): GoldSaleView {
 		bankId: g.bankId ?? undefined,
 		bankName: g.bankRef?.name,
 		remarks: g.remarks,
+    cashMovementId: g.cashMovementId ?? undefined,
 	};
 }
 
@@ -558,6 +559,10 @@ function partyRangeParams(range?: PartyDateRange): URLSearchParams {
 		if (range.focusDate) params.set("focusDate", range.focusDate);
     // The exact loan_payments.id followed — so another loan's same-amount payment is never picked.
     if (range.focusPayment) params.set("focusPayment", String(range.focusPayment));
+    // The unique row identity (kind:id) followed — beats date + amount for every row type.
+    if (range.focusRef) params.set("focusRef", range.focusRef);
+    // The loan the user came from: another loan can share the date and amount.
+    if (range.focusLoan) params.set("focusLoan", range.focusLoan);
 	}
 	return params;
 }
@@ -596,6 +601,7 @@ export function ledgerRowToView(r: BackendLedgerRow): LedgerRowView {
 		editable: r.editable,
 		loanId: r.loanId,
 		paymentId: r.paymentId,
+    ref: r.ref,
 		personalLoanId: r.personalLoanId,
 		loanAccrual: r.loanAccrual,
 		split: r.split,

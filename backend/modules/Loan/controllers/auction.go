@@ -102,9 +102,11 @@ func canDecideAuction(ctx context.Context, roleID uint, flow string) bool {
 	return common.CanAct(ctx, roleID, flow, st.Key)
 }
 
+// A defaulted loan is listed even while its gold is pledged to a bank: marking it eligible is then refused with a
+// message telling staff to release the gold first (see SaveAuctionEligibility).
 func isAuctionCase(l *models.Loan) bool {
 	// Auctioned loans only get this far when the query found an unconcluded case for them.
-	return l.Status == models.StatusAuctionEligible || l.Status == models.StatusAuctionedBalanceDue || l.Status == models.StatusAuctioned || (l.IsDefaulted && AvailableForAuction(l))
+	return l.Status == models.StatusAuctionEligible || l.Status == models.StatusAuctionedBalanceDue || l.Status == models.StatusAuctioned || l.IsDefaulted
 }
 
 // AvailableForAuction is false while any of the loan's gold is pledged to a bank: it is not in the
@@ -319,6 +321,12 @@ func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, ac
 	if !checkStagePermission(ctx, actorRoleID, "can mark loan auction eligible") {
 		return nil, common.NewPermissionDenied("your role can't do this auction step", "can mark loan auction eligible")
 	}
+	return openAuctionEligibility(ctx, loanID, branchID, actorID, actorRole)
+}
+
+// openAuctionEligibility holds the checks and writes of SaveAuctionEligibility without the role check, so the
+// bank-release flow can open the case for a defaulted loan whose gold just came back from the bank.
+func openAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, actorID *uint, actorRole string) (*models.AuctionRecord, error) {
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")
@@ -512,6 +520,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 		applied = totalDebt
 	}
 	auctionDate := time.Now()
+	dp, di, dpe, dt := common.RoundMoney(l.OutstandingAmount+l.OutstandingProcessingFee), common.RoundMoney(l.OutstandingInterest), common.RoundMoney(l.OutstandingPenalInterest), totalDebt
 	var payment *models.LoanPayment
 	var appFee, appPenal, appInterest, appPrincipal float64 // what the sale cleared on the loan
 	txErr := config.DB.
@@ -559,6 +568,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 			}
 		}
 		rec.SaleAmount = saleAmount
+		rec.DuePrincipal, rec.DueInterest, rec.DuePenal, rec.DueTotal = &dp, &di, &dpe, &dt
 		rec.AuctionExpenses = expenses
 		rec.SurplusShortfall = common.RoundMoney(netProceeds - totalDebt)
 		rec.SurplusPayableAmount = common.RoundMoney(math.Max(0, netProceeds-totalDebt))

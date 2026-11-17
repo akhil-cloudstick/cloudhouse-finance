@@ -1,6 +1,7 @@
 // Staff UI kit — React Native ports of ui-demos/staff-app-prototype.html.
 export { C, pullRefreshControl, initialsOf } from "./base";
 export * from "./Txt";
+export * from "./TruncText";
 export * from "./Fade";
 export * from "./Spinner";
 export * from "./Buffering";
@@ -86,9 +87,11 @@ export * from "./Stepper";
 export * from "./MonthGrid";
 export * from "./Sparkline";
 export * from "./SearchInput";
+export * from "./SearchFilterRow";
 export * from "./ServerFlatList";
 export * from "./CountLine";
 export * from "./Popover";
 export * from "./ToastHost";
 export * from "./GroupedFilter";
 
+export * from "./BoundedList";

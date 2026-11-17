@@ -271,7 +271,7 @@ export async function resolvePersonalLoanNumber(number: string): Promise<number>
 	return (await apiFetch<{ id: number }>(`/personal-loans/by-number/${encodeURIComponent(number)}`)).id;
 }
 
-export const PERSONAL_LOAN_PAGE_SIZE = 10;
+export const PERSONAL_LOAN_PAGE_SIZE = 20;
 
 /* Paginated schedule/payments — backs PersonalLoanDetail's infinite-scroll
  * panels. `page` is 0-based; the backend responds with an

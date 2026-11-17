@@ -70,3 +70,6 @@ export function statusColors(tone: StatusTone, c: Colors = colors): { fg: string
       return { fg: c.muted, bg: c.brandFaint };
   }
 }
+
+// Text-selection highlight: translucent brand tint so selected text stays readable.
+export const SELECTION_COLOR = "rgba(138, 32, 53, 0.3)";

@@ -56,7 +56,8 @@ export async function listGoldRateDaysPage(
 	limit: number,
 	from?: string,
 	to?: string,
-	q?: string
+  q?: string,
+  setBy?: string[]
 ): Promise<{ items: GoldRateView[]; hasMore: boolean; total: number }> {
 	const params = new URLSearchParams({
 		limit: String(limit),
@@ -66,6 +67,7 @@ export async function listGoldRateDaysPage(
 	if (from) params.set("from", from);
 	if (to) params.set("to", to);
 	if (q?.trim()) params.set("search", q.trim());
+  if (setBy?.length) params.set("set_by", setBy.join(","));
 	const rec = await apiFetch<{ items: BackendGoldRate[]; hasMore: boolean; total?: number }>(`/gold-rates?${params}`);
 	return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
 }

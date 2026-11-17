@@ -149,6 +149,7 @@ func updateOrnament(ctx context.Context, ornamentID uint, in UpdateOrnamentInput
 	if err != nil {
 		return nil, common.NewBadRequest("no gold rate has been published yet")
 	}
+	prevPurity, prevNet, prevValue := o.Purity, o.NetWeight, o.GoldValue
 	o.Name = in.Name
 	o.Purity = in.Purity
 	o.GrossWeight = in.GrossWeight
@@ -160,6 +161,11 @@ func updateOrnament(ctx context.Context, ornamentID uint, in UpdateOrnamentInput
 	}
 	if err := valueOrnament(o, rate); err != nil {
 		return nil, err
+	}
+	// An ornament whose purity and net weight are unchanged keeps the value it was given when saved: re-valuing it at
+	// today's rate on every edit made the loan's eligible amount drift from what the Edit Loan screen had shown.
+	if prevValue > 0 && o.Purity == prevPurity && math.Abs(o.NetWeight-prevNet) < 0.0005 {
+		o.GoldValue = prevValue
 	}
 	if err := persistOrnament(ctx, o); err != nil {
 		return nil, err

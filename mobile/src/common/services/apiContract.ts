@@ -1639,6 +1639,12 @@ const ROUTES: [string, string, string, string][] = [
  ],
  [
   "GET",
+  "/reports/gold-rate-history/set-by",
+  "GET",
+  "/users/:user_id/reports/gold-rate-history/set-by"
+ ],
+ [
+  "GET",
   "/reports/gold-release",
   "GET",
   "/users/:user_id/reports/gold-release"
@@ -1894,6 +1900,132 @@ const ROUTES: [string, string, string, string][] = [
   "/customer/loans/:id/indemnity-bond/esign/status",
   "GET",
   "/customers/:customer_id/loans/:id/indemnity-bond/esign/status"
+ ],
+ [
+  "GET",
+  "/business-profile",
+  "GET",
+  "/users/:user_id/business-profile"
+ ],
+ [
+  "PUT",
+  "/business-profile",
+  "PATCH",
+  "/users/:user_id/business-profile/update"
+ ],
+ [
+  "GET",
+  "/customers/by-code/:code",
+  "GET",
+  "/users/:user_id/customers/by-code/:code"
+ ],
+ [
+  "PATCH",
+  "/cash-sources/:id/loan",
+  "PATCH",
+  "/users/:user_id/cash-sources/:id/loan"
+ ],
+ [
+  "DELETE",
+  "/expense-categories/:id",
+  "DELETE",
+  "/users/:user_id/expense-categories/:id"
+ ],
+ [
+  "DELETE",
+  "/categories/:id",
+  "DELETE",
+  "/users/:user_id/categories/:id"
+ ],
+ [
+  "PATCH",
+  "/expenses/:id/update",
+  "PATCH",
+  "/users/:user_id/expenses/:id/update"
+ ],
+ [
+  "PATCH",
+  "/cash-movements/:id/update",
+  "PATCH",
+  "/users/:user_id/cash-movements/:id/update"
+ ],
+ [
+  "GET",
+  "/dashboard/loan-stats",
+  "GET",
+  "/users/:user_id/dashboard/loan-stats"
+ ],
+ [
+  "GET",
+  "/investors/:id/investments",
+  "GET",
+  "/users/:user_id/investors/:id/investments"
+ ],
+ [
+  "GET",
+  "/investors",
+  "GET",
+  "/users/:user_id/investors"
+ ],
+ [
+  "POST",
+  "/investors",
+  "POST",
+  "/users/:user_id/investors"
+ ],
+ [
+  "GET",
+  "/investors/by-code/:code",
+  "GET",
+  "/users/:user_id/investors/by-code/:code"
+ ],
+ [
+  "GET",
+  "/investors/:id",
+  "GET",
+  "/users/:user_id/investors/:id"
+ ],
+ [
+  "GET",
+  "/investors/:id/aadhaar-full",
+  "GET",
+  "/users/:user_id/investors/:id/aadhaar-full"
+ ],
+ [
+  "PUT",
+  "/investors/:id",
+  "PATCH",
+  "/users/:user_id/investors/:id/update"
+ ],
+ [
+  "DELETE",
+  "/investors/:id/hard-delete",
+  "DELETE",
+  "/users/:user_id/investors/:id/hard-delete"
+ ],
+ [
+  "GET",
+  "/investments/:id/pending-interest",
+  "GET",
+  "/users/:user_id/investments/:id/pending-interest"
+ ],
+ [
+  "POST",
+  "/investments/:id/pay-interest",
+  "POST",
+  "/users/:user_id/investments/:id/pay-interest"
+ ],
+ [
+  "DELETE",
+  "/personal-loans/:id",
+  "DELETE",
+  "/users/:user_id/personal-loans/:id"
+ ],
+ [
+  "GET",
+  "/reports/cash-ledger",
+  "GET",
+  "/users/:user_id/reports/cash-ledger"
  ]
 ];
 

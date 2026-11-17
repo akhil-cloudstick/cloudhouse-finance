@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useEffect, useState, type ReactNode } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -57,7 +58,7 @@ type SelfTransferModalContentProps = { onSaved?: () => void; defaultBranchId?: n
  * credit on To Bank. A loan category has no To Bank: the transfer is a
  * repayment, debited from From Bank and credited on that loan's ledger. */
 export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit }: SelfTransferModalContentProps) {
-	const { closeModal } = useModal();
+  const { closeModal, closeAllModals } = useModal();
 	const toast = useToast();
 	const today = new Date().toISOString().slice(0, 10);
 
@@ -153,7 +154,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
 					branchId, occurredOn: date, remarks: remarks.trim(),
 				});
 				onSaved?.();
-				closeModal();
+        closeAllModals();
 				toast("Self transfer updated");
 				return;
 			}
@@ -250,7 +251,7 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
 				<div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
 					<FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
 				<div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
-					<textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => { setRemarks(e.target.value); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
+          <NoteField placeholder="Optional notes" value={remarks} onChange={(v) => { setRemarks(v); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
 				{loanWarning && (
 					<div className="notice" style={{ marginBottom: 4, borderLeft: "3px solid var(--red)", color: "var(--red)" }}>
 						{loanWarning}
@@ -259,7 +260,6 @@ export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit 
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Transfer"}</button>
 			</div>
 		</>

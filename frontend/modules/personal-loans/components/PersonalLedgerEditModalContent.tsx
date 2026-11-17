@@ -152,7 +152,6 @@ export function PersonalLedgerEditModalContent({ loanId, entry: p, bankId: saved
 				<FieldError msg={err} />
 			</div>
 			<div className="ft">
-				<button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
 				<button className="btn" onClick={submit} disabled={saving}>
 					<Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : preview ? (mode === "delete" ? "Confirm delete" : "Confirm") : "Preview the change"}
 				</button>

@@ -15,12 +15,14 @@ const (
 
 type Packet struct {
 	config.TenantScoped
-	ID               uint             `json:"id" gorm:"primaryKey"`
-	Code             string           `json:"code" gorm:"index;not null;size:30"`
-	LoanID           uint             `json:"loan_id" gorm:"not null;index"`
-	Loan             loanModels.Loan  `json:"loan" gorm:"foreignKey:LoanID"`
-	Status           string           `json:"status" gorm:"not null;size:30"`
-	CurrentLockerID  *uint            `json:"current_locker_id"`
+	ID              uint            `json:"id" gorm:"primaryKey"`
+	Code            string          `json:"code" gorm:"index;not null;size:30"`
+	LoanID          uint            `json:"loan_id" gorm:"not null;index"`
+	Loan            loanModels.Loan `json:"loan" gorm:"foreignKey:LoanID"`
+	Status          string          `json:"status" gorm:"not null;size:30"`
+	CurrentLockerID *uint           `json:"current_locker_id"`
+	// LockerCode is the current locker's code, filled on list reads so the table needs no separate locker lookup.
+	LockerCode       string           `json:"locker_code,omitempty" gorm:"-"`
 	TotalGrossWeight float64          `json:"total_gross_weight" gorm:"type:numeric(16,3);default:0"`
 	TotalNetWeight   float64          `json:"total_net_weight" gorm:"type:numeric(16,3);default:0"`
 	Movements        []PacketMovement `json:"movements,omitempty" gorm:"foreignKey:PacketID"`

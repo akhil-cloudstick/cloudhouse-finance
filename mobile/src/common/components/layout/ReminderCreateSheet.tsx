@@ -86,7 +86,7 @@ export function ReminderCreateSheet({ visible, onClose, defaultDate }: ReminderC
         />
       ) : null}
       <Field label="Note">
-        <Input placeholder="Add a note" value={note} onChangeText={setNote} />
+        <Input maxLength={150} placeholder="Add a note (max 150 characters)" value={note} onChangeText={setNote} />
       </Field>
       <PrimaryButton label="Add Reminder" onPress={() => create.mutate()} loading={create.isPending} />
     </Sheet>

@@ -155,7 +155,6 @@ export function SanctionEditModalContent({ loanId, sanctionedAmount, serviceChar
 				<FieldError msg={err} />
 			</div>
 			<div className="ft">
-				<button className="btn ghost" onClick={closeModal} disabled={saving}>Cancel</button>
 				<button className="btn" onClick={submit} disabled={saving}>
 					<Icon name="check" /> {saving ? "Working…" : preview ? "Confirm" : "Preview the change"}
 				</button>

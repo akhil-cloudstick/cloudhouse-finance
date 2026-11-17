@@ -18,8 +18,13 @@ import { useEffect, useRef } from "react";
  * sessionStorage only: per-tab, and the page works the same without it. */
 
 type Origin = { path: string; scope: string; rowKey: string; page: number; date: string; amount: string; ref?: string };
-// ref (data-ledger-ref, e.g. "lp:42" = loan_payments.id 42) pins the exact payment followed.
-type Arrival = { path: string; date: string; amount: string; fromPath: string; ref?: string };
+// ref (data-ledger-ref = "<kind>:<id>", e.g. "lp:42" loan payment, "m:12" cash movement, "e:7" expense, "g:3" gold sale) pins the exact entry followed.
+type Arrival = { path: string; date: string; amount: string; fromPath: string; ref?: string; loan?: string };
+// The loan number of the loan page a drill-down started on (/loan/LN-00069): two loans can share a date and an amount.
+function loanOfPath(p: string): string | undefined {
+  const m = /\/loan\/([^/?#]+)/i.exec(p);
+  return m ? decodeURIComponent(m[1]).toUpperCase() : undefined;
+}
 
 const ORIGINS_KEY = "ledgerFocus:origins";
 const ARRIVAL_KEY = "ledgerFocus:arrival";
@@ -84,7 +89,7 @@ function onLedgerLinkClick(e: MouseEvent) {
       ref,
     },
   });
-  write(ARRIVAL_KEY, { path: url.pathname, date, amount, ref, fromPath: path } satisfies Arrival);
+  write(ARRIVAL_KEY, { path: url.pathname, date, amount, ref, fromPath: path, loan: row.dataset.ledgerLoan || loanOfPath(path) } satisfies Arrival);
 }
 
 if (typeof window !== "undefined") {
@@ -158,15 +163,14 @@ export function ledgerFocusIndex(scope: string, rows: { key: string; date: strin
   if (o && o.scope === scope) return rows.findIndex((r) => r.key === o.rowKey);
   const a = read<Arrival>(ARRIVAL_KEY);
   if (!a || a.path !== path) return -1;
-  const i = rows.findIndex((r) => r.date === a.date && sameAmount(String(r.amount), a.amount));
-  return i >= 0 ? i : rows.findIndex((r) => sameAmount(String(r.amount), a.amount));
+  return rows.findIndex((r) => r.date === a.date && sameAmount(String(r.amount), a.amount));
 }
 
 /* For a ledger paged by the backend: what ledgerFocusIndex would look for,
  * as a request — the remembered row's key when back on this ledger, else
  * the date + amount of the transaction just drilled in from — so the server
  * can answer with the page that holds it. null when there is none. */
-export function ledgerFocusTarget(scope: string): { key: string } | { date: string; amount: number; payment?: number } | null {
+export function ledgerFocusTarget(scope: string): { key: string } | { date: string; amount: number; payment?: number; ref?: string; loan?: string } | null {
   if (typeof window === "undefined") return null;
   const path = window.location.pathname;
   const o = origins()[path];
@@ -174,7 +178,7 @@ export function ledgerFocusTarget(scope: string): { key: string } | { date: stri
   const a = read<Arrival>(ARRIVAL_KEY);
   if (!a || a.path !== path || a.amount === "" || !Number.isFinite(Number(a.amount))) return null;
   const payment = /^lp:(\d+)$/.exec(a.ref || "")?.[1];
-  return { date: a.date, amount: Number(a.amount), ...(payment ? { payment: Number(payment) } : {}) };
+  return { date: a.date, amount: Number(a.amount), ...(payment ? { payment: Number(payment) } : {}), ...(a.ref ? { ref: a.ref } : {}), ...(a.loan ? { loan: a.loan } : {}) };
 }
 
 /* Highlights and scrolls to the remembered row once the ledger's rows are
@@ -203,13 +207,21 @@ export function useLedgerFocus(scope: string, ready: boolean, deps: unknown[] = 
       if (!row) {
         const a = read<Arrival>(ARRIVAL_KEY);
         if (a && a.path === path) {
-          if (a.ref) {
+          const own = a.ref ? rows.filter((r) => r.dataset.ledgerRef === a.ref) : [];
+          if (own.length) {
             // The exact payment followed: its own row only, never another loan's with the same date and amount.
-            const own = rows.filter((r) => r.dataset.ledgerRef === a.ref);
             row = own.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount)) ?? own[0];
           } else {
-            row = rows.find((r) => r.dataset.ledgerDate === a.date && sameAmount(r.dataset.ledgerAmount, a.amount))
-              ?? rows.find((r) => sameAmount(r.dataset.ledgerAmount, a.amount));
+            // No exact payment id (e.g. a sanction/top-up row). Two loans can share the same date and
+            // amount, so prefer the row that names the loan the user came from (/loan/LN-00069).
+            const loanNo = /\/loan\/([^/?#]+)/i.exec(a.fromPath)?.[1];
+            const byLoan = (list: HTMLElement[]) =>
+              loanNo ? list.find((r) => (r.textContent || "").toUpperCase().includes(decodeURIComponent(loanNo).toUpperCase())) : undefined;
+            // The clicked row was not a loan payment (auction, movement…), so a payment row
+            // that merely shares its date and amount is a different entry — skip those, and
+            // never fall back to an amount-only match.
+            const sameDateAmt = rows.filter((r) => !r.dataset.ledgerRef?.startsWith("lp:") && r.dataset.ledgerDate === a.date && sameAmount(r.dataset.ledgerAmount, a.amount));
+            row = byLoan(sameDateAmt) ?? sameDateAmt[0];
           }
         }
       }

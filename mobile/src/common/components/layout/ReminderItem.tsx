@@ -1,5 +1,5 @@
 import { Pressable, View } from "react-native";
-import { AccBtn, ReminderPill, Txt } from "@/common/components/ui";
+import { AccBtn, ReminderPill, Txt, TruncText } from "@/common/components/ui";
 import { dmy } from "@/common/utils/format";
 import type { CalendarEvent } from "@/modules/reminders/types/reminder-types";
 import { s, reminderLabel, reminderKind } from "./shellModalsShared";
@@ -27,11 +27,11 @@ export function ReminderItem({ ev, first, showDate, onPress, onDone, onDelete, o
           <Txt style={s.remTitle} numberOfLines={1}>
             {who}
           </Txt>
-          <Txt style={s.remSub} numberOfLines={2}>
+          <TruncText style={s.remSub} lines={2}>
             {showDate ? `${dmy(ev.date)} · ` : ""}
             {ev.detail || ev.title}
             {ev.status === "Done" ? " · Done" : ""}
-          </Txt>
+          </TruncText>
         </View>
       </Pressable>
       {hasActions ? (

@@ -15,21 +15,21 @@ type SelectLoanForRequestModalContentProps = { loans: LoanView[]; onPicked: (loa
  * choose which kind of request to log for it. Mirrors
  * RepledgeModal.tsx's SelectLoanForRepledgeModalContent. */
 export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoanForRequestModalContentProps) {
-	const { closeModal } = useModal();
-	const [loanId, setLoanId] = useState("");
-	const [type, setType] = useState<"Extension" | "Release">("Extension");
-	// Shown under the loan picker.
-	const [err, setErr] = useState("");
+  const { closeModal } = useModal();
+  const [loanId, setLoanId] = useState("");
+  const [type, setType] = useState<"Extension" | "Release">("Extension");
+  // Shown under the loan picker.
+  const [err, setErr] = useState("");
 
-	const eligible = loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Pending Approval" && l.status !== "Auctioned" && l.status !== "Auctioned - Balance Due");
-	const selected = eligible.find((l) => l.id === loanId);
+  const eligible = loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Pending Approval" && l.status !== "Auctioned" && l.status !== "Auctioned - Balance Due");
+  const selected = eligible.find((l) => l.id === loanId);
 
-	// Not blanket-disabled on `!selected` — see RepledgeModal.tsx's own
-	// SelectLoanForRepledgeModalContent for why.
-	function next() {
-		if (!selected) { setErr("Please select a loan first."); return; }
-		onPicked(selected, type);
-	}
+  // Not blanket-disabled on `!selected` — see RepledgeModal.tsx's own
+  // SelectLoanForRepledgeModalContent for why.
+  function next() {
+    if (!selected) { setErr("Please select a loan first."); return; }
+    onPicked(selected, type);
+  }
 
   return (
     <>
@@ -54,9 +54,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
           <p className="notice"><Icon name="shield" /> Customer has no open loans.</p>
         )}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
+      <div className="ft">        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
       </div>
     </>
   );

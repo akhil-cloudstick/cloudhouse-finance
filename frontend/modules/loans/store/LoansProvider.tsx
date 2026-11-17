@@ -23,6 +23,9 @@ export const OPEN_LOAN_STATUSES = [
 	"Active",
 	"Due Soon",
 	"Overdue",
+  // The backend matches this list against each loan's read-time status, where a loan more than 90 days past due
+  // with arrears reads "Defaulted" — leaving it out hid every defaulted loan from the Auctions page.
+  "Defaulted",
 	"Closure Requested",
 	"Auction Eligible",
 	"Auctioned - Balance Due",

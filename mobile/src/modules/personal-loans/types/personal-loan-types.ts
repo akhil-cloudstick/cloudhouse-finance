@@ -142,4 +142,15 @@ export type PersonalLoanApproval = {
   createdAt: string;
 };
 
+export type PersonalLoanHistory = {
+  id: number;
+  personalLoanId: number;
+  event: "loan_created" | "penal_applied" | "loan_renewed";
+  detail: string;
+  amount: number;
+  relatedLoanId: number | null;
+  occurredAt: string;
+  createdAt: string;
+};
+
 export type PersonalLoanBondLang = "en" | "ml";

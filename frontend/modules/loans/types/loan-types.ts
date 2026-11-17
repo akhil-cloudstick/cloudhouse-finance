@@ -177,6 +177,7 @@ export type BackendLoan = {
 	// charged under.
 	schemeInterestRate: number;
 	schemeLtvPercent: number;
+  currentSchemeLtvPercent?: number;
 	schemeInterestMethod: string;
 	schemePenalRate: number;
 	openedDate: string;
@@ -333,6 +334,8 @@ export type LoanView = {
 	schemeName: string;
 	schemeRate: number;
 	schemeLtv: number;
+  // The scheme's LTV now, as the server will check an edit against it (schemeLtv is the one frozen on the loan).
+  currentSchemeLtv?: number;
 	schemeMethod: string;
 	schemePenal: number;
 	opened: string; // "YYYY-MM-DD"
@@ -489,6 +492,7 @@ export type LoanFilters = {
 	branchId?: number | number[];
 	customerId?: number | number[];
 	bankPledgeStatus?: string | string[];
+  bank?: string | string[]; // names of the banks an active pledge is with
 	schemeId?: number | number[];
 	auctionStage?: string | string[]; // latest auction record at any of these stages
 	from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
@@ -550,7 +554,8 @@ export type ApprovalInput = {
  * Ornaments themselves go through the existing addOrnament/updateOrnament/
  * deleteOrnament calls below, one ornament at a time, not through this. */
 export type UpdateLoanInput = {
-	schemeId?: number | string; principalAmount?: number; overallPhotoUrl?: string; additionalInfo?: string; // additionalInfo: "" clears it
+	schemeId?: number | string; principalAmount?: number; openedDate?: string; /* YYYY-MM-DD */ overallPhotoUrl?: string; additionalInfo?: string; // additionalInfo: "" clears it
+  serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal"; // how the service charge is taken
 	// how the payout of a loan already paid out was made
 	cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; bankId?: number;
 	// the loan's branch and the locker for its gold — only for a role that may see every branch
@@ -783,6 +788,11 @@ export type AuctionRecordView = {
 	 * Tracked explicitly because the full net proceeds are booked into the till,
 	 * so without this the customer's share would silently sit in branch cash. */
 	surplusPayableAmount: number;
+  /** Due at the time of sale (null on cases sold before it was stored). Auction History detail only. */
+  duePrincipal: number | null;
+  dueInterest: number | null;
+  duePenal: number | null;
+  dueTotal: number | null;
 	surplusDisposition: AuctionSurplusDisposition | "";
 	/** Notes entered when the surplus was settled ("" if none). */
 	surplusRemarks: string;
@@ -822,6 +832,10 @@ export type BackendAuctionRecord = {
 	auctionExpenses: number;
 	surplusShortfall: number;
 	surplusPayableAmount?: number;
+  duePrincipal?: number | null;
+  dueInterest?: number | null;
+  duePenal?: number | null;
+  dueTotal?: number | null;
 	surplusDisposition?: AuctionSurplusDisposition | "";
 	surplusRemarks?: string;
 	finalSettlementStatus: AuctionSettlementStatus;
@@ -1075,5 +1089,6 @@ export type IndemnityBondPreviewInput = {
 	principalAmount?: number;
 	interestRate?: number;
 	dueDate?: string;
+  openedDate?: string; // "YYYY-MM-DD"; sent as opened_date, blank date lines without it
 	ornaments: { name: string; purity?: string; grossWeight: number; netWeight: number; value: number }[];
 };

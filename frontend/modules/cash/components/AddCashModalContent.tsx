@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -75,7 +76,7 @@ type AddCashModalContentProps = { onSaved?: () => void; defaultBranchId?: number
  * The built-in "Gold Sale" source (see GOLD_SALE) swaps in the gold-sale
  * fields — ornament type, cost, branch, remarks — and records a gold sale. */
 export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: AddCashModalContentProps) {
-	const { closeModal } = useModal();
+  const { closeModal, closeAllModals } = useModal();
 	const toast = useToast();
 	const today = new Date().toISOString().slice(0, 10);
 
@@ -189,7 +190,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
 					mode, bankId: bankRequired ? +bankId : undefined, receiptImage, ...costPaid,
 				});
 				onSaved?.();
-				closeModal();
+        closeAllModals();
 				toast("Gold sale updated");
 				return;
 			}
@@ -239,7 +240,7 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
 					kind: "cash_in", category: source, amount, occurredOn: date, remarks: remarks.trim(), branchId, payments, receiptImage,
 				});
 				onSaved?.();
-				closeModal();
+        closeAllModals();
 				toast("Cash-in updated");
 				return;
 			}
@@ -401,11 +402,10 @@ export function AddCashModalContent({ onSaved, defaultBranchId, tabs, edit }: Ad
 				<div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
 					<FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
 				<div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
-					<textarea className="inp" rows={2} placeholder="Optional notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} /><FieldError msg={fe.remarks} /></div></div>
+					<NoteField placeholder="Optional notes" value={remarks} onChange={setRemarks} /><FieldError msg={fe.remarks} /></div></div>
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : isGoldSale ? "Record Sale" : "Add Cash"}</button>
 			</div>
 		</>

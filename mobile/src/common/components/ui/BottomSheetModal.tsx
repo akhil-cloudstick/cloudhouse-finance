@@ -1,5 +1,5 @@
 import React, { createContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, BackHandler, Easing, Keyboard, LayoutAnimation, Platform, Pressable, View, StyleSheet, useWindowDimensions, type HostInstance, type KeyboardEvent } from "react-native";
+import { Animated, BackHandler, Easing, Keyboard, Platform, Pressable, View, StyleSheet, useWindowDimensions, type HostInstance, type KeyboardEvent } from "react-native";
 import { Gesture, GestureDetector, type LegacyPanGesture } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/common/theme/colors";
@@ -42,6 +42,8 @@ type BottomSheetModalProps = {
   onClose: () => void;
   children: React.ReactNode;
   maxHeightPct?: number;
+  /** Fixed height (= maxHeightPct) instead of sizing to content, so the sheet never resizes with its data. */
+  fixedHeight?: boolean;
   dragToClose?: boolean;
   /** Prototype sheet styling (.modal-card.sheet-bottom): white card, 24
    * radius, no side padding — the content lays out its own head/body. */
@@ -55,6 +57,7 @@ export function BottomSheetModal({
   onClose,
   children,
   maxHeightPct = 88,
+  fixedHeight = false,
   dragToClose = true,
   bare = false,
 }: BottomSheetModalProps) {
@@ -83,6 +86,10 @@ export function BottomSheetModal({
   // close mid-way and whose short distance then sprang the sheet back open.
   const closing = useRef(false);
   const [scrollLock] = useState(createScrollLock);
+  // A swipe that starts while the keyboard is up only dismisses the keyboard
+  // (the sheet stays put); a second swipe then closes the sheet.
+  const kbUpRef = useRef(false);
+  const kbSwipe = useRef(false);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
@@ -119,13 +126,18 @@ export function BottomSheetModal({
         .failOffsetX([-24, 24])
         .onStart(() => {
           if (closing.current) return;
+          kbSwipe.current = kbUpRef.current;
+          if (kbSwipe.current) {
+            Keyboard.dismiss();
+            return;
+          }
           // Take over from an open/spring-back still in flight rather than
           // fighting it frame by frame.
           translateY.stopAnimation();
           dragBase.current = scrollY.current <= 1 ? 0 : null;
         })
         .onUpdate((e) => {
-          if (closing.current) return;
+          if (closing.current || kbSwipe.current) return;
           if (dragBase.current === null) {
             if (scrollY.current > 1) return;
             dragBase.current = e.translationY;
@@ -149,6 +161,10 @@ export function BottomSheetModal({
         })
         .onEnd((e) => {
           if (closing.current) return;
+          if (kbSwipe.current) {
+            kbSwipe.current = false;
+            return;
+          }
           const dist = dragBase.current === null ? 0 : e.translationY - dragBase.current;
           dragBase.current = 0;
           // A quarter of a short sheet's height is enough; a tall one still
@@ -233,6 +249,7 @@ export function BottomSheetModal({
   };
 
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  kbUpRef.current = keyboardHeight > 0;
   // Some Android devices resize the whole window for the keyboard (the
   // overlay shrinks by the keyboard's height); others draw edge-to-edge and
   // leave it full height. Lifting the sheet by the full keyboard height on a
@@ -258,47 +275,49 @@ export function BottomSheetModal({
   const overlayRef = useRef<HostInstance>(null);
   const lift = Platform.OS === "ios" ? Math.max(0, keyboardHeight - resizedBy) : androidLift;
   const availH = overlayH || win.height;
+  // How far the keyboard has pushed the sheet up (negative), animated natively.
+  const kbAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!visible) return;
-    // iOS: follow the keyboard as it moves (Will events + the keyboard's own
-    // curve) instead of jumping once it has finished animating.
+    // The sheet rides the keyboard on the native thread: a transform that animates over the keyboard's own
+    // duration (iOS follows its curve). It used to animate the layout (LayoutAnimation) and re-render the whole
+    // sheet on each step, which is what made it blocky and late.
     const ios = Platform.OS === "ios";
-    const animate = (e: KeyboardEvent) => {
-      if (ios && e.duration) LayoutAnimation.configureNext({ duration: e.duration, update: { type: LayoutAnimation.Types.keyboard } });
-      else if (!ios) LayoutAnimation.configureNext({ duration: 140, update: { type: LayoutAnimation.Types.easeOut } });
+    const slide = (to: number, e: KeyboardEvent, fallback: number) => {
+      kbAnim.stopAnimation();
+      Animated.timing(kbAnim, { toValue: to, duration: e.duration || fallback, easing: KB_EASE, useNativeDriver: true }).start();
     };
     let raf = 0;
     const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", (e) => {
       if (ios) {
-        animate(e);
         setKeyboardHeight(e.endCoordinates.height);
+        slide(-e.endCoordinates.height, e, 250);
         return;
       }
       // Let a window resize (if this device does one) lay out first, then measure.
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        raf = requestAnimationFrame(() => {
-          const finish = (l: number) => {
-            animate(e);
-            setAndroidLift(l);
-            setKeyboardHeight(e.endCoordinates.height);
-          };
-          const node = overlayRef.current;
-          if (!node) return finish(0);
-          node.measureInWindow((_x, y, _w, h) => finish(Math.max(0, Math.round(y + h - e.endCoordinates.screenY))));
-        });
+        const finish = (l: number) => {
+          setAndroidLift(l);
+          setKeyboardHeight(e.endCoordinates.height);
+          slide(-l, e, 200);
+        };
+        const node = overlayRef.current;
+        if (!node) return finish(0);
+        node.measureInWindow((_x, _y, _w, h) => finish(Math.max(0, Math.round(_y + h - e.endCoordinates.screenY))));
       });
     });
     const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", (e) => {
       cancelAnimationFrame(raf);
-      animate(e);
       setAndroidLift(0);
       setKeyboardHeight(0);
+      slide(0, e, 200);
     });
     return () => {
       cancelAnimationFrame(raf);
       show.remove();
       hide.remove();
+      kbAnim.setValue(0);
       setAndroidLift(0);
       setKeyboardHeight(0);
     };
@@ -342,9 +361,9 @@ export function BottomSheetModal({
                   maxHeight: keyboardHeight
                     ? Math.min((fullH.current * maxHeightPct) / 100 || Infinity, availH - lift - insets.top - 8)
                     : `${maxHeightPct}%`,
-                  marginBottom: lift,
-                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? (Platform.OS === "ios" ? 8 : 14) : 14 + Math.max(insets.bottom, 10),
-                  transform: [{ translateY }],
+                  ...(fixedHeight && !keyboardHeight ? { height: `${maxHeightPct}%` } : null),
+                  paddingBottom: bare ? (keyboardHeight ? KB_GAP : insets.bottom) : keyboardHeight ? (Platform.OS === "ios" ? 0 : 14) : 14 + Math.max(insets.bottom, 10),
+                  transform: [{ translateY }, { translateY: kbAnim }],
                 },
               ]}
             >
@@ -359,7 +378,7 @@ export function BottomSheetModal({
       </View>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, visible, moving, maxHeightPct, keyboardHeight, lift, androidLift, availH, insets.bottom, insets.top, win.height, children, dragGesture, dragToClose, scrollCtx, bare]);
+  }, [mounted, visible, moving, maxHeightPct, keyboardHeight, lift, androidLift, availH, insets.bottom, insets.top, win.height, children, dragGesture, dragToClose, scrollCtx, bare, fixedHeight]);
 
   useEffect(() => () => sheetStore.remove(id), [id]);
 
@@ -372,6 +391,7 @@ const CLOSE_MS = 240;
 // Clear space kept between a sheet footer and the keyboard top (added to the footer's own 12px padding).
 // iPhone sits a few px closer to the keyboard than Android.
 const KB_GAP = Platform.OS === "ios" ? 0 : 4;
+const KB_EASE = Easing.bezier(0.25, 0.1, 0.25, 1);
 const CLOSE_EASE = Easing.bezier(0.4, 0, 0.9, 0.6);
 
 const styles = StyleSheet.create({

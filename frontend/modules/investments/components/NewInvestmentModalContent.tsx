@@ -22,7 +22,13 @@ const SERVER_FIELDS: Record<string, RegExp> = {
 	split: /payment|breakdown|bank|cheque|upi/i, investor: /investor|customer/i, plan: /plan/i, principal: /principal|amount/i,
 };
 
-type NewInvestmentModalContentProps = { onSaved: () => void; /** Set to correct this investment instead of opening a new one (only before any payout or interest). */ investment?: BackendInvestment };
+type NewInvestmentModalContentProps = {
+  onSaved: () => void;
+  /** Set to correct this investment instead of opening a new one (only before any payout or interest). */
+  investment?: BackendInvestment;
+  /** Opens a new investment already assigned to this investor (name shown, not changeable). */
+  presetInvestor?: CustomerView;
+};
 
 /* "New Investment" — a modal (not a page) launched from Investments.tsx's
  * "+ New Investment" button, mirroring personal-loans/components/
@@ -31,17 +37,18 @@ type NewInvestmentModalContentProps = { onSaved: () => void; /** Set to correct 
  * rate/frequency/tenure onto the Investment and generates the full payout
  * schedule in one step (see backend/internal/investment/service.go's
  * CreateInvestment). */
-export function NewInvestmentModalContent({ onSaved, investment }: NewInvestmentModalContentProps) {
+export function NewInvestmentModalContent({ onSaved, investment, presetInvestor }: NewInvestmentModalContentProps) {
 	const editing = !!investment;
+  const locked = editing || !!presetInvestor;
   const canCreateCustomer = useAuth().can("Investment_Management", "can_create_investment");
 	const { closeModal } = useModal();
 	const toast = useToast();
 
 	// The picker's own id: a number, or "uuid:..." for an investor this PC registered that the server has not numbered yet
 	// (the investment points at them by that, and the server resolves it when the investment is sent, after the investor).
-	const [customerRef, setCustomerRef] = useState<number | string | undefined>(investment?.customerId);
-	const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(investment?.branchId);
-	const [customerLabel, setCustomerLabel] = useState(investment ? `${investment.customer.name} (${investment.customer.code})` : "");
+	const [customerRef, setCustomerRef] = useState<number | string | undefined>(investment?.customerId ?? (presetInvestor ? Number(presetInvestor.id) : undefined));
+	const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(investment?.branchId ?? presetInvestor?.branchId);
+	const [customerLabel, setCustomerLabel] = useState(investment ? `${investment.customer.name} (${investment.customer.code})` : presetInvestor ? `${presetInvestor.name} (${presetInvestor.code})` : "");
 	const pickInvestor = (id: string | number, branchId: number | undefined, label: string) => {
 		const s = String(id);
 		setCustomerRef(/^\d+$/.test(s) ? Number(s) : s.startsWith("uuid:") ? s : undefined);
@@ -147,7 +154,7 @@ export function NewInvestmentModalContent({ onSaved, investment }: NewInvestment
 			<div className="hd"><h3>{investment ? `Edit ${investment.investmentNumber}` : "New Investment"}</h3><button className="x" onClick={closeModal}>×</button></div>
 			<div className="bd bd-scroll">
 				<div className="frow"><div className={fe.investor ? "has-err" : undefined}><label className="f">Investor *</label>
-					{editing ? <input className="inp" value={customerLabel} disabled readOnly /> : <SearchableSelect<CustomerView>
+          {locked ? <input className="inp" value={customerLabel} disabled readOnly /> : <SearchableSelect<CustomerView>
 						value={customerLabel}
 						onChange={(id, item) => pickInvestor(id, item.branchId, `${item.name} (${item.code})`)}
 						fetchFn={searchInvestorsPage}
@@ -179,17 +186,24 @@ export function NewInvestmentModalContent({ onSaved, investment }: NewInvestment
 				</div>}
 
 				{plan && principalNum > 0 && (
-					<div className="notice" style={{ marginTop: 4 }}>
-						<div>Interest: <strong>{plan.interestRateType} @ {plan.interestRatePercent}% p.a.</strong>, paid <strong>{plan.payoutFrequency}</strong></div>
-						<div>Tenure: <strong>{plan.tenureMonths} months</strong></div>
-						<div>Principal deposited: <strong>{fmt(principalNum)}</strong></div>
+          <div style={{ marginTop: 6, border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 16px" }}>
+            {[
+              { k: "Interest", v: `${plan.interestRatePercent}% p.a. · ${plan.interestRateType}` },
+              { k: "Payout", v: plan.payoutFrequency },
+              { k: "Tenure", v: `${plan.tenureMonths} months` },
+              { k: "Principal", v: fmt(principalNum), strong: true },
+            ].map((x) => (
+              <div key={x.k}>
+                <div style={{ fontSize: 10.5, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--muted)" }}>{x.k}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2, color: x.strong ? "var(--brand-deep)" : "var(--ink)" }}>{x.v}</div>
+              </div>
+            ))}
 					</div>
 				)}
 
 				{err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
 			</div>
 			<div className="ft">
-				<button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
 				<button className="btn" disabled={saving} onClick={save}>{editing ? (saving ? "Saving…" : "Save Changes") : saving ? "Creating…" : "Create Investment"}</button>
 			</div>
 		</>

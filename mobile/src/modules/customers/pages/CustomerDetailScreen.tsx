@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { LayoutAnimation, Linking, Pressable, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AccRow,
   Avatar,
+  BoundedList,
   Buffering,
   C,
   Card,
   ChipToggle,
-  ConfirmSheet,
   Field,
   Sheet,
   SheetListItem,
@@ -22,7 +22,7 @@ import {
   FabMenu,
   PillTabs,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   SectionTitle,
   ServerFlatList,
   Txt,
@@ -35,7 +35,11 @@ import {
   useShell,
   toast,
 } from "@/common/components/ui";
+import { fromCamera, fromFiles, fromLibrary, PermissionError } from "@/common/components/ui/DocumentField";
+import { uploadFile } from "@/common/services/uploadService";
+import { updateCustomer } from "@/modules/customers/services/customerService";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
+import { DeleteCustomerSheet } from "@/modules/customers/components/DeleteCustomerSheet";
 import { useServerList, type ServerList, type ServerPage } from "@/common/hooks/use-server-list";
 import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import {
@@ -73,6 +77,68 @@ const TABS = ["Loans", "Ornaments", "Payments", "Bank Pledges", "Auctions", "Led
 type Tab = (typeof TABS)[number];
 
 const hasDate = (v?: string | null) => !!v && !v.startsWith("0001");
+
+const KYC_FIELDS: Record<string, "photoUrl" | "identityProofUrl" | "addressProofUrl" | "kycDocumentUrl"> = {
+  Photograph: "photoUrl",
+  "Identity proof": "identityProofUrl",
+  "Address proof": "addressProofUrl",
+  "Additional document": "kycDocumentUrl",
+};
+
+/** One KYC document row: eye icon to view (Replace lives in the viewer); "Add" picks a file inline when empty. */
+function KycDoc({ customer: customerProp, label, url, canUpdate }: { customer: Customer; label: string; url?: string | null; canUpdate: boolean }) {
+  const qc = useQueryClient();
+  const [choosing, setChoosing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const field = KYC_FIELDS[label];
+  const allowPdf = label !== "Photograph";
+  async function pick(run: () => Promise<import("@/common/types/upload-types").PickedFile | null>) {
+    setChoosing(false);
+    try {
+      const file = await run();
+      if (!file) return;
+      setBusy(true);
+      const newUrl = await uploadFile(file);
+      // Rebuild the full-replace body from the latest saved record, not the (possibly stale) prop.
+      const customer = await getCustomer(customerProp.id);
+      const x = customer as Customer & Record<string, any>;
+      await updateCustomer(customer.id, {
+        name: customer.name, phone: customer.phone, dob: customer.dob ? String(customer.dob).slice(0, 10) : undefined, address: customer.address || undefined,
+        branchId: customer.branchId, pan: customer.pan || undefined, nomineeName: customer.nomineeName || undefined,
+        nomineeRelation: customer.nomineeRelation || undefined, nomineePhone: customer.nomineePhone || undefined,
+        photoUrl: customer.photoUrl || undefined, identityProofUrl: customer.identityProofUrl || undefined,
+        addressProofUrl: customer.addressProofUrl || undefined, kycDocumentUrl: customer.kycDocumentUrl || undefined,
+        [field]: newUrl,
+        customerType: x.customerType || undefined, fatherName: x.fatherName || undefined, age: x.age || undefined, district: x.district || undefined,
+        taluk: x.taluk || undefined, village: x.village || undefined, place: x.place || undefined, pinCode: x.pinCode || undefined,
+        bankAccountName: x.bankAccountName || undefined, bankAccountNumber: x.bankAccountNumber || undefined, bankIfsc: x.bankIfsc || undefined,
+      });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["customer", String(customerProp.id)] });
+      toast.success("Saved", `${label} updated`);
+    } catch (e) {
+      toast.error("Upload failed", e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const replace = canUpdate ? () => setChoosing(true) : undefined;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+      {busy ? <Txt style={{ color: C.muted }}>Uploading…</Txt> : url ? <BillLink path={url} title={label} icon onReplace={replace} /> : <Txt style={{ color: C.muted }}>—</Txt>}
+      {!url && !busy && canUpdate ? (
+        <Pressable onPress={() => setChoosing(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Add ${label}`}>
+          <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep }}>Add</Txt>
+        </Pressable>
+      ) : null}
+      <Sheet visible={choosing} onClose={() => setChoosing(false)} title={label} maxHeightPct={50}>
+        <SheetListItem first icon="scan" title="Take a photo" onPress={() => pick(fromCamera)} />
+        <SheetListItem icon="doc" title="Choose from gallery" onPress={() => pick(fromLibrary)} />
+        {allowPdf ? <SheetListItem icon="note" title="Choose a file" sub="PDF or image" onPress={() => pick(fromFiles)} /> : null}
+      </Sheet>
+    </View>
+  );
+}
 
 function ageFromDob(dob: string): number {
   const birth = new Date(+dob.slice(0, 4), +dob.slice(5, 7) - 1, +dob.slice(8, 10));
@@ -171,17 +237,15 @@ function CustomerActions({ c, onEdit, onRequest }: CustomerActionsProps) {
   return (
     <>
       {actions.length ? <FabMenu label="Customer actions" actions={actions} /> : null}
-      <ConfirmSheet
+      <DeleteCustomerSheet
         visible={deleteOpen}
         onClose={() => setDeleteOpen(false)}
-        title="Delete Customer Permanently"
-        danger
-        message={`Permanently delete ${c.name} and every record tied to them — loans, payments, ornaments and reminders? This cannot be undone. It is refused while any of their loans is still open.`}
-        confirmLabel="Delete Permanently"
+        customer={c}
         loading={hardDelete.isPending}
         error={deleteError}
         onConfirm={() => hardDelete.mutate()}
       />
+
     </>
   );
 }
@@ -295,12 +359,13 @@ function useTabList<T>({ name, queryKey, fetchPage, sections = [DATE_SECTION], t
   const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
   const list = useServerList<T, TabFilters>({ key: queryKey, fetchPage, filters: toParams(fv), enabled, staleTime: TAB_STALE });
   const controls = (
-    <>
-      <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-        <GroupedFilter title="Filter" sections={sections} value={fv} onChange={setFv} />
-      </View>
-      <SearchInput value={list.search} onChangeText={list.setSearch} placeholder={placeholder} style={{ paddingBottom: 16 }} />
-    </>
+    <SearchFilterRow
+      value={list.search}
+      onChangeText={list.setSearch}
+      placeholder={placeholder}
+      style={{ paddingTop: 12, paddingBottom: 16 }}
+      filter={<GroupedFilter title="Filter" sections={sections} value={fv} onChange={setFv} />}
+    />
   );
   return { list, controls, emptyText: list.search ? "Nothing matches your search." : emptyText, keyOf: (t: T) => `${name}-${keyOf(t)}`, renderItem };
 }
@@ -310,12 +375,20 @@ type LoanRequestPickerProps = { customerId: number; visible: boolean; onClose: (
 /** Extension / Release for one of this customer's open loans — pick which, then it opens on that loan (web's picker). */
 function LoanRequestPicker({ customerId, visible, onClose }: LoanRequestPickerProps) {
   const [kind, setKind] = useState<"extend" | "release">("extend");
-  const loans = useQuery({
+  const PICK_PAGE = 15;
+  const loans = useInfiniteQuery({
     queryKey: ["customer-open-loans", customerId],
-    queryFn: () => listLoansPage({ customerId, limit: 50, offset: 0 }),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => listLoansPage({ customerId, limit: PICK_PAGE, offset: pageParam as number }).then((r) => ({ items: r.items ?? [], total: r.total ?? (r.items ?? []).length, hasMore: !!r.hasMore })),
+    getNextPageParam: (last, all) => (last.hasMore ? all.length * PICK_PAGE : undefined),
     enabled: visible,
   });
-  const open = (loans.data?.items ?? []).filter((l) => !/closed|rejected|released/i.test(l.status ?? ""));
+  const open0 = (loans.data?.pages.flatMap((p) => p.items) ?? []);
+  const open = open0.filter((l) => !/closed|rejected|released/i.test(l.status ?? ""));
+  // Closed loans are filtered out, so a page can leave the box too short to scroll: keep fetching until it fills.
+  useEffect(() => {
+    if (visible && loans.hasNextPage && !loans.isFetchingNextPage && open.length < 4) void loans.fetchNextPage();
+  }, [visible, loans.hasNextPage, loans.isFetchingNextPage, open.length]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sheet visible={visible} onClose={onClose} title="Extension / Release" maxHeightPct={75}>
       <Field label="Request">
@@ -326,7 +399,13 @@ function LoanRequestPicker({ customerId, visible, onClose }: LoanRequestPickerPr
       ) : open.length === 0 ? (
         <EmptyText>No open loans for this customer.</EmptyText>
       ) : (
-        open.map((l, i) => (
+        <BoundedList
+          rows={4}
+          onEndReached={loans.hasNextPage && !loans.isFetchingNextPage ? () => loans.fetchNextPage() : undefined}
+          loadingMore={loans.isFetchingNextPage}
+          caption={`${open.length} open loan${open.length === 1 ? "" : "s"}${loans.hasNextPage ? " — scroll for more" : ""}`}
+        >
+        {open.map((l, i) => (
           <SheetListItem
             key={l.id}
             first={i === 0}
@@ -338,9 +417,10 @@ function LoanRequestPicker({ customerId, visible, onClose }: LoanRequestPickerPr
               openPage(`/loans/${l.id}?action=${kind}`);
             }}
           />
-        ))
+        ))}
+        </BoundedList>
       )}
-    </Sheet>
+</Sheet>
   );
 }
 
@@ -370,7 +450,9 @@ export default function CustomerDetailScreen() {
   const canOpen = useCanOpen();
   const canViewLoans = canOpen("/loans");
   // The Auctions tab needs "can view auction module".
-  const visibleTabs: readonly Tab[] = canOpen("/auctions") ? TABS : TABS.filter((t) => t !== "Auctions");
+  // The Ledger tab needs "can view cash module" (web canViewCash).
+  const canViewCash = useAuth().can("Cash_Management", "can_view_cash_module");
+  const visibleTabs: readonly Tab[] = TABS.filter((t) => (t !== "Auctions" || canOpen("/auctions")) && (t !== "Ledger" || canViewCash));
   const on = (t: Tab) => !!id && (tab === t || (warm && visibleTabs.includes(t)));
 
   const loans = useTabList<Loan>({
@@ -395,6 +477,7 @@ export default function CustomerDetailScreen() {
           { k: "Principal", v: inr(l.principalAmount) },
           { k: "Opened", v: dmy(l.openedDate) },
           { k: "Due", v: dmy(l.dueDate) },
+          { k: "Pledge", v: l.bankPledgeStatus || "—" },
         ]}
         actions={canViewLoans ? [{ label: "View Loan", primary: true, onPress: () => viewLoan(l.id) }] : undefined}
       />
@@ -494,6 +577,8 @@ export default function CustomerDetailScreen() {
           amount={a.saleAmount ? inr(a.saleAmount) : undefined}
           details={[
             { k: "Auction date", v: hasDate(a.auctionDate) ? dmy(a.auctionDate) : "—" },
+            { k: "Expenses", v: a.saleAmount && a.auctionExpenses ? inr(a.auctionExpenses) : "—" },
+            { k: "Net proceeds", v: a.saleAmount ? inr(a.saleAmount - (a.auctionExpenses || 0)) : "—" },
             {
               k: surplus >= 0 ? "Surplus" : "Shortfall",
               v: a.saleAmount ? inr(Math.abs(surplus)) : "—",
@@ -558,12 +643,7 @@ export default function CustomerDetailScreen() {
             k={label}
             v={
               <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
-                {url ? <BillLink path={url} title={label} icon /> : <Txt style={{ color: C.muted }}>—</Txt>}
-                {canUpdate ? (
-                  <Pressable onPress={() => setEditOpen(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`${url ? "Replace" : "Add"} ${label}`}>
-                    <Txt style={{ fontSize: 12, fontWeight: "700", color: C.brandDeep }}>{url ? "Replace" : "Add"}</Txt>
-                  </Pressable>
-                ) : null}
+                <KycDoc customer={data} label={label} url={url} canUpdate={canUpdate} />
               </View>
             }
           />

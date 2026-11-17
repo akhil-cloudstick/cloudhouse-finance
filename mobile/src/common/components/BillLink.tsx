@@ -19,11 +19,11 @@ export function billDetail(receiptImage?: string): { k: string; v: React.ReactNo
   return [{ k: "Bill", v: <BillLink path={receiptImage} /> }];
 }
 
-type BillLinkProps = { path: string; label?: string; /** Title of the viewer sheet — the name of the thing being viewed (default "Bill"). */ title?: string; /** Show an eye icon (accessibilityLabel "View document") instead of the text link. */ icon?: boolean };
+type BillLinkProps = { path: string; label?: string; /** Title of the viewer sheet — the name of the thing being viewed (default "Bill"). */ title?: string; /** Show an eye icon (accessibilityLabel "View document") instead of the text link. */ icon?: boolean; /** Adds a Replace button inside the viewer. */ onReplace?: () => void };
 
 // Opens the bill in an in-app sheet that sends the session token (the server
 // only serves /uploads/* to a signed-in caller) and falls back cleanly.
-export function BillLink({ path, label = "View bill", title, icon }: BillLinkProps) {
+export function BillLink({ path, label = "View bill", title, icon, onReplace }: BillLinkProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -34,7 +34,7 @@ export function BillLink({ path, label = "View bill", title, icon }: BillLinkPro
       ) : (
         <LedgerLink label={label} to="/cash" onPress={() => setOpen(true)} />
       )}
-      <BillSheet path={open ? path : null} title={title} onClose={() => setOpen(false)} />
+      <BillSheet path={open ? path : null} title={title} onClose={() => setOpen(false)} onReplace={onReplace ? () => { setOpen(false); onReplace(); } : undefined} />
     </>
   );
 }

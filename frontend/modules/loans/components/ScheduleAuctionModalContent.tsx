@@ -55,7 +55,6 @@ export function ScheduleAuctionModalContent({ loan, onSaved, onError }: Schedule
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Schedule"}</button>
 			</div>
 		</>

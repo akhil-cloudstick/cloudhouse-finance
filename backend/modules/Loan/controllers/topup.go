@@ -117,8 +117,8 @@ func requestTopUp(ctx context.Context, loanID uint, in TopUpInput, first common.
 	}
 	recalculateTotals(l, ornaments)
 	amount := common.RoundMoney(in.Amount)
-	if amount > common.RoundMoney(l.EligibleLoanAmount-l.OutstandingAmount)+0.01 {
-		return nil, common.NewBadRequest("amount is above the loan limit")
+	if l.SchemeLTVPercent > 0 && amount > common.RoundMoney(l.EligibleLoanAmount-l.OutstandingAmount)+0.01 {
+		return nil, common.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
 	}
 	occurredOn := in.OccurredOn
 	if occurredOn.IsZero() {
@@ -258,8 +258,8 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 		}
 		headroom := common.RoundMoney(l.EligibleLoanAmount - l.OutstandingAmount)
 		amount := common.RoundMoney(in.Amount)
-		if amount > headroom+0.01 {
-			return common.NewBadRequest("amount is above the loan limit")
+		if l.SchemeLTVPercent > 0 && amount > headroom+0.01 {
+			return common.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
 		}
 		eligibleAtTopUp = l.EligibleLoanAmount
 		now := time.Now()

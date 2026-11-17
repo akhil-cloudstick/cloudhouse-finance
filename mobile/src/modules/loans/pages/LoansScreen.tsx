@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AccRow, C, FabMenu, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, gfValues, useShell } from "@/common/components/ui";
+import { AccRow, C, FabMenu, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, gfValues, useShell } from "@/common/components/ui";
 import { LoanDraftsSheet } from "@/common/components/LoanDraftsSheet";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import {
@@ -15,7 +15,7 @@ import {
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { listLoansPage } from "@/modules/loans/services/loanService";
+import { listLoansPage, loanDisplayStatus } from "@/modules/loans/services/loanService";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 
@@ -82,7 +82,8 @@ export default function LoansScreen() {
   }, [params.status, setFilters]);
 
   const showBranchFilter = useShowBranchFilter();
-  const apiFilters = { ...loanFilterParams(filters, showBranchFilter), schemeId };
+  const base = loanFilterParams(filters, showBranchFilter);
+  const apiFilters = { ...base, schemeId: schemeId ?? base.schemeId };
   const list = useServerList<Loan, typeof apiFilters>({ key: ["loans", "list"], persistKey: "loans", filters: apiFilters, fetchPage: (p) => listLoansPage(p) });
   const overdue = useQuery({ queryKey: ["loans", "overdue-count"], queryFn: () => listLoansPage({ servicing: "overdue", limit: 1, offset: 0 }) });
 
@@ -99,21 +100,21 @@ export default function LoansScreen() {
       // One corner button that opens upward into both actions, like Bank Pledges.
       floating={can("Loan_Management", "can_create_loan") ? <FabMenu label="Loan actions" actions={[{ label: "New Loan", icon: "plus", onPress: shell.openNewLoan }, { label: "Draft loans", icon: "doc", onPress: () => setDraftsOpen(true) }]} /> : undefined}
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(l) => String(l.id)}
         emptyText={list.search ? "No loans match your search." : "No loans found."}
         header={
           <>
-            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-              <GroupedFilter title="Filter loans" sections={loanFilterSections(showBranchFilter, showBranchFilter ? gfValues(filters, "branch") : [])} value={filters} onChange={setFilters} />
+            <View style={{ paddingTop: 12 }}>
+              <SearchFilterRow
+                value={list.search}
+                onChangeText={list.setSearch}
+                placeholder="Search this list by loan ID or customer name"
+                filter={<GroupedFilter title="Filter loans" sections={loanFilterSections(showBranchFilter, showBranchFilter ? gfValues(filters, "branch") : [])} value={filters} onChange={setFilters} />}
+              />
             </View>
-            <SearchInput
-              value={list.search}
-              onChangeText={list.setSearch}
-              placeholder="Search this list by loan ID or customer name"
-            />
           </>
         }
         contentStyle={{ paddingTop: 0 }}
@@ -126,7 +127,7 @@ export default function LoansScreen() {
               name={l.customer?.name ?? `Customer #${l.customerId}`}
               sub={l.scheme?.name || undefined}
               amount={inr(l.principalAmount)}
-              status={l.status}
+              status={loanDisplayStatus(l)}
               details={loanRowDetails(l)}
               actions={[
                 ...(can("Loan_Management", "can_update_loan") ? [{ label: "Collect Payment", disabled: closed, onPress: () => shell.openCollect(l.id) }] : []),

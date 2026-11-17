@@ -120,7 +120,7 @@ func parseFilter(c echo.Context) (models.Filter, error) {
 	}{
 		{"customer_id", &f.CustomerIDs}, {"scheme_id", &f.SchemeIDs}, {"loan_id", &f.LoanIDs}, {"bank_id", &f.BankIDs},
 		{"employee_id", &f.EmployeeIDs}, {"investor_id", &f.InvestorIDs}, {"plan_id", &f.PlanIDs},
-		{"expense_category_id", &f.ExpenseCategoryIDs},
+		{"expense_category_id", &f.ExpenseCategoryIDs}, {"locker_id", &f.LockerIDs},
 	}
 	for _, l := range idLists {
 		ids, err := parseIDList(c.QueryParam(l.name))
@@ -134,6 +134,14 @@ func parseFilter(c echo.Context) (models.Filter, error) {
 	f.PaymentTypes = parseStrList(c.QueryParam("payment_type"))
 	f.CollectionModes = parseStrList(c.QueryParam("collection_mode"))
 	f.Frequencies = parseStrList(c.QueryParam("frequency"))
+	f.OrnamentTypes = parseStrList(c.QueryParam("ornament_type"))
+	f.Settlements = parseStrList(c.QueryParam("settlement"))
+	f.KYCStatuses = parseStrList(c.QueryParam("kyc_status"))
+	f.PANStatuses = parseStrList(c.QueryParam("pan_status"))
+	f.AadhaarStatuses = parseStrList(c.QueryParam("aadhaar_status"))
+	f.TriggerType = strings.TrimSpace(c.QueryParam("trigger_type"))
+	f.Roles = parseStrList(c.QueryParam("role"))
+	f.Channels = parseStrList(c.QueryParam("channel"))
 	f.Page = 1
 	if v := c.QueryParam("page"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -562,7 +570,7 @@ func CommunicationHistoryReport(c echo.Context) error {
 		badRequest(c, err)
 		return nil
 	}
-	rows, totals, err := communicationHistory(ctx, f, c.QueryParam("trigger_type"))
+	rows, totals, err := communicationHistory(ctx, f, f.TriggerType)
 	if err != nil {
 		reportError(c, err)
 		return nil

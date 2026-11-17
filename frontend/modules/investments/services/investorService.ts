@@ -38,8 +38,9 @@ export async function getInvestorAadhaarFull(id: string): Promise<string> {
   return res.aadhaar;
 }
 
-export async function createInvestor(input: CustomerFormInput): Promise<CustomerView> {
-  const rec = await apiFetch<BackendCustomer>("/investors", { method: "POST", body: JSON.stringify(toRequestBody(input)) });
+/* `fromCustomerId` makes an existing customer an investor: the server carries over the Aadhaar number it holds. */
+export async function createInvestor(input: CustomerFormInput, fromCustomerId?: string): Promise<CustomerView> {
+  const rec = await apiFetch<BackendCustomer>(`/investors${fromCustomerId ? `?from_customer_id=${encodeURIComponent(fromCustomerId)}` : ""}`, { method: "POST", body: JSON.stringify(toRequestBody(input)) });
   return toView(rec);
 }
 

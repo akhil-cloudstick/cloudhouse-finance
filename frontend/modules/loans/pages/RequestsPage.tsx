@@ -84,6 +84,25 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
 	const [q, setQ] = useState(focusLoanNumber || "");
 	const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
+  // The sidebar's Requests link (or a same-page reload) returns to the plain main list: close any open
+  // review/detail modal on arrival, and when the route argument clears (a loan focus / dashboard preset
+  // is dropped) reset search, status, type and dates.
+  const { closeAllModals } = useModal();
+  const prevArg = useRef(routeArg);
+  useEffect(() => {
+    if (!routeArg) closeAllModals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const had = prevArg.current;
+    prevArg.current = routeArg;
+    if (!had || routeArg) return;
+    closeAllModals();
+    setStatus(""); setType(""); setFromDate(""); setToDate("");
+    setQInput(""); setQ(""); setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeArg]);
+
 	// Lets an Approved release row's document be re-downloaded right from
 	// this list, without navigating to Loan Detail first — same generator
 	// LoanDetail.tsx's own Documents menu uses.
@@ -198,7 +217,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
 	return (
 		<>
 			<div className="page-h">
-				<div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests </p></div>
+        <div><h1>Extension &amp; Release</h1><p>Extension/release requests </p></div>
 				<div className="sp" />
 				<TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />
 			</div>
@@ -253,7 +272,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
 										{/* a partial release hands back only some ornaments: say so right after the customer */}
 										{r.type === "Release" && r.isPartial && <span style={{ color: "var(--muted)" }}> · Partial release</span>}
 									</td>
-									<td data-label="Detail">{r.detail}</td>
+									<td data-label="Detail"><span title={r.detail} style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.detail}</span></td>
 									<td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.requestedAt)}</td>
 									<td data-label="Status">
 										<StatusChip status={r.status} />

@@ -158,7 +158,11 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
   if (!res.ok) {
     const message = (data && (data.error || data.message)) || "";
     const err = new ApiError(res.status, typeof message === "string" ? message : "", data);
-    if (res.status === 401 && token && !path.startsWith("/auth/")) onUnauthorized?.(err.message);
+    if (res.status === 401 && token && !path.startsWith("/auth/")) {
+      // Only if this token is still the current session's; a stale response must not sign out the next user.
+      const current = await getToken().catch(() => null);
+      if (current === token) onUnauthorized?.(err.message);
+    }
     throw err;
   }
   if (!parsed) {

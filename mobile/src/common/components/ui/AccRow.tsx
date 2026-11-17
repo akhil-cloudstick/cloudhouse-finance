@@ -2,6 +2,7 @@ import React, { useContext, useId, useState } from "react";
 import { LayoutAnimation, Pressable, View, type StyleProp, type ViewStyle } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
+import { TruncText } from "./TruncText";
 import { PIcon } from "./PIcon";
 import { type ChipTone } from "./chipTones";
 import { StatusChip } from "./StatusChip";
@@ -105,7 +106,7 @@ export function AccRow({
               <View key={d.k} style={s.detailCell}>
                 <Txt style={s.k}>{d.k}</Txt>
                 {typeof d.v === "string" || typeof d.v === "number" ? (
-                  <Txt style={[s.v, d.color ? { color: d.color } : null]}>{d.v}</Txt>
+                  <TruncText lines={3} style={[s.v, d.color ? { color: d.color } : null]}>{d.v}</TruncText>
                 ) : (
                   d.v
                 )}

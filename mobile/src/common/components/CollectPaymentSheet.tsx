@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { C, ConfirmSheet, DateField, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropdown, Txt } from "@/common/components/ui";
+import { C, ConfirmSheet, DateField, Field, FieldRow, Input, PrimaryButton, Sheet, ThemeDropdown, Txt, toast } from "@/common/components/ui";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import { recordPayment } from "@/modules/loans/services/paymentService";
 import { getLoan } from "@/modules/loans/services/loanService";
@@ -13,7 +13,7 @@ import { PAYMENT_TYPES, PAYMENT_TYPE_LABELS, apiErr, invalidateLoan, type Paymen
 type DiscountKind = "customer" | "interest" | "penal_interest";
 const DISCOUNT_KINDS: DiscountKind[] = ["customer", "interest", "penal_interest"];
 const DISCOUNT_KIND_LABELS: Record<DiscountKind, string> = { customer: "Custom discount", interest: "Interest", penal_interest: "Penal interest" };
-import { ErrorText } from "./ErrorText";
+import { FieldErr } from "./ErrorText";
 
 // Interest / amount prefills are accrued figures with long decimals — show
 // them to the paisa.
@@ -88,7 +88,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
   const [breakdown, setBreakdown] = useState<SplitPayment | null>(null);
   // Bumped on each open so the breakdown rows start fresh.
   const [openKey, setOpenKey] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   // Record Payment never posts straight away: Review opens a summary and only its Confirm records the payment.
   const [confirming, setConfirming] = useState(false);
 
@@ -105,7 +105,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
     amountTouched.current = false;
     setDiscountReason("");
     setDiscountKind("customer");
-    setError(null);
+    setTried(false);
     setConfirming(false);
     interestTouched.current = false;
     setInterest(money(l.outstandingInterest ?? 0));
@@ -145,6 +145,13 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
   const overSettle = type === "Full Settlement" && settleOwed > 0 && typedAmt > settleOwed + 0.01;
   const discountAmt = canDiscount && Number(discount) > 0 ? Number(discount) : 0;
   const discountMissingReason = discountAmt > 0 && !discountReason.trim();
+  const errs: Record<string, string> = {};
+  if (!(amt > 0)) errs.amount = "Enter an amount greater than zero.";
+  else if (overSettle) errs.amount = `More than the full settlement — only ${inr(settleOwed)} is owed.`;
+  if (!date) errs.date = "Pick the payment date.";
+  if (discountMissingReason) errs.reason = "Enter the discount reason.";
+  if (amt > 0 && !breakdown?.ready) errs.pay = "The payment breakdown must add up to the amount, with a bank for every UPI / Bank Transfer line.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
   // The Amount field is prefilled with what the type clears minus the discount, until staff type their own.
   const amountTouched = useRef(false);
   const refillAmount = (t: PaymentType, d: number) => {
@@ -173,7 +180,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
     },
     onError: (e) => {
       setConfirming(false);
-      setError(apiErr(e, "Could not record the payment — try again."));
+      toast.error(apiErr(e, "Could not record the payment — try again."));
     },
   });
 
@@ -209,6 +216,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
         </Field>
         <DateField label="Payment date" value={date} onChange={setDate} min={l.openedDate?.slice(0, 10) || undefined} max={todayISO()} />
       </FieldRow>
+      <FieldErr m={fe("amount") ?? fe("date")} />
       {canDiscount ? (
         <>
           <FieldRow>
@@ -244,6 +252,7 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
               <Field label="Discount reason *">
                 <Input value={discountReason} onChangeText={setDiscountReason} placeholder="e.g. loyal customer, hardship, rounding off" maxLength={200} />
               </Field>
+              <FieldErr m={fe("reason")} />
               <Txt style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>
                 Pays {inr(typedAmt)} + Discount {inr(discountAmt)} = {inr(typedAmt + discountAmt)} cleared on the loan.
               </Txt>
@@ -284,8 +293,8 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
           <View style={{ backgroundColor: C.card, borderColor: C.line, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 12 }}>
             {rows.map(([k, v, strong]) => (
               <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
-                <Txt style={{ fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
-                <Txt style={{ fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
+                <Txt style={{ flex: 1, flexShrink: 1, paddingRight: 12, fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
+                <Txt style={{ flexShrink: 0, textAlign: "right", fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
               </View>
             ))}
           </View>
@@ -294,14 +303,13 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
       <View style={{ marginBottom: 12 }}>
         <SplitPaymentInput key={openKey} total={amt} onChange={setBreakdown} />
       </View>
-      <ErrorText>{overSettle ? `More than the full settlement — only ${inr(settleOwed)} is owed.` : error}</ErrorText>
+      <FieldErr m={fe("pay")} />
       <PrimaryButton
         label={amt > 0 ? `Review ${inr(amt)}` : "Review Payment"}
         onPress={() => {
-          setError(null);
+          if (Object.keys(errs).length) return setTried(true);
           setConfirming(true);
         }}
-        disabled={!(amt > 0) || overSettle || !date || !breakdown?.ready || discountMissingReason}
       />
       {(() => {
         const alloc = previewAllocation(l, type, (l.outstandingProcessingFee ?? 0) + chargeAmt, amt + discountAmt);
@@ -320,8 +328,8 @@ export function CollectPaymentSheet({ loan: l, visible, onClose }: CollectPaymen
           : [];
         const row = (k: string, v: string, strong?: boolean) => (
           <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 }}>
-            <Txt style={{ fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
-            <Txt style={{ fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
+            <Txt style={{ flex: 1, flexShrink: 1, paddingRight: 12, fontSize: 12.5, color: strong ? C.ink : C.muted, fontWeight: strong ? "700" : "500" }}>{k}</Txt>
+            <Txt style={{ flexShrink: 0, textAlign: "right", fontSize: 12.5, fontWeight: strong ? "700" : "600" }}>{v}</Txt>
           </View>
         );
         return (

@@ -85,7 +85,7 @@ type HeroHeaderProps = {
 export function HeroHeader({
   name,
   branch,
-  cashLabel = "Cash in hand",
+  cashLabel = "Cash In Hand",
   cashValue,
   rates,
   rateChange,

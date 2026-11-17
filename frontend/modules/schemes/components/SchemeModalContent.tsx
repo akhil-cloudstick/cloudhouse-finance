@@ -72,7 +72,9 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
 	const [name, setName] = useState(s?.name || "");
 	const [rate, setRate] = useState(s ? String(s.rate) : "");
 	const [duration, setDuration] = useState(String(s?.durationMonths || DEFAULT_DURATION_MONTHS));
-	const [ltv, setLtv] = useState(s ? String(s.ltv) : "");
+  const [ltv, setLtv] = useState(s && s.ltvBased ? String(s.ltv) : "");
+  // Off: loans on this scheme are not limited by the gold's value, so there is no LTV to enter.
+  const [ltvBased, setLtvBased] = useState(s ? s.ltvBased : true);
 	const [method, setMethod] = useState(s?.method || METHODS[0]);
 	const [tiers, setTiers] = useState<TierDraft[]>(
 		s?.rateTiers?.length ? s.rateTiers.map((t, i, a) => ({ days: i === a.length - 1 ? "" : String(t.days), rate: String(t.rate) })) : EMPTY_TIERS
@@ -140,7 +142,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
 		if (tIssue) { fail(tIssue.row === null ? "tiers" : `tier${tIssue.row}`, tIssue.message); return; }
 		if (!(r > 0)) errors["rate"] ??= "Please enter a valid interest rate.";
 		if (!(d > 0)) errors["duration"] ??= "Please enter a valid loan duration in months.";
-		if (!(l >= 1 && l <= 100)) errors["ltv"] ??= "LTV must be between 1 and 100%.";
+    if (ltvBased && !(l >= 1 && l <= 100)) errors["ltv"] ??= "LTV must be between 1 and 100%.";
 		if (!(p >= 0 && p <= 60)) errors["penal"] ??= "Please enter penal charges between 0 and 60% per annum.";
 		if (!branchId) errors["branch"] ??= "Please select a branch.";
 		const cv = chargeType === "None" ? 0 : parseFloat(chargeValue);
@@ -151,7 +153,7 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
 			? tiers.map((t, i) => ({ days: i === tiers.length - 1 ? 0 : parseInt(t.days, 10), rate: parseFloat(t.rate) }))
 			: [];
 		const input = {
-			name: n, rate: r, rateTiers, minimumDays: parseInt(minDays, 10) || 0, durationMonths: d, ltv: l, penal: p, accrualBasis, method, cond: cond.trim(), active, branchId: branchId as number,
+      name: n, rate: r, rateTiers, minimumDays: parseInt(minDays, 10) || 0, durationMonths: d, ltv: ltvBased ? l : 0, ltvBased, penal: p, accrualBasis, method, cond: cond.trim(), active, branchId: branchId as number,
 			serviceChargeType: chargeType, serviceChargeValue: cv,
 		};
 		setSaving(true);
@@ -221,8 +223,15 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
 				<div className="frow c2 scheme-frow">
 					<div className={fe.duration ? "has-err" : undefined}><label className="f">Loan Duration (months) *</label>
 						<input className="inp" inputMode="numeric" placeholder="e.g. 12" value={duration} onChange={(e) => { setDuration(cleanNum(e.target.value, false)); clearFe("duration"); }} /><FieldError msg={fe.duration} /></div>
-					<div className={fe.ltv ? "has-err" : undefined}><label className="f">LTV (%) *</label><input className="inp" inputMode="numeric" placeholder="e.g. 90" value={ltv} onChange={(e) => { setLtv(cleanNum(e.target.value, false)); clearFe("ltv"); }} /><FieldError msg={fe.ltv} /></div>
+          {ltvBased
+            ? <div className={fe.ltv ? "has-err" : undefined}><label className="f">LTV (%) *</label><input className="inp" inputMode="numeric" placeholder="e.g. 90" value={ltv} onChange={(e) => { setLtv(cleanNum(e.target.value, false)); clearFe("ltv"); }} /><FieldError msg={fe.ltv} /></div>
+            : null}
 				</div>
+        <label className="tgl">
+          <input type="checkbox" checked={ltvBased} onChange={(e) => { setLtvBased(e.target.checked); clearFe("ltv"); }} />
+          <span className="track" />
+          Loan amount is limited by gold LTV
+        </label>
 				<div className="scheme-sec">Interest</div>
 				<div className="frow c2 scheme-frow">
 					<div><label className="f">Calculation Method</label>
@@ -305,7 +314,6 @@ export function SchemeModalContent({ scheme: s, onSaved }: SchemeModalContentPro
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : s ? "Save Changes" : "Create Scheme"}</button>
 			</div>
 		</>

@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -121,12 +122,11 @@ export function AuctionDecisionModalContent({
 
 				<div className="frow"><div className={fe.remarks ? "has-err" : undefined}>
 					<label className="f">Remarks {isShortfall ? "*" : ""}</label>
-					<input className="inp" value={remarks} onChange={(e) => { setRemarks(e.target.value); setFe((cur) => ({ ...cur, remarks: "" })); }} placeholder="reason for this decision" maxLength={255} /><FieldError msg={fe.remarks} />
+          <NoteField value={remarks} onChange={(v) => { setRemarks(v); setFe((cur) => ({ ...cur, remarks: "" })); }} placeholder="Reason for this decision" /><FieldError msg={fe.remarks} />
 				</div></div>
 			</div>
 			<div className="ft">
 					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				{/* Not blanket-disabled on `!decision` — see the Settle button's own
 				 * comment above for why. */}
 				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Decision"}</button>

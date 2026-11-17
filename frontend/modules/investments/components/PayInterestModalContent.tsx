@@ -148,7 +148,6 @@ export function PayInterestModalContent({ investmentId, investmentNumber, onSave
 			</div>
 			<div className="ft">
 				<span className="pay-ft-msg">{hint}</span>
-				<button className="btn ghost" onClick={closeModal}>Cancel</button>
 				<button className="btn" disabled={saving || loading || months.length === 0 || !exact || !balanced || bankMissing} onClick={save}>
 					{saving ? "Recording…" : `Pay ${amt > 0 ? fmt(amt) : "Interest"}`}
 				</button>

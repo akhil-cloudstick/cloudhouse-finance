@@ -240,7 +240,7 @@ func exportDayBook(c echo.Context, f models.Filter, format string) {
 		}
 		return fmt.Sprintf("%.2f", v)
 	}
-	headers := []string{"date", "particulars", "debit", "credit", "interest"}
+	headers := []string{"Date", "Particulars", "Debit", "Credit", "Interest"}
 	data := make([][]string, 0, len(rows)+1)
 	for _, r := range rows {
 		date := r.Date
