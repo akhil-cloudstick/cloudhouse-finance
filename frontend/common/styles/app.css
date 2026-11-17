@@ -7134,6 +7134,224 @@ table.tbl td {
   gap: 4px 12px;
 }
 
+/* ── ReleaseReviewModal: one flowing c2 grid ──
+ * Gold Release → Customer Check → Release Date → Release Payment → Top-Up, in
+ * that order. A cell that does not apply (no gold left to release, nothing to
+ * pay) is simply not rendered, and every cell after it moves up one slot.
+ * Every cell is a label.f plus one 38px control, so the columns line up.
+ *
+ * minmax(0, 1fr), not 1fr: a ticked "Customer has seen the gold" label must
+ * never widen its column (a plain 1fr track grows to its min-content). Stacks
+ * at the same 900px breakpoint as every other .frow.c2. */
+.modal .frow.c2.rel-c2 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
+}
+
+/* A checklist tick drawn as a field: the same 38px box, border and radius as
+ * .inp, so it lines up with the date picker and payment button beside it. */
+.rel-tick {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  transition: border-color .15s, background .15s
+}
+
+.rel-tick .ccheck {
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 7px
+}
+
+.rel-tick .ccheck>span:last-child:not(.mark) {
+  min-width: 0;
+  overflow: hidden
+}
+
+.rel-tick .ccheck b {
+  display: block;
+  font-size: 12px;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.rel-tick.on {
+  border-color: var(--brand);
+  background: var(--brand-faint)
+}
+
+.rel-tick.locked {
+  background: var(--brand-faint);
+  opacity: .7
+}
+
+/* The release payment once recorded: just the amount paid, in the same box in green. */
+.rel-paid {
+  height: 38px;
+  border: 1px solid color-mix(in oklab, var(--green) 45%, #fff);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--green-bg) 55%, #fff);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--green);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden
+}
+
+/* Release Date and its tick-only save share the cell, so showing the tick
+ * never shifts the grid. */
+.rel-date {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px
+}
+
+.rel-date.has-save {
+  grid-template-columns: minmax(0, 1fr) 38px
+}
+
+.rel-icon-btn {
+  width: 38px;
+  padding: 0
+}
+
+/* The only line ever shown under a control: the minimum still to pay. */
+.rel-hint {
+  font-size: 11.5px;
+  margin-top: 5px;
+  color: var(--red);
+  font-weight: 500
+}
+
+/* Footer on the same two columns as the body: Reject left, Approve right,
+ * equal width; Approve keeps the right column when Reject is hidden. The same
+ * right padding and reserved scrollbar gutter as .bd-scroll keep the columns
+ * level with the cells above. */
+.modal .ft.rel-ft {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding-right: 22px;
+  overflow: hidden;
+  scrollbar-gutter: stable
+}
+
+.modal .ft.rel-ft .btn {
+  width: 100%;
+  white-space: nowrap
+}
+
+.modal .ft.rel-ft .rel-approve {
+  grid-column: 2
+}
+
+/* Compact modal: a narrower box (500px, not the 520px standard) and every
+ * control one step smaller — 34px instead of the app-wide 38px, tighter type.
+ * Scoped to this modal only (its body carries .rel-review); the 38px house
+ * height stays everywhere else. Body and footer share a 22px right inset so
+ * the footer's two columns stay level with the grid's. */
+.modal:has(> .bd.rel-review) {
+  max-width: 500px
+}
+
+/* Selected Ornaments: a long ornament name stays on one line and ends in an
+ * ellipsis (full name in the cell's title) instead of wrapping the row taller. */
+.rel-review .rel-orn-wrap .tbl td.rel-orn-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal
+}
+
+.modal:has(> .bd.rel-review) .hd h3 {
+  font-size: 19px
+}
+
+.modal .bd.bd-scroll.rel-review {
+  padding-right: 22px
+}
+
+.rel-review .kv {
+  gap: 10px 20px
+}
+
+.rel-review .kv .i .v {
+  font-size: 13px
+}
+
+.rel-review .inp:not(textarea),
+.rel-review .btn,
+.modal .ft.rel-ft .btn,
+.rel-review .rel-tick,
+.rel-review .rel-paid {
+  height: 34px
+}
+
+.rel-review .btn,
+.modal .ft.rel-ft .btn {
+  font-size: 11.5px;
+  letter-spacing: .12em;
+  padding: 0 12px
+}
+
+.rel-review .inp,
+.rel-review .rel-paid {
+  font-size: 12px
+}
+
+.rel-review .rel-tick .ccheck b {
+  font-size: 11.5px
+}
+
+.rel-review .rel-date.has-save {
+  grid-template-columns: minmax(0, 1fr) 34px
+}
+
+.rel-review .rel-icon-btn {
+  width: 34px;
+  padding: 0
+}
+
+@media (max-width: 900px) {
+  .modal .frow.c2.rel-c2 {
+    grid-template-columns: minmax(0, 1fr)
+  }
+}
+
+/* .bd-scroll drops to 16px side padding on short screens; follow it. */
+@media (max-height: 850px) {
+  .modal .bd.bd-scroll.rel-review,
+  .modal .ft.rel-ft {
+    padding-right: 16px
+  }
+
+  .modal .ft.rel-ft {
+    gap: 16px
+  }
+}
+
+@media (max-width: 480px) {
+  .modal .ft.rel-ft {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px
+  }
+
+  .modal .ft.rel-ft .rel-approve {
+    grid-column: 1
+  }
+}
+
 /* ── additive small-phone / orientation rules (new requirement) ──
    Only tightens things further below the existing 900px breakpoint and
    handles short landscape phone heights; does not alter anything above
