@@ -420,6 +420,7 @@ export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCrea
       : createInvestment({ branchId: customer!.branchId, customerId: customer!.id, planId: plan!.id, principalAmount: principalNum, ...(pay?.split ?? {}), bankId: pay?.bankId }),
     onSuccess: (inv) => {
       qc.invalidateQueries({ queryKey: ["investments"] });
+      qc.invalidateQueries({ queryKey: ["reminders"] }); // a new or edited investment changes its payout reminders
       if (editing) {
         qc.invalidateQueries({ queryKey: ["investment"] });
         qc.invalidateQueries({ queryKey: ["investmentSchedule"] });

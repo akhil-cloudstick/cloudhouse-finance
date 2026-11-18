@@ -14,6 +14,7 @@ import { ApiError } from "@/common/services/httpClient";
 import { PaymentModalContent } from "@/common/components/modals/PaymentModalContent";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
+import { NoteField } from "@/common/components/ui/NoteField";
 
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = { months: /month/i };
@@ -155,7 +156,7 @@ export function RequestExtensionModalContent({ loan: initialLoan, onSaved, onPai
                   <input className="inp" type="number" min={1} step={1} value={months} onChange={(e) => { setMonths(e.target.value); setFe({}); }} disabled={hasArrears} />
                   <FieldError msg={fe.months} />
                 </div>
-                <div><label className="f">Note</label><input className="inp" placeholder="optional — why the customer needs more time" value={detail} onChange={(e) => setDetail(e.target.value)} disabled={hasArrears} /></div>
+                <div><label className="f">Note</label><NoteField placeholder="" value={detail} onChange={setDetail} disabled={hasArrears} /></div>
               </div>
             </div>
             <div className="pay-sec ext-sec-plain">

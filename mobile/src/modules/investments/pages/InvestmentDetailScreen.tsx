@@ -64,7 +64,8 @@ export default function InvestmentDetailScreen() {
     qc.invalidateQueries({ queryKey: ["investmentLedger", id] });
     qc.invalidateQueries({ queryKey: ["investmentSchedule", id] });
     qc.invalidateQueries({ queryKey: ["investments"] });
-    for (const key of ["investmentTransactions", "ledger", "cash-summary", "cash-movements"]) qc.invalidateQueries({ queryKey: [key] });
+    // A paid payout drops off the calendar (and the dashboard reminders), so those lists reload too.
+    for (const key of ["investmentTransactions", "ledger", "cash-summary", "cash-movements", "reminders"]) qc.invalidateQueries({ queryKey: [key] });
   };
 
   const closeMut = useMutation({

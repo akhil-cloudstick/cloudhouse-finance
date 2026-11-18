@@ -18,7 +18,7 @@ export function PledgeDetailsGrid({ loanNumber, customerName, pledge, ornamentNa
 		["Customer", customerName || "—"],
 		["Bank", pledge.bankName || "—"],
 		["Pledged amount", fmt(pledge.pledgedAmount)],
-		["Interest rate", pledge.bankInterestRate ? `${pledge.bankInterestRate}% p.m.` : "—"],
+		["Interest rate", pledge.bankInterestRate ? `${pledge.bankInterestRate}% p.a.` : "—"],
 		["Pledged on", fmtDate(pledge.pledgeDate)],
 		["Due date", pledge.bankPledgeDueDate ? <>{fmtDate(pledge.bankPledgeDueDate)}{overdue && <span className="pill red" style={{ marginLeft: 8 }}>Overdue</span>}</> : "—"],
 		["Reference no.", pledge.referenceNumber || "—"],

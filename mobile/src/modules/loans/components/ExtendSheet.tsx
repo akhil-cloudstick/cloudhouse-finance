@@ -116,7 +116,7 @@ export function ExtendSheet({
         />
       </Field>
       <FieldErr m={tried && !monthsValid ? "Enter a whole number of months (1–60)." : undefined} />
-      <TextField label="Reason" maxLength={150} placeholder="e.g. customer requested extension" value={detail} onChangeText={setDetail} />
+      <TextField label="Note" maxLength={150} placeholder="Max 150 characters" value={detail} onChangeText={setDetail} />
       <PrimaryButton
         label="Confirm Extension"
         onPress={() => {

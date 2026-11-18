@@ -23,30 +23,30 @@ type Props = {
 /* The info popup for one entry of a loan's Payment Ledger. Edit and Delete live here, not in the table: the editor
  * opens on top of this popup, and closing it brings the popup back. */
 export function LoanLedgerInfoModalContent({ title, kind, rows, description, actions }: Props) {
-	const { closeModal } = useModal();
-	return (
-		<>
-			<div className="hd"><h3>{title}</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd bd-scroll">
-				<p style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--brand-deep, #423591)", margin: "0 0 12px" }}>{kind.toUpperCase()}</p>
-				<div className="kv">
-					{rows.map(([k, v]) => (
-						<div className="i" key={k}><div className="k">{k}</div><div className="v">{v}</div></div>
-					))}
-				</div>
-				<h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Description</h4>
-				<div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, minHeight: 40 }}>{description}</div>
-			</div>
-			{/* the × in the header closes the popup; the footer exists only for Edit / Delete */}
-			{actions.length > 0 && (
-				<div className="ft">
-					{actions.map((a) => (
-						<button key={a.label} className={a.danger ? "btn ghost" : "btn"} style={a.danger ? { color: "var(--red)" } : undefined} onClick={a.run}>
-							<Icon name={a.icon} /> {a.label}
-						</button>
-					))}
-				</div>
-			)}
-		</>
-	);
+  const { closeModal } = useModal();
+  return (
+    <>
+      <div className="hd"><h3>{title}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll">
+        <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--brand-deep, #423591)", margin: "0 0 12px" }}>{kind.toUpperCase()}</p>
+        <div className="kv">
+          {rows.map(([k, v]) => (
+            <div className="i" key={k} style={{ minWidth: 0 }}><div className="k">{k}</div><div className="v" style={{ minWidth: 0, overflow: "hidden" }}>{v}</div></div>
+          ))}
+        </div>
+        <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Description</h4>
+        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, minHeight: 40 }}>{description}</div>
+      </div>
+      {/* the × in the header closes the popup; the footer exists only for Edit / Delete */}
+      {actions.length > 0 && (
+        <div className="ft">
+          {actions.map((a) => (
+            <button key={a.label} className={a.danger ? "btn ghost" : "btn"} style={a.danger ? { color: "var(--red)" } : undefined} onClick={a.run}>
+              <Icon name={a.icon} /> {a.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
 }

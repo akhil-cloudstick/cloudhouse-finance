@@ -800,10 +800,9 @@ func ExportExpense(c echo.Context) error {
 			e.Branch.Name,
 			strconv.FormatFloat(e.Amount, 'f', 2, 64),
 			e.Status,
-			e.Remarks,
 		}
 	}
-	headers, tableRows := branchColumnFor(c, []string{"Date", "Category", "Mode", "Branch", "Amount", "Status", "Remarks"}, tableRows)
+	headers, tableRows := branchColumnFor(c, []string{"Date", "Category", "Mode", "Branch", "Amount", "Status"}, tableRows)
 	pdfBytes, err := renderTablePDF(
 		"Expense Register",
 		"",

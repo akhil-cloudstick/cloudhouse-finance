@@ -2,7 +2,7 @@ import React, { createContext } from "react";
 import { StyleSheet } from "react-native";
 import { C } from "./base";
 
-export type AccDetail = { k: string; v: React.ReactNode; color?: string };
+export type AccDetail = { k: string; v: React.ReactNode; color?: string; /** Span the whole width of the panel instead of half of it. */ full?: boolean };
 /** One column of the iPad/desktop table row. `h` is the header (same labels as the web table), `v` the cell. */
 export type AccCell = {
   h: string;

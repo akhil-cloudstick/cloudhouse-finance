@@ -30,6 +30,7 @@ export function RemindersModal({ visible, onClose }: RemindersModalProps) {
   const canOpen = useCanOpen();
   const canViewLoans = canOpen("/loans");
   const canViewPersonalLoans = canOpen("/personal-loans");
+  const canViewInvestments = canOpen("/investments");
   const range = rangeFor(scope);
   const list = useServerList<CalendarEvent, { from: string; to: string }>({
     key: ["reminders", "modal"],
@@ -67,7 +68,12 @@ export function RemindersModal({ visible, onClose }: RemindersModalProps) {
               first={i === 0}
               showDate={scope !== "Today"}
               onPress={
-                e.loanId && canViewLoans
+                e.investmentId != null && canViewInvestments
+                  ? () => {
+                      onClose();
+                      openPage(`/investments/${e.investmentId}`);
+                    }
+                  : e.loanId && canViewLoans
                   ? () => {
                       onClose();
                       openPage(`/loans/${e.loanId}`);

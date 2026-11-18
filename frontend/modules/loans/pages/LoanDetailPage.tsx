@@ -21,6 +21,7 @@ import {
 } from "@/common/services/approvalWorkflowService";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
+import { TruncText } from "@/common/components/ui/TruncText";
 import { AdditionalInfoView } from "@/common/components/ui/AdditionalInfoView";
 import { fmt, fmtW, fmtDate, fmtDateTime, fmtToday } from "@/common/utils/format";
 import { rupeesInWords } from "@/common/utils/numberToWords";
@@ -1236,241 +1237,239 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 									)}
 								{!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
                   <a href="#" title={editLoanBlocked || "Edit Loan"} aria-disabled={!!editLoanBlocked} style={editLoanBlocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={(e) => { e.preventDefault(); if (editLoanBlocked) return; setLoanActionsMenuOpen(false); navigate("editloan", l.id); }}>
-										<Icon name="edit" /><span className="tx">Edit Loan</span>
-									</a>
-								)}
-								{l.status === "Active" && canTopUpLoans && (
-									<a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={() => { load(); setTopUpsVersion((v) => v + 1); }} />); }}>
-										<Icon name="coin" /><span className="tx">Top Up</span>
-									</a>
-								)}
-								{/* Deliberately the ONLY delete action offered here — there
-								 * is no separate "soft delete" alternative next to it, by
-								 * explicit product decision. Gated by its own permission
-								 * ("can hard delete loan"), independent of ordinary
-								 * update/delete rights. */}
-								{canHardDeleteLoans && (
-									<a
-										href="#"
-										title="Delete Loan Permanently"
-										className="danger"
-										onClick={(e) => {
-											e.preventDefault();
-											setLoanActionsMenuOpen(false);
-											openModal(
-												<ConfirmModalContent
-													title="Delete Loan Permanently"
-													confirmLabel="Delete Permanently"
-													busyLabel="Deleting…"
-													message={
-														<>
-															Permanently deletes loan <strong>{l.id}</strong> and all its records
-															(payments, ornaments, ledger entries, etc.). This cannot be undone.
-														</>
-													}
-													onConfirm={async () => {
-														await hardDeleteLoan(l.numericId, l.uuid);
-														toast("Loan deleted permanently");
-														refreshLoans();
-														navigate("loans");
-													}}
-												/>
-											);
-										}}
-									>
-										<Icon name="trash" /><span className="tx">Delete Loan Permanently</span>
-									</a>
-								)}
-								</div>
-							)}
-						</div>
-					)}
-					{/* Print Label/Slip/Statement/Bond + the eSign action — always
-				 * available regardless of approval stage (staff may need to
-				 * (re)print the packet label or pledge slip at any point in the
-				 * loan's life, not just before it's sanctioned) — collapsed into
-				 * one "Documents" dropdown rather than 5 separate header buttons,
-				 * which outgrew the space next to the loan title on anything but a
-				 * very wide screen. */}
-					<div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
-						<button
-						ref={docsMenuTriggerRef}
-						className="btn ghost"
-						disabled={!docsAvailable()}
-						title={!docsAvailable() ? "Documents are available once the loan has synced" : undefined}
-						onClick={() => { setSlipSubOpen(false); setBondSubOpen(false); setDocsMenuOpen((v) => !v); }}
-						aria-haspopup="menu"
-						aria-expanded={docsMenuOpen}
-					>
-							<Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
-						</button>
-						{docsMenuOpen && (
-							<div className="docs-dd-menu" role="menu">
-								<a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
-									<Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
-								</a>
-								{policy === "gml" && (signedSlipReady || canUpdateLoans) ? (
-									<div className="docs-dd-sub">
-										<a href="#" title="Print Slip" aria-haspopup="menu" aria-expanded={slipSubOpen} className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (printingSlip) return; setBondSubOpen(false); setSlipSubOpen((v) => !v); }}>
-											<Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
-											<Icon name="chevronDown" className="docs-dd-sub-chev" />
-										</a>
-										{slipSubOpen && (
-											<div className="docs-dd-submenu" role="menu">
-												<a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void printPledgeSlip(); }}>
-													<span className="tx">Normal print</span>
-												</a>
-												{signedSlipReady ? (
-													<a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void openSignedDocument(l.pledgeSlipSignedUrl); }}>
-														<span className="tx">Signed slip</span>
-													</a>
-												) : slipEsignStarted ? (
-													<a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); openSlipStatus(); }}>
-														<span className="tx">eSign status</span>
-													</a>
-												) : (
-													<a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void openPledgeSlipPicker(); }}>
-														<span className="tx">eSign (Aadhaar)</span>
-													</a>
-												)}
-											</div>
-										)}
-									</div>
-								) : (
-									<a href="#" title="Print Slip" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); void printPledgeSlip(); }}>
-										<Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
-									</a>
-								)}
-								<a href="#" title="Print Slip + Label" className={printingSlipAndLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlipAndLabel) return; setDocsMenuOpen(false); printSlipAndLabel(); }}>
-									<Icon name="doc" /><span className="tx">{printingSlipAndLabel ? "Preparing…" : "Print Slip + Label"}</span>
-								</a>
-								{canExport && (
-									<a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
-										<Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
-									</a>
-								)}
-								{signedBondReady || canUpdateLoans ? (
-									<div className="docs-dd-sub">
-										<a href="#" title="Print Bond" aria-haspopup="menu" aria-expanded={bondSubOpen} className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (printingBond) return; setSlipSubOpen(false); setBondSubOpen((v) => !v); }}>
-											<Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
-											<Icon name="chevronDown" className="docs-dd-sub-chev" />
-										</a>
-										{bondSubOpen && (
-											<div className="docs-dd-submenu" role="menu">
-												<a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); openBondPrintPicker(); }}>
-													<span className="tx">Normal print</span>
-												</a>
-												{signedBondReady ? (
-													<a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); void openSignedDocument(l.indemnityBondSignedUrl); }}>
-														<span className="tx">Signed bond</span>
-													</a>
-												) : esignStarted ? (
-													<a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); openBondStatus(); }}>
-														<span className="tx">eSign status</span>
-													</a>
-												) : (
-													<a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); void openBondEsignPicker(); }}>
-														<span className="tx">eSign (Aadhaar)</span>
-													</a>
-												)}
-											</div>
-										)}
-									</div>
-								) : (
-									<a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openBondPrintPicker(); }}>
-										<Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
-									</a>
-								)}
-							{partialReleases.length > 0 && (
-								<a href="#" title="Partial Release Receipt" className={printingPartialId != null ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingPartialId != null) return; setDocsMenuOpen(false); openPartialReceiptPicker(); }}>
-									<Icon name="unlock" /><span className="tx">{printingPartialId != null ? "Preparing…" : "Partial Release Receipt"}</span>
-								</a>
-							)}
-							{l.status === "Closed" && (
-								<>
-									<a href="#" title="Release Agreement" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); openReleaseAgreementPicker(); }}>
-										<Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement"}</span>
-									</a>
-								</>
-							)}
-							</div>
-						)}
-					</div>
-				</div>
-			</div>
-			{/* A loan sits in Closure Requested from the moment the release is
-				* approved, but the gold can only be handed back once the final
-				* settlement is actually paid — Complete Release stays disabled until
-				* then. Without this banner the disabled button gave no on-screen
-				* reason (only a hover title), which read as "the loan is closed but
-				* stuck". */}
-			{l.status === "Closure Requested" && l.totalOutstandingBalance > 0.01 && (
-				<div className="notice" style={{ marginBottom: 14, color: "var(--amber)" }}>
-					<Icon name="shield" /> Final settlement of {fmt(l.totalOutstandingBalance)} has not been recorded yet — record the payment before completing the release. The loan stays in Closure Requested until then.
-				</div>
-			)}
-			{l.status === "Rejected" && (
-				<div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
-					<Icon name="shield" /> Rejected{l.rejectedByName ? ` by ${l.rejectedByName}` : ""}
-					{l.rejectedAt ? ` on ${fmtDate(l.rejectedAt)}` : ""}
-					{l.rejectionRemarks ? ` — ${l.rejectionRemarks}` : ""}. This loan was never disbursed.
-				</div>
-			)}
-			{pendingStage && (sanctionChain.length > 1 || l.approvalWarning) && (
-				<div className="card" style={{ marginBottom: 14 }}>
-					<div className="bd">
-						<StageTracker
-							stages={trackerLabels(workflow, "loan_sanction", sanctionChain)}
-							currentIndex={pendingStageIndex}
-						/>
-						{l.approvalWarning && (
-							<div className="notice" style={{ marginTop: 10, color: "var(--amber)" }}><Icon name="shield" /> {l.approvalWarning}</div>
-						)}
-					</div>
-				</div>
-			)}
-			{pendingTopUp && (
-				<div className="card" style={{ marginBottom: 14 }}>
-					<div className="hd">
-						<h3>Top-up pending approval — {fmt(pendingTopUp.amount)}</h3>
-						<div style={{ display: "flex", gap: 8 }}>
-							{topUpStageView && canActOnTopUp ? (
-								<>
-									<button
-										className="btn danger sm"
-										disabled={decidingTopUp}
-										onClick={() => openModal(<RejectRemarksModalContent title="Reject Top-up" required onConfirm={(remarks) => decideTopUp("Rejected", remarks)} />)}
-									>
-										Reject
-									</button>
-									<button
-										className="btn sm"
-										disabled={decidingTopUp || topUpBlocked}
-										title={topUpBlocked ? `Balance in hand ${fmt(balanceInHand!)} is lower than the ${fmt(pendingTopUp.amount)} to disburse — add cash first` : undefined}
-										onClick={() => decideTopUp("Approved")}
-									>
-										<Icon name="check" /> {topUpIsFinal ? "Approve & Disburse" : `Approve (${topUpStageView.label})`}
-									</button>
-								</>
-							) : topUpStageView ? (
-								<span style={{ color: "var(--muted)", fontSize: 13 }}>Awaiting {topUpStageView.role} approval</span>
-							) : null}
-						</div>
-					</div>
-					<div className="bd">
-						{topUpChain.length > 0 && (
-							<StageTracker stages={trackerLabels(workflow, "loan_topup", topUpChain)} currentIndex={topUpStageIndex} />
-						)}
-						<p className="ccheck-hint" style={{ marginTop: 10 }}>
-							Requested {fmtDate(pendingTopUp.createdAt)}
-							{pendingTopUp.reference ? ` · Ref ${pendingTopUp.reference}` : ""}
-							{pendingTopUp.settleInterest === "deduct" ? " · outstanding interest to be deducted from the payout" : ""}
-							{" "}— nothing is paid out until the final stage approves it.
-						</p>
-					</div>
-				</div>
-			)}
-			<hr className="gold-rule" />
+                    <Icon name="edit" /><span className="tx">Edit Loan</span>
+                  </a>
+                )}
+                {l.status === "Active" && canTopUpLoans && (
+                  <a href="#" title="Top Up Loan" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<TopUpLoanModalContent loan={l} onSaved={() => { load(); setTopUpsVersion((v) => v + 1); }} />); }}>
+                    <Icon name="coin" /><span className="tx">Top Up</span>
+                  </a>
+                )}
+                {/* Deliberately the ONLY delete action offered here — there
+                 * is no separate "soft delete" alternative next to it, by
+                 * explicit product decision. Gated by its own permission
+                 * ("can hard delete loan"), independent of ordinary
+                 * update/delete rights. */}
+                {canHardDeleteLoans && (
+                  <a
+                    href="#"
+                    title="Delete Loan Permanently"
+                    className="danger"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setLoanActionsMenuOpen(false);
+                      openModal(
+                        <ConfirmModalContent
+                          title="Delete Loan Permanently"
+                          confirmLabel="Delete Permanently"
+                          busyLabel="Deleting…"
+                          message={
+                            <>
+                              Permanently deletes loan <strong>{l.id}</strong> and all its records
+                              (payments, ornaments, ledger entries, etc.). This cannot be undone.
+                            </>
+                          }
+                          onConfirm={async () => {
+                            await hardDeleteLoan(l.numericId);
+                            toast("Loan deleted permanently");
+                            refreshLoans();
+                            navigate("loans");
+                          }}
+                        />
+                      );
+                    }}
+                  >
+                    <Icon name="trash" /><span className="tx">Delete Loan Permanently</span>
+                  </a>
+                )}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Print Label/Slip/Statement/Bond + the eSign action — always
+         * available regardless of approval stage (staff may need to
+         * (re)print the packet label or pledge slip at any point in the
+         * loan's life, not just before it's sanctioned) — collapsed into
+         * one "Documents" dropdown rather than 5 separate header buttons,
+         * which outgrew the space next to the loan title on anything but a
+         * very wide screen. */}
+          <div className="docs-dd" ref={docsMenuRef} onKeyDown={onDocsMenuKeyDown}>
+            <button
+            ref={docsMenuTriggerRef}
+            className="btn ghost"
+            onClick={() => { setSlipSubOpen(false); setBondSubOpen(false); setDocsMenuOpen((v) => !v); }}
+            aria-haspopup="menu"
+            aria-expanded={docsMenuOpen}
+          >
+              <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
+            </button>
+            {docsMenuOpen && (
+              <div className="docs-dd-menu" role="menu">
+                <a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
+                  <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
+                </a>
+                {policy === "gml" && (signedSlipReady || canUpdateLoans) ? (
+                  <div className="docs-dd-sub">
+                    <a href="#" title="Print Slip" aria-haspopup="menu" aria-expanded={slipSubOpen} className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (printingSlip) return; setBondSubOpen(false); setSlipSubOpen((v) => !v); }}>
+                      <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
+                      <Icon name="chevronDown" className="docs-dd-sub-chev" />
+                    </a>
+                    {slipSubOpen && (
+                      <div className="docs-dd-submenu" role="menu">
+                        <a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void printPledgeSlip(); }}>
+                          <span className="tx">Normal print</span>
+                        </a>
+                        {signedSlipReady ? (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void openSignedDocument(l.pledgeSlipSignedUrl); }}>
+                            <span className="tx">Signed slip</span>
+                          </a>
+                        ) : slipEsignStarted ? (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); openSlipStatus(); }}>
+                            <span className="tx">eSign status</span>
+                          </a>
+                        ) : (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setSlipSubOpen(false); setDocsMenuOpen(false); void openPledgeSlipPicker(); }}>
+                            <span className="tx">eSign (Aadhaar)</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <a href="#" title="Print Slip" className={printingSlip ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlip) return; setDocsMenuOpen(false); void printPledgeSlip(); }}>
+                    <Icon name="doc" /><span className="tx">{printingSlip ? "Preparing…" : "Print Slip"}</span>
+                  </a>
+                )}
+                <a href="#" title="Print Slip + Label" className={printingSlipAndLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingSlipAndLabel) return; setDocsMenuOpen(false); printSlipAndLabel(); }}>
+                  <Icon name="doc" /><span className="tx">{printingSlipAndLabel ? "Preparing…" : "Print Slip + Label"}</span>
+                </a>
+                {canExport && (
+                  <a href="#" title="Statement" className={printingStatement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingStatement) return; setDocsMenuOpen(false); printStatement(); }}>
+                    <Icon name="doc" /><span className="tx">{printingStatement ? "Preparing…" : "Statement"}</span>
+                  </a>
+                )}
+                {signedBondReady || canUpdateLoans ? (
+                  <div className="docs-dd-sub">
+                    <a href="#" title="Print Bond" aria-haspopup="menu" aria-expanded={bondSubOpen} className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (printingBond) return; setSlipSubOpen(false); setBondSubOpen((v) => !v); }}>
+                      <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
+                      <Icon name="chevronDown" className="docs-dd-sub-chev" />
+                    </a>
+                    {bondSubOpen && (
+                      <div className="docs-dd-submenu" role="menu">
+                        <a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); openBondPrintPicker(); }}>
+                          <span className="tx">Normal print</span>
+                        </a>
+                        {signedBondReady ? (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); void openSignedDocument(l.indemnityBondSignedUrl); }}>
+                            <span className="tx">Signed bond</span>
+                          </a>
+                        ) : esignStarted ? (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); openBondStatus(); }}>
+                            <span className="tx">eSign status</span>
+                          </a>
+                        ) : (
+                          <a href="#" onClick={(e) => { e.preventDefault(); setBondSubOpen(false); setDocsMenuOpen(false); void openBondEsignPicker(); }}>
+                            <span className="tx">eSign (Aadhaar)</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <a href="#" title="Print Bond" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); openBondPrintPicker(); }}>
+                    <Icon name="doc" /><span className="tx">{printingBond ? "Preparing…" : "Print Bond"}</span>
+                  </a>
+                )}
+              {partialReleases.length > 0 && (
+                <a href="#" title="Partial Release Receipt" className={printingPartialId != null ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingPartialId != null) return; setDocsMenuOpen(false); openPartialReceiptPicker(); }}>
+                  <Icon name="unlock" /><span className="tx">{printingPartialId != null ? "Preparing…" : "Partial Release Receipt"}</span>
+                </a>
+              )}
+              {l.status === "Closed" && (
+                <>
+                  <a href="#" title="Release Agreement" className={printingReleaseAgreement ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingReleaseAgreement) return; setDocsMenuOpen(false); openReleaseAgreementPicker(); }}>
+                    <Icon name="unlock" /><span className="tx">{printingReleaseAgreement ? "Preparing…" : "Release Agreement"}</span>
+                  </a>
+                </>
+              )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {/* A loan sits in Closure Requested from the moment the release is
+        * approved, but the gold can only be handed back once the final
+        * settlement is actually paid — Complete Release stays disabled until
+        * then. Without this banner the disabled button gave no on-screen
+        * reason (only a hover title), which read as "the loan is closed but
+        * stuck". */}
+      {l.status === "Closure Requested" && l.totalOutstandingBalance > 0.01 && (
+        <div className="notice" style={{ marginBottom: 14, color: "var(--amber)" }}>
+          <Icon name="shield" /> Final settlement of {fmt(l.totalOutstandingBalance)} not recorded.
+        </div>
+      )}
+      {l.status === "Rejected" && (
+        <div className="notice" style={{ marginBottom: 14, color: "var(--red)" }}>
+          <Icon name="shield" /> Rejected{l.rejectedByName ? ` by ${l.rejectedByName}` : ""}
+          {l.rejectedAt ? ` on ${fmtDate(l.rejectedAt)}` : ""}
+          {l.rejectionRemarks ? ` — ${l.rejectionRemarks}` : ""}. This loan was never disbursed.
+        </div>
+      )}
+      {pendingStage && (sanctionChain.length > 1 || l.approvalWarning) && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="bd">
+            <StageTracker
+              stages={trackerLabels(workflow, "loan_sanction", sanctionChain)}
+              currentIndex={pendingStageIndex}
+            />
+            {l.approvalWarning && (
+              <div className="notice" style={{ marginTop: 10, color: "var(--amber)" }}><Icon name="shield" /> {l.approvalWarning}</div>
+            )}
+          </div>
+        </div>
+      )}
+      {pendingTopUp && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="hd">
+            <h3>Top-up pending approval — {fmt(pendingTopUp.amount)}</h3>
+            <div style={{ display: "flex", gap: 8 }}>
+              {topUpStageView && canActOnTopUp ? (
+                <>
+                  <button
+                    className="btn danger sm"
+                    disabled={decidingTopUp}
+                    onClick={() => openModal(<RejectRemarksModalContent title="Reject Top-up" required onConfirm={(remarks) => decideTopUp("Rejected", remarks)} />)}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    className="btn sm"
+                    disabled={decidingTopUp || topUpBlocked}
+                    title={topUpBlocked ? `Balance in hand ${fmt(balanceInHand!)} is lower than the ${fmt(pendingTopUp.amount)} to disburse — add cash first` : undefined}
+                    onClick={() => decideTopUp("Approved")}
+                  >
+                    <Icon name="check" /> {topUpIsFinal ? "Approve & Disburse" : `Approve (${topUpStageView.label})`}
+                  </button>
+                </>
+              ) : topUpStageView ? (
+                <span style={{ color: "var(--muted)", fontSize: 13 }}>Awaiting {topUpStageView.role} approval</span>
+              ) : null}
+            </div>
+          </div>
+          <div className="bd">
+            {topUpChain.length > 0 && (
+              <StageTracker stages={trackerLabels(workflow, "loan_topup", topUpChain)} currentIndex={topUpStageIndex} />
+            )}
+            <p className="ccheck-hint" style={{ marginTop: 10 }}>
+              Requested {fmtDate(pendingTopUp.createdAt)}
+              {pendingTopUp.reference ? ` · Ref ${pendingTopUp.reference}` : ""}
+              {pendingTopUp.settleInterest === "deduct" ? " · outstanding interest to be deducted from the payout" : ""}
+              {" "}— nothing is paid out until the final stage approves it.
+            </p>
+          </div>
+        </div>
+      )}
+      <hr className="gold-rule" />
 
 			<div className="grid loan-detail-c3">
 				<div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
@@ -1614,60 +1613,60 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 												);
 											}
 
-											if (entry.kind === "auction-sale") {
-												const a = entry.row;
-												return (
-													<tr key={entry.key} {...ledgerRowAttrs(entry)}>
-														<td data-label="Date">{fmtDate(entry.date)}</td>
-														<td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
-														<td data-label="Particulars">Auction Sale</td>
-														<td data-label="Method">Auction</td>
-														<td className="num" data-label="Debit">—</td>
-														<td className="num" data-label="Credit">—</td>
-														<td className="num" data-label="Balance">—
-															{infoIcon({
-																title: "Auction Sale", kind: "Auction · Sale",
-																rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Sale amount", fmt(a.saleAmount)], ["Auction expenses", fmt(a.auctionExpenses)]],
-																description: <>Auction Sale<br />{auctionBreakdown(a)}</>,
-																actions: [
-																	...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("sale", "edit") }] : []),
-																	...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openAuctionEdit("sale", "delete") }] : []),
-																],
-															})}
-														</td>
-													</tr>
-												);
-											}
+                      if (entry.kind === "auction-sale") {
+                        const a = entry.row;
+                        return (
+                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
+                            <td data-label="Date">{fmtDate(entry.date)}</td>
+                            <td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
+                            <td data-label="Particulars">Auction Sale</td>
+                            <td data-label="Method">Auction</td>
+                            <td className="num" data-label="Debit">—</td>
+                            <td className="num" data-label="Credit">—</td>
+                            <td className="num" data-label="Balance">—
+                              {infoIcon({
+                                title: "Auction Sale", kind: "Auction · Sale",
+                                rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Sale amount", fmt(a.saleAmount)], ["Auction expenses", fmt(a.auctionExpenses)]],
+                                description: <>Auction Sale<br />{auctionBreakdown(a)}</>,
+                                actions: [
+                                  ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("sale", "edit") }] : []),
+                                  ...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openAuctionEdit("sale", "delete") }] : []),
+                                ],
+                              })}
+                            </td>
+                          </tr>
+                        );
+                      }
 
-											if (entry.kind === "auction-surplus") {
-												const a = entry.row;
-												const refunded = a.surplusDisposition === "RefundedToCustomer";
-												const baseNote = refunded ? "Refunded to customer"
-													: a.surplusDisposition === "RecordedAsIncome" ? "Retained as income — no cash paid out"
-													: "Payable to customer — awaiting settlement";
-												const note = a.surplusRemarks ? `${baseNote} · ${a.surplusRemarks}` : baseNote;
-												return (
-													<tr key={entry.key} {...ledgerRowAttrs(entry)}>
-														<td data-label="Date">{fmtDate(entry.date)}</td>
-														<td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
+                      if (entry.kind === "auction-surplus") {
+                        const a = entry.row;
+                        const refunded = a.surplusDisposition === "RefundedToCustomer";
+                        const baseNote = refunded ? "Refunded to customer"
+                          : a.surplusDisposition === "RecordedAsIncome" ? "Retained as income — no cash paid out"
+                          : "Payable to customer — awaiting settlement";
+                        const note = a.surplusRemarks ? `${baseNote} · ${a.surplusRemarks}` : baseNote;
+                        return (
+                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
+                            <td data-label="Date">{fmtDate(entry.date)}</td>
+                            <td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
                             <td data-label="Particulars">Auction Surplus {fmt(a.surplusPayableAmount)}{a.surplusRemarks && <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{a.surplusRemarks}</span>}</td>
-														<td data-label="Method">{refunded ? "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
-														<td className="num" style={{ color: refunded ? "var(--red)" : undefined }} data-label="Debit">{refunded ? fmt(a.surplusPayableAmount) : "—"}</td>
-														<td className="num" data-label="Credit">—</td>
-														<td className="num" data-label="Balance">—
-															{infoIcon({
-																title: "Auction Surplus", kind: "Auction · Surplus",
+                            <td data-label="Method">{refunded ? "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
+                            <td className="num" style={{ color: refunded ? "var(--red)" : undefined }} data-label="Debit">{refunded ? fmt(a.surplusPayableAmount) : "—"}</td>
+                            <td className="num" data-label="Credit">—</td>
+                            <td className="num" data-label="Balance">—
+                              {infoIcon({
+                                title: "Auction Surplus", kind: "Auction · Surplus",
                                 rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Surplus", fmt(a.surplusPayableAmount)], ["Status", baseNote], ...(a.surplusRemarks ? [["Remarks", a.surplusRemarks] as [string, string]] : [])],
-																description: <>Auction Surplus {fmt(a.surplusPayableAmount)}<br />{note}</>,
-																actions: [
-																	...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("surplus", "edit") }] : []),
-																	...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openAuctionEdit("surplus", "delete") }] : []),
-																],
-															})}
-														</td>
-													</tr>
-												);
-											}
+                                description: <>Auction Surplus {fmt(a.surplusPayableAmount)}<br />{note}</>,
+                                actions: [
+                                  ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("surplus", "edit") }] : []),
+                                  ...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openAuctionEdit("surplus", "delete") }] : []),
+                                ],
+                              })}
+                            </td>
+                          </tr>
+                        );
+                      }
 
 											if (entry.kind === "topup") {
 												const t = entry.row;

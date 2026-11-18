@@ -2,6 +2,7 @@
 
 import { TableCols } from "@/common/components/ui/TableCols";
 import { TableSearch } from "@/common/components/ui/TableSearch";
+import { TruncText } from "@/common/components/ui/TruncText";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePersistedPage, usePersistedState, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useModal } from "@/common/components/ModalProvider";
@@ -190,7 +191,7 @@ function AuctionCard({ l, onLoanChanged, version }: AuctionCardProps) {
           <div className="i"><div className="k">Outstanding</div><div className="v" style={{ color: "var(--red)", fontWeight: 600 }}>{fmt(l.totalOutstandingBalance)}</div></div>
           <div className="i"><div className="k">Days Overdue</div><div className="v">{l.daysOverdue || "—"}</div></div>
           <div className="i"><div className="k">Auction Date</div><div className="v">{fmtDate(rec?.auctionDate)}</div></div>
-          <div className="i"><div className="k">Reference</div><div className="v">{rec?.auctionReferenceNumber || "—"}</div></div>
+          <div className="i"><div className="k">Reference</div><div className="v"><TruncText text={rec?.auctionReferenceNumber} maxWidth="100%" /></div></div>
           <div className="i"><div className="k">Sale Amount</div><div className="v">{rec && rec.saleAmount ? fmt(rec.saleAmount) : "—"}</div></div>
           {rec && rec.stage !== "AuctionEligible" && rec.stage !== "NoticeIssued" && rec.stage !== "AuctionScheduled" && (
             <div className="i"><div className="k">{rec.surplusShortfall >= 0 ? "Surplus" : "Shortfall"}</div>
@@ -482,7 +483,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
       kind="Auction · Sale"
       rows={[
         ["Loan", r.loanNumber], ["Customer", r.customerName], ["Auction date", fmtDate(r.auctionDate)],
-        ["Reference", r.auctionReferenceNumber || "—"], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"], ["Net proceeds", fmt(r.saleAmount - (r.auctionExpenses || 0))],
+        ["Reference", <TruncText key="ref" text={r.auctionReferenceNumber} maxWidth="100%" />], ["Sale amount", fmt(r.saleAmount)], ["Auction expenses", r.auctionExpenses ? fmt(r.auctionExpenses) : "—"], ["Net proceeds", fmt(r.saleAmount - (r.auctionExpenses || 0))],
         // Due at sale time, stored when the sale was recorded; older cases show a dash.
         // Falls back to net proceeds less the surplus (plus the shortfall) for cases that stored no due figure.
         ["Amount due at auction", fmt(r.dueTotal ?? (r.saleAmount - (r.auctionExpenses || 0) - r.surplusShortfall))],
@@ -650,7 +651,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
                     <tr key={r.id}>
                       <td data-label="Loan">{canOpenRoute("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber}<small className="sub" style={{ display: "block" }}>{r.customerName}</small></td>
                       <td data-label="Auction Date">{fmtDate(r.auctionDate)}</td>
-                      <td data-label="Reference">{r.auctionReferenceNumber || "—"}</td>
+                      <td data-label="Reference"><TruncText text={r.auctionReferenceNumber} maxWidth={140} /></td>
                       <td className="num" data-label="Sale Amount">{fmt(r.saleAmount)}</td>
                       <td className="num" data-label="Expenses">{r.auctionExpenses ? fmt(r.auctionExpenses) : "—"}</td>
                       <td className="num" data-label="Net Proceeds">{fmt(r.saleAmount - (r.auctionExpenses || 0))}</td>

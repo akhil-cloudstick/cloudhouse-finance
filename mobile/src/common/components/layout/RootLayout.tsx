@@ -18,6 +18,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { ThemeProvider, useTheme } from "@/common/theme/ThemeProvider";
 import { SheetHost } from "@/common/components/ui/SheetHost";
 import { ToastHost } from "@/common/components/ui/ToastHost";
+import { TipHost } from "@/common/components/ui/TipHost";
 import { PrintProgressHost } from "@/common/components/ui/PrintProgressHost";
 import { CameraPermissionHost } from "@/common/components/ui/CameraPermission";
 import { FilePromptHost } from "@/common/components/ui/FilePrompt";
@@ -151,6 +152,7 @@ function RootNavigation() {
           the real screen bounds. See src/common/components/ui/SheetHost.tsx. */}
       <SheetHost />
       <ToastHost />
+      <TipHost />
       <PrintProgressHost />
       <CameraPermissionHost />
       <FilePromptHost />

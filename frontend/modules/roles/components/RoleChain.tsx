@@ -124,27 +124,54 @@ export function RoleChain({ steps, roles, onChange, readOnly, finalAction, offBe
 		setPickerPos({ top: up ? r.top - 6 : r.bottom + 6, left, up });
 	}, [pickerOpen]);
 
-	useEffect(() => {
-		if (!pickerOpen) return;
-		const close = () => setPickerOpen(false);
-		const onDown = (e: MouseEvent) => {
-			const t = e.target as Node;
-			if (!pickerRef.current?.contains(t) && !btnRef.current?.contains(t)) close();
-		};
-		const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-		document.addEventListener("mousedown", onDown);
-		document.addEventListener("keydown", onKey);
-		window.addEventListener("resize", close);
-		// Any scroll outside the list itself would leave it floating off its button.
-		const onScroll = (e: Event) => { if (!pickerRef.current?.contains(e.target as Node)) close(); };
-		window.addEventListener("scroll", onScroll, true);
-		return () => {
-			document.removeEventListener("mousedown", onDown);
-			document.removeEventListener("keydown", onKey);
-			window.removeEventListener("resize", close);
-			window.removeEventListener("scroll", onScroll, true);
-		};
-	}, [pickerOpen]);
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const close = () => setPickerOpen(false);
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!pickerRef.current?.contains(t) && !btnRef.current?.contains(t)) close();
+    };
+    // Arrow keys move through the options wherever focus is — on the button, in the list or nowhere — so they
+    // never fall through to scroll the page (any scroll outside the list closes it). Same keys as useDropdownMenu.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        close();
+        btnRef.current?.focus();
+        return;
+      }
+      if (e.key === "Tab") return close();
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+      const items = Array.from(pickerRef.current?.querySelectorAll<HTMLButtonElement>(".wf-option:not(:disabled)") ?? []);
+      if (!items.length) return;
+      e.preventDefault();
+      const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next =
+        e.key === "Home" ? items[0]
+        : e.key === "End" ? items[items.length - 1]
+        : e.key === "ArrowDown" ? items[idx < 0 ? 0 : (idx + 1) % items.length]
+        : items[idx < 0 ? items.length - 1 : (idx - 1 + items.length) % items.length];
+      next.focus({ preventScroll: false });
+      next.scrollIntoView({ block: "nearest" });
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    // Any scroll outside the list itself would leave it floating off its button.
+    const onScroll = (e: Event) => { if (!pickerRef.current?.contains(e.target as Node)) close(); };
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [pickerOpen]);
+
+  // Focus the first selectable option as soon as the list is placed, so the arrow keys work straight away.
+  useEffect(() => {
+    if (!pickerOpen || !pickerPos) return;
+    pickerRef.current?.querySelector<HTMLButtonElement>(".wf-option:not(:disabled)")?.focus({ preventScroll: true });
+  }, [pickerOpen, pickerPos]);
 
 	const shown = drag ? move(steps, drag.from, drag.to) : steps;
 	const single = maxSteps === 1;
@@ -282,18 +309,24 @@ export function RoleChain({ steps, roles, onChange, readOnly, finalAction, offBe
 				)}
 			</div>
 
-			{!readOnly && (
-				<button
-					ref={btnRef}
-					type="button"
-					className={`wf-add${pickerOpen ? " on" : ""}`}
-					onClick={() => setPickerOpen((o) => !o)}
-					aria-expanded={pickerOpen}
-					aria-haspopup="listbox"
-				>
-					{single ? (steps.length ? "Change role" : "Choose role") : "Add approver"}
-				</button>
-			)}
+      {!readOnly && (
+        <button
+          ref={btnRef}
+          type="button"
+          className={`wf-add${pickerOpen ? " on" : ""}`}
+          onClick={() => setPickerOpen((o) => !o)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown" && !pickerOpen) {
+              e.preventDefault();
+              setPickerOpen(true);
+            }
+          }}
+          aria-expanded={pickerOpen}
+          aria-haspopup="listbox"
+        >
+          {single ? (steps.length ? "Change role" : "Choose role") : "Add approver"}
+        </button>
+      )}
 
 			{pickerOpen && pickerPos && (
 				<div

@@ -337,7 +337,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
           </button>
           {docsMenuOpen && (
-            <div className="docs-dd-menu" role="menu">
+            <div className="docs-dd-menu docs-dd-fit" role="menu">
               <a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
                 <Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
               </a>

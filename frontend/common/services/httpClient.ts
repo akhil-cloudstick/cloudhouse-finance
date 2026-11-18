@@ -240,9 +240,12 @@ async function contractFetch(path: string, init?: RequestInit, signed = false, r
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /* The rest of the error body (e.g. a 409's `code` and `matches`), when the server sent one. */
+  data?: Record<string, unknown>;
+  constructor(message: string, status: number, data?: Record<string, unknown>) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -370,7 +373,7 @@ export async function apiFetchEnveloped<T>(path: string, opts?: RequestInit): Pr
   }
   if (!res.ok || body?.success === false) {
     handleAuthFailure(res.status, path);
-    throw new ApiError(body?.error || res.statusText, res.status);
+    throw new ApiError(body?.error || res.statusText, res.status, body && typeof body === "object" ? body : undefined);
   }
   // Most success responses carry the resource under `data`; a
   // delete/action-confirmation response instead carries a plain string
@@ -397,7 +400,7 @@ export async function apiFetchEnvelope<T extends { success: boolean; error?: str
   }
   if (!res.ok || body?.success === false) {
     handleAuthFailure(res.status, path);
-    throw new ApiError(body?.error || res.statusText, res.status);
+    throw new ApiError(body?.error || res.statusText, res.status, body && typeof body === "object" ? body : undefined);
   }
   return body as T;
 }
@@ -559,7 +562,7 @@ export async function apiUploadEnveloped<T>(path: string, formData: FormData): P
   }
   if (!res.ok || body?.success === false) {
     handleAuthFailure(res.status, path);
-    throw new ApiError(body?.error || res.statusText, res.status);
+    throw new ApiError(body?.error || res.statusText, res.status, body && typeof body === "object" ? body : undefined);
   }
   return body?.data as T;
 }

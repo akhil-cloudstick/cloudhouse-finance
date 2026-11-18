@@ -8380,6 +8380,14 @@ table.tbl td {
   background: var(--brand-faint);
 }
 
+/* The option the arrow keys are on — same highlight as hover, plus a ring so it is easy to follow. */
+.wf-option:focus,
+.wf-option:focus-visible {
+  background: var(--brand-faint);
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
 .wf-option.sel {
   color: var(--brand-deep);
   font-weight: 600;
@@ -9081,6 +9089,8 @@ table.tbl td {
 .ext-review-grid b {
   text-align: right;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 760px) {
@@ -10914,4 +10924,35 @@ table.tbl.lockers-tbl th {
 .card.fixed-list > .hd,
 .card.fixed-list > .ft {
   flex: none
+}
+
+/* A Documents menu is exactly as wide as the button that opens it. */
+.docs-dd-fit { left: 0; right: 0; width: auto; min-width: 0; max-width: none; }
+.docs-dd-fit a .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Roles and Investors modals: a fixed height, so the pop-up does not grow or shrink as rows open, a search
+ * narrows the list or a page has fewer rows — the list scrolls inside `.bd-scroll` instead. Same 640px cap
+ * (or the screen, when shorter) as every other modal. */
+.modal:has(> .bd-scroll.fixed-h) {
+  height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
+}
+
+/* In those fixed-height modals the table must not clip or scroll on its own: an opened row (a role's employees,
+ * an investor's investments) makes the table taller and the modal body scrolls to it. */
+.modal .bd.bd-scroll.fixed-h .tbl-wrap {
+  max-height: none;
+  height: auto;
+  overflow-y: visible;
+}
+
+/* Global search results: every section still scrolls (and loads more as it does) but no scrollbar is drawn,
+ * neither on the results box nor on each section's own list. */
+.gs-results,
+.gs-results .gs-sec {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.gs-results::-webkit-scrollbar,
+.gs-results .gs-sec::-webkit-scrollbar {
+  display: none;
 }

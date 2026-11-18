@@ -277,6 +277,13 @@ func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, i
 		// while the request is pending (a locked request only stops it being rejected).
 		req.CustomerSawGold = *in.CustomerSawGold
 	}
+	if releaseFieldsLocked(req) {
+		notesChanged := in.VerificationNotes != nil && *in.VerificationNotes != req.VerificationNotes
+		dateChanged := in.RequestedAt != nil && !sameDayKeep(in.RequestedAt, req.RequestedAt).Equal(req.RequestedAt)
+		if notesChanged || dateChanged {
+			return nil, errReleaseFieldsLocked
+		}
+	}
 	if in.VerificationNotes != nil {
 		req.VerificationNotes = *in.VerificationNotes
 	}

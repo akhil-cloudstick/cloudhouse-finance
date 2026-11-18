@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { stripDigits, panLiveError } from "@/common/utils/kyc";
 import { useModal } from "@/common/components/ModalProvider";
 import { Select } from "@/common/components/ui/Select";
-import { createInvestor, updateInvestor, getInvestorAadhaarFull } from "@/modules/investments/services/investorService";
+import { createInvestor, updateInvestor, getInvestorAadhaarFull, sameIdentityMatches } from "@/modules/investments/services/investorService";
+import { SameInvestorModalContent } from "@/modules/investments/components/SameInvestorModalContent";
+import { useToast } from "@/common/components/ToastProvider";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
@@ -31,7 +33,8 @@ type CreateInvestorModalContentProps = { onCreated: (customer: CustomerView) => 
  * are validated the same way here as on the server (see service.go's
  * validate) so a malformed value is caught before the round trip. */
 export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorModalContentProps) {
-  const { closeModal } = useModal();
+  const { closeModal, openChildModal } = useModal();
+  const toast = useToast();
 
   const [name, setName] = useState(edit?.name ?? "");
   const [phone, setPhone] = useState(edit?.phone ?? "");
@@ -86,7 +89,8 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
     return () => { live = false; };
   }, [edit]);
 
-  async function save() {
+  // confirmSamePerson: the user has said the number already on file belongs to this same person.
+  async function save(confirmSamePerson = false) {
     const n = name.trim();
     const p = phone.trim();
     // Every problem is shown at once, each beside its own field.
@@ -124,9 +128,17 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         bankAccountNumber: bankAccountNumber.trim(),
         bankIfsc: bankIfsc.trim().toUpperCase(),
       };
-      const c = edit ? await updateInvestor(edit.id, input) : await createInvestor(input);
+      const c = edit ? await updateInvestor(edit.id, input) : await createInvestor(input, undefined, confirmSamePerson);
       onCreated(c);
     } catch (e) {
+      // The phone number, PAN or Aadhaar is on another investor under a different name: nothing is added until
+      // the user confirms they are the same person.
+      const matches = edit ? null : sameIdentityMatches(e);
+      if (matches) {
+        toast("Possible duplicate — please confirm before adding");
+        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => { closeModal(); await save(true); }} />);
+        return;
+      }
       const msg = e instanceof Error ? e.message : "Failed to create investor.";
       const field = fieldForMessage(msg, SERVER_FIELDS);
       if (field) fail(field, msg); else setErr(msg);
@@ -168,7 +180,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
-      <div className="ft">        <button className="btn" disabled={saving} onClick={save}>{saving ? (edit ? "Saving…" : "Creating…") : (edit ? "Save Changes" : "Create Investor")}</button>
+      <div className="ft">        <button className="btn" disabled={saving} onClick={() => save()}>{saving ? (edit ? "Saving…" : "Creating…") : (edit ? "Save Changes" : "Create Investor")}</button>
       </div>
     </>
   );

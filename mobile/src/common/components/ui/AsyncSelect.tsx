@@ -18,6 +18,8 @@ const PAGE_SIZE = 30;
 
 type AsyncSelectProps<T> = {
   label?: string;
+  /** Hold the label to see this (see Field). */
+  hint?: string;
   placeholder?: string;
   queryKey: unknown[];
   fetcher?: (q: string) => Promise<T[]>;
@@ -45,6 +47,7 @@ type AsyncSelectProps<T> = {
  * box inside the list. */
 export function AsyncSelect<T>({
   label,
+  hint,
   placeholder,
   queryKey,
   fetcher,
@@ -105,7 +108,7 @@ export function AsyncSelect<T>({
     }
   }
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <View ref={ref} collapsable={false}>
         <Input
           ref={input}

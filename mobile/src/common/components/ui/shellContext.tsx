@@ -394,6 +394,7 @@ const STACK_TABS = new Set([
   "cash",
   "personal-loans",
   "investments",
+  "roles",
   "employees",
   "branches",
   "billing",
@@ -707,11 +708,13 @@ export const s = StyleSheet.create({
     zIndex: 50,
     height: PTAB_HEIGHT,
     backgroundColor: C.card,
-    borderRadius: 10,
+    // Fully rounded ends, the same pill shape as the active-page highlight (tabPill: radius = half its height).
+    borderRadius: PTAB_HEIGHT / 2,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
-    paddingHorizontal: 6,
+    // Extra side padding so the first and last tabs sit clear of the rounded ends.
+    paddingHorizontal: 14,
     ...shadow(6, 16, 0.16),
   },
   tab: { alignItems: "center" },

@@ -40,6 +40,7 @@ export const ROUTE_PERMISSIONS: Record<string, readonly PermissionRef[]> = {
   reminders: [["Reminder_Management", "can_view_reminder_module"]],
   reports: [["Report_Management", "can_view_report_module"]],
   "loan-risk": [["Loan_Management", "can_view_loan_module"]],
+  "gold-rates": [["Gold_Rate_Management", "can_view_gold_rate_module"]],
   employees: [["Employee_Management", "can_view_employee_module"]],
   branches: [["Branch_Management", "can_view_branch_module"]],
   roles: [["Role_Management", "can_view_role_and_permission_module"]],

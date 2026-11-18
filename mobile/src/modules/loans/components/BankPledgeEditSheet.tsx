@@ -16,7 +16,7 @@ type Treatment = "RecordOnly" | "CashIn";
 const CASH = ["RecordOnly", "CashIn"] as const;
 const CASH_LABELS = { RecordOnly: "Record only", CashIn: "Add to cash-in-hand" } as const;
 const treatmentLabel = (t?: string) => (t === "CashIn" ? "Added to Cash-in-Hand" : "Record only");
-const received = (r?: BankPledgeRecord | null) => (r ? (r.cashAmount ?? 0) + (r.upiAmount ?? 0) + (r.bankTransferAmount ?? 0) : 0);
+const rateLabel = (r: BankPledgeRecord) => (r.bankInterestRate ? `${r.bankInterestRate}% p.a.` : "—");
 
 type Props = { loanId: number; pledge: BankPledgeRecord | null; mode: "edit" | "delete"; onClose: () => void };
 
@@ -28,8 +28,17 @@ function previewRows(p: BankPledgeEditPreview): PreviewRow[] {
     { label: "Pledged amount", before: b.pledgedAmount, after: a ? a.pledgedAmount : "—", money: true },
     { label: "Pledge date", before: (b.pledgeDate ?? "").slice(0, 10), after: a ? (a.pledgeDate ?? "").slice(0, 10) : "—" },
     { label: "Cash treatment", before: treatmentLabel(b.cashTreatment), after: a ? treatmentLabel(a.cashTreatment) : "—" },
-    { label: "Cash received", before: received(b), after: a ? received(a) : "—", money: true },
+    { label: "Interest rate", before: rateLabel(b), after: a ? rateLabel(a) : "—" },
+    { label: "Due date", before: b.bankPledgeDueDate ? b.bankPledgeDueDate.slice(0, 10) : "—", after: a ? (a.bankPledgeDueDate ? a.bankPledgeDueDate.slice(0, 10) : "—") : "—" },
   ];
+  // The amount received always equals the pledged amount, so only how it was received is shown — not the same total twice.
+  if (b.cashTreatment === "CashIn" || a?.cashTreatment === "CashIn") {
+    rows.push(
+      { label: "Received in cash", before: b.cashAmount ?? 0, after: a ? a.cashAmount ?? 0 : "—", money: true },
+      { label: "Received by UPI", before: b.upiAmount ?? 0, after: a ? a.upiAmount ?? 0 : "—", money: true },
+      { label: "Received by bank transfer", before: b.bankTransferAmount ?? 0, after: a ? a.bankTransferAmount ?? 0 : "—", money: true },
+    );
+  }
   if (b.releaseDate) rows.push({ label: "Release date", before: b.releaseDate.slice(0, 10), after: a?.releaseDate ? a.releaseDate.slice(0, 10) : "—" });
   return rows;
 }

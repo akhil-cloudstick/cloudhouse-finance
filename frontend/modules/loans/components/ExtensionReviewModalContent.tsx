@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TruncText } from "@/common/components/ui/TruncText";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
@@ -122,6 +123,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
 							className="inp"
 							autoFocus
 							value={rejectReason}
+                  			maxLength={150}
 							onChange={(e) => setRejectReason(e.target.value)}
 							placeholder="optional"
 						/>
@@ -144,35 +146,35 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
 		);
 	}
 
-	return (
-		<>
-			<div className="hd">
-				<h3>Review Extension — {req.loanNumber}</h3>
-				<button className="x" onClick={closeModal}>×</button>
-			</div>
-			<div className="bd bd-scroll ext-modal-bd">
-				<div className="pay-layout">
-					<div className="pay-form">
-						{needsPayment && loan && (
-							<div className="ext-block">
-								<div className="ext-block-tx">
-									<b>Interest must be cleared first</b>
-									<span>{fmt(arrears)} is outstanding — record it, then approve again.</span>
-								</div>
-								<button className="btn sm" onClick={openPayment}><Icon name="coin" /> Pay {fmt(arrears)}</button>
-							</div>
-						)}
-						<div className="pay-sec">
-							<div className="pay-sec-t">Request <span className={`chip ${STATUS_CHIP[req.status]}`} style={{ marginLeft: 6 }}>{req.status}</span></div>
-							<div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-								<div className="i"><div className="k">Extend By</div><div className="v">{months ? `${months} month${months === 1 ? "" : "s"}` : "—"}</div></div>
-								<div className="i"><div className="k">Requested On</div><div className="v">{fmtDate(req.requestedAt)}</div></div>
-								<div className="i"><div className="k">Customer</div><div className="v">{req.customerName}</div></div>
-								<div className="i"><div className="k">Gold Pledged</div><div className="v">{loan ? fmtW(loan.totalNetWeight) : "—"}</div></div>
-								{req.detail && <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Note</div><div className="v">{req.detail}</div></div>}
-								{req.status === "Rejected" && req.remarks && <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Reason Rejected</div><div className="v">{req.remarks}</div></div>}
-							</div>
-						</div>
+  return (
+    <>
+      <div className="hd">
+        <h3>Review Extension — {req.loanNumber}</h3>
+        <button className="x" onClick={closeModal}>×</button>
+      </div>
+      <div className="bd bd-scroll ext-modal-bd">
+        <div className="pay-layout">
+          <div className="pay-form">
+            {needsPayment && loan && (
+              <div className="ext-block">
+                <div className="ext-block-tx">
+                  <b>Interest must be cleared first</b>
+                  <span>{fmt(arrears)} is outstanding — record it, then approve again.</span>
+                </div>
+                <button className="btn sm" onClick={openPayment}><Icon name="coin" /> Pay {fmt(arrears)}</button>
+              </div>
+            )}
+            <div className="pay-sec">
+              <div className="pay-sec-t">Request <span className={`chip ${STATUS_CHIP[req.status]}`} style={{ marginLeft: 6 }}>{req.status}</span></div>
+              <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                <div className="i"><div className="k">Extend By</div><div className="v">{months ? `${months} month${months === 1 ? "" : "s"}` : "—"}</div></div>
+                <div className="i"><div className="k">Requested On</div><div className="v">{fmtDate(req.requestedAt)}</div></div>
+                <div className="i"><div className="k">Customer</div><div className="v">{req.customerName}</div></div>
+                <div className="i"><div className="k">Gold Pledged</div><div className="v">{loan ? fmtW(loan.totalNetWeight) : "—"}</div></div>
+                {req.detail && <div className="i" style={{ gridColumn: "1 / -1", minWidth: 0, border: "none", boxShadow: "none" }}><div className="k">Note</div><div className="v" style={{ minWidth: 0, overflow: "hidden", border: "none", boxShadow: "none", textDecoration: "none" }}><TruncText text={req.detail} maxWidth="100%" /></div></div>}
+                {req.status === "Rejected" && req.remarks && <div className="i" style={{ gridColumn: "1 / -1", minWidth: 0 }}><div className="k">Reason Rejected</div><div className="v" style={{ minWidth: 0, overflow: "hidden" }}><TruncText text={req.remarks} maxWidth="100%" /></div></div>}
+              </div>
+            </div>
 
 						{/* No tracker when the flow has no stages at all (an extension
 							* raised then was applied on creation); a single approver shows

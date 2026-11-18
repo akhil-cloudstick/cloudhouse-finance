@@ -5,6 +5,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { DatePicker } from "@/common/components/ui/DatePicker";
+import { NoteField } from "@/common/components/ui/NoteField";
 import { scheduleAuction } from "@/modules/loans/services/loanService";
 import { type AuctionRecordView, type LoanView } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
@@ -44,19 +45,19 @@ export function ScheduleAuctionModalContent({ loan, onSaved, onError }: Schedule
 		}
 	}); }
 
-	return (
-		<>
-			<div className="hd"><h3>Schedule Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd bd-scroll">
-				<div className="frow c2">
-					<div className={fe.date ? "has-err" : undefined}><label className="f">Auction Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); setFe((cur) => ({ ...cur, date: "" })); }} /><FieldError msg={fe.date} /></div>
-					<div className={fe.ref ? "has-err" : undefined}><label className="f">Reference Number</label><input className="inp" value={ref} onChange={(e) => { setRef(e.target.value); setFe((cur) => ({ ...cur, ref: "" })); }} /><FieldError msg={fe.ref} /></div>
-				</div>
-			</div>
-			<div className="ft">
-					{err && <span className="ft-err" role="alert">{err}</span>}
-				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Schedule"}</button>
-			</div>
-		</>
-	);
+  return (
+    <>
+      <div className="hd"><h3>Schedule Auction — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll">
+        <div className="frow c2">
+          <div className={fe.date ? "has-err" : undefined}><label className="f">Auction Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); setFe((cur) => ({ ...cur, date: "" })); }} /><FieldError msg={fe.date} /></div>
+          <div className={fe.ref ? "has-err" : undefined}><label className="f">Reference Number</label><NoteField value={ref} placeholder="Reference" onChange={(v) => { setRef(v); setFe((cur) => ({ ...cur, ref: "" })); }} /><FieldError msg={fe.ref} /></div>
+        </div>
+        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
+      </div>
+      <div className="ft">
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Schedule"}</button>
+      </div>
+    </>
+  );
 }

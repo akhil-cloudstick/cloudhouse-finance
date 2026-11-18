@@ -136,7 +136,7 @@ export function InvestorsModalContent() {
 	return (
 		<>
 			<div className="hd"><h3>Investors</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
+      <div className="bd bd-scroll fixed-h">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
           <TableSearch value={q} onChange={(v) => { setQ(v); setPage(1); setOpenId(null); }} placeholder="Search investors…" searches="investor name, code, phone number" />
           {canCreateInvestor && <button className="btn sm" onClick={() => openChildModal(<CreateInvestorModalContent onCreated={() => { closeModal(); setReloadTick((n) => n + 1); }} />)}>+ New Investor</button>}

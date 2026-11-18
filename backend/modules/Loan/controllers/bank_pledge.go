@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 	"time"
 
 	"gorm.io/gorm"
@@ -80,6 +81,9 @@ type CustomerBankPledgeRow struct {
 }
 
 func SaveBankPledge(ctx context.Context, loanID uint, branchID *uint, in BankPledgeInput) (*models.Loan, error) {
+	if utf8.RuneCountInString(in.ReferenceNumber) > 150 {
+		return nil, common.NewBadRequest("reference number can be at most 150 characters")
+	}
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")

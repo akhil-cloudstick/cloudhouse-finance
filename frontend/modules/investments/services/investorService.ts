@@ -39,8 +39,23 @@ export async function getInvestorAadhaarFull(id: string): Promise<string> {
 }
 
 /* `fromCustomerId` makes an existing customer an investor: the server carries over the Aadhaar number it holds. */
-export async function createInvestor(input: CustomerFormInput, fromCustomerId?: string): Promise<CustomerView> {
-  const rec = await apiFetch<BackendCustomer>(`/investors${fromCustomerId ? `?from_customer_id=${encodeURIComponent(fromCustomerId)}` : ""}`, { method: "POST", body: JSON.stringify(toRequestBody(input)) });
+/* An existing investor already on file with the same phone number, PAN or Aadhaar under a different name — what the
+ * server answers a new investor with (409, code "same_identity_different_name") until the user confirms. */
+export type SameIdentityMatch = { id: number; source: "investor" | "customer"; code: string; name: string; phone: string; fields: string[] };
+
+/* The matches in a "same person?" 409, or null when `e` is some other error. */
+export function sameIdentityMatches(e: unknown): SameIdentityMatch[] | null {
+  const d = (e as { status?: number; data?: { code?: string; matches?: SameIdentityMatch[] } } | null);
+  return d?.status === 409 && d.data?.code === "same_identity_different_name" && Array.isArray(d.data.matches) ? d.data.matches : null;
+}
+
+/* confirmSamePerson: the user has confirmed this investor is the same person as the existing one(s) that share
+ * a phone number, PAN or Aadhaar under another name. */
+export async function createInvestor(input: CustomerFormInput, fromCustomerId?: string, confirmSamePerson?: boolean): Promise<CustomerView> {
+  const q = new URLSearchParams();
+  if (fromCustomerId) q.set("from_customer_id", fromCustomerId);
+  if (confirmSamePerson) q.set("confirm_same_person", "true");
+  const rec = await apiFetch<BackendCustomer>(`/investors${q.size ? `?${q}` : ""}`, { method: "POST", body: JSON.stringify(toRequestBody(input)) });
   return toView(rec);
 }
 

@@ -15,6 +15,8 @@ type ConfirmSheetProps = {
   title: string;
   message: React.ReactNode;
   confirmLabel?: string;
+  /** The dismiss button (default "Cancel"). */
+  cancelLabel?: string;
   danger?: boolean;
   /** Show a remarks input (value is passed to onConfirm). */
   remarks?: { label: string; placeholder?: string; required?: boolean; initial?: string };
@@ -31,6 +33,7 @@ export function ConfirmSheet({
   title,
   message,
   confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
   danger,
   remarks,
   loading,
@@ -53,7 +56,7 @@ export function ConfirmSheet({
       ) : null}
       {error ? <Txt style={{ color: C.red, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>{error}</Txt> : null}
       <BtnRow2>
-        <PrimaryButton label="Cancel" variant="outline" onPress={onClose} disabled={loading} />
+        <PrimaryButton label={cancelLabel} variant="outline" onPress={onClose} disabled={loading} />
         <PrimaryButton
           label={confirmLabel}
           variant={danger ? "danger" : "primary"}

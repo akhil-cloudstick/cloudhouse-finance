@@ -1,4 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
+import { safeDownload } from "@/common/utils/safeDownload";
 import { presentFile } from "@/common/utils/presentFile";
 import { API_BASE_URL, apiUrl, ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
@@ -25,7 +26,7 @@ async function downloadToCache(
   const token = await getToken();
   const filename = `scheme-${schemeId}-statement-${Date.now()}.${format}`;
   const targetUri = `${FileSystem.cacheDirectory}${filename}`;
-  const result = await FileSystem.downloadAsync(
+  const result = await safeDownload(
     apiUrl(`/schemes/${schemeId}/statement?${params.toString()}`),
     targetUri,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} }

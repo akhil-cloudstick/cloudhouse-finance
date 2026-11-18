@@ -42,10 +42,11 @@ const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "
 
 // Same segments as the web day panel: a coloured count circle per group, tap one to list its events.
 const GROUPS: { key: string; label: string; fg: string; bg: string; types: CalendarEvent["type"][] }[] = [
-  { key: "overdue", label: "Overdue", fg: C.red, bg: C.redBg, types: ["Overdue", "PersonalLoanOverdue"] },
+  { key: "overdue", label: "Overdue", fg: C.red, bg: C.redBg, types: ["Overdue", "PersonalLoanOverdue", "InvestmentPayoutOverdue"] },
   { key: "due", label: "Loan due", fg: C.amber, bg: C.amberBg, types: ["LoanDue", "PersonalLoanDue"] },
   { key: "auction", label: "Auction", fg: C.amber, bg: C.amberBg, types: ["AuctionScheduled"] },
   { key: "interest", label: "Interest", fg: C.green, bg: C.greenBg, types: ["InterestDue"] },
+  { key: "investment", label: "Investment payout", fg: C.green, bg: C.greenBg, types: ["InvestmentPayoutDue", "InvestmentPayoutOverdue"] },
   { key: "followup", label: "Follow-up", fg: C.blue, bg: C.blueBg, types: ["FollowUp"] },
   { key: "promise", label: "Promise to pay", fg: C.blue, bg: C.blueBg, types: ["PromiseToPay"] },
 ];
@@ -53,9 +54,9 @@ const GROUPED_TYPES = GROUPS.flatMap((g) => g.types);
 
 function dotFor(t: CalendarEvent["type"]): "red" | "amber" | "blue" | "green" {
   // Same colours as the web calendar chips: overdue red, due and auction amber, interest green, follow-up / promise blue.
-  if (t === "Overdue" || t === "PersonalLoanOverdue") return "red";
+  if (t === "Overdue" || t === "PersonalLoanOverdue" || t === "InvestmentPayoutOverdue") return "red";
   if (t === "LoanDue" || t === "PersonalLoanDue" || t === "AuctionScheduled") return "amber";
-  if (t === "InterestDue") return "green";
+  if (t === "InterestDue" || t === "InvestmentPayoutDue") return "green";
   return "blue";
 }
 
@@ -74,6 +75,7 @@ export default function RemindersScreen() {
   const canCreate = can("Reminder_Management", "can_create_reminder");
   const canViewLoans = can("Loan_Management", "can_view_loan_module");
   const canViewPersonalLoans = can("Personal_Loan_Management", "can_view_personal_loan_module");
+  const canViewInvestments = can("Investment_Management", "can_view_investment_module");
   const canUpdateReminder = can("Reminder_Management", "can_update_reminder");
   const canDeleteReminder = can("Reminder_Management", "can_delete_reminder");
   const qc = useQueryClient();
@@ -255,7 +257,9 @@ export default function RemindersScreen() {
                     first={i === 0}
                     showDate={searching}
                     onPress={
-                      e.loanId && canViewLoans
+                      e.investmentId != null && canViewInvestments
+                        ? () => openPage(`/investments/${e.investmentId}`)
+                        : e.loanId && canViewLoans
                         ? () => openPage(`/loans/${e.loanId}`)
                         : e.personalLoanId != null && canViewPersonalLoans
                           ? () => openPage(`/personal-loans/${e.personalLoanId}`)

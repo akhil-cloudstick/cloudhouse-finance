@@ -248,26 +248,26 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 		]} />);
 	}
 
-	// A history row's View popup: its details, and Edit / Delete while the record is still in force.
-	function viewRecord(r: BankPledgeRecordView) {
-		const editable = { ...r, bankId: r.bankId ?? null };
-		openModal(<LoanLedgerInfoModalContent
-			title="Re-Pledge Details"
-			kind={r.status === "Voided" ? "Deleted" : r.status}
-			rows={[
-				["Loan", r.loanNumber || `#${r.loanId}`], ["Customer", r.customerName || "—"], ["Bank", r.bankName || "—"],
-				["Pledged amount", fmt(r.pledgedAmount)], ["Interest rate", r.bankInterestRate ? `${r.bankInterestRate}% p.m.` : "—"],
-				["Pledged on", fmtDate(r.pledgeDate)], ["Released on", r.releaseDate ? fmtDate(r.releaseDate) : "—"],
-				["Due date", r.bankPledgeDueDate ? fmtDate(r.bankPledgeDueDate) : "—"], ["Reference no.", r.referenceNumber || "—"],
-				["Cash treatment", CASH_TREATMENT_LABELS[r.cashTreatment === "CashIn" ? "CashIn" : "RecordOnly"]],
-			]}
-			description={<>{r.ornamentNames && r.ornamentNames.length ? r.ornamentNames.join(", ") : "All ornaments"}{r.status === "Voided" && r.voidReason ? <><br />{r.voidReason}</> : null}</>}
-			actions={r.status === "Voided" ? [] : [
-				...(canEditPledge ? [{ label: "Edit", icon: "edit" as const, run: () => openPledgeEditor(r.loanId, editable, "edit") }] : []),
-				...(canErasePledge ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openPledgeEditor(r.loanId, editable, "delete") }] : []),
-			]}
-		/>);
-	}
+  // A history row's View popup: its details, and Edit / Delete while the record is still in force.
+  function viewRecord(r: BankPledgeRecordView) {
+    const editable = { ...r, bankId: r.bankId ?? null };
+    openModal(<LoanLedgerInfoModalContent
+      title="Re-Pledge Details"
+      kind={r.status === "Voided" ? "Deleted" : r.status}
+      rows={[
+        ["Loan", r.loanNumber || `#${r.loanId}`], ["Customer", r.customerName || "—"], ["Bank", r.bankName || "—"],
+        ["Pledged amount", fmt(r.pledgedAmount)], ["Interest rate", r.bankInterestRate ? `${r.bankInterestRate}% p.a.` : "—"],
+        ["Pledged on", fmtDate(r.pledgeDate)], ["Released on", r.releaseDate ? fmtDate(r.releaseDate) : "—"],
+        ["Due date", r.bankPledgeDueDate ? fmtDate(r.bankPledgeDueDate) : "—"], ["Reference no.", r.referenceNumber || "—"],
+        ["Cash treatment", CASH_TREATMENT_LABELS[r.cashTreatment === "CashIn" ? "CashIn" : "RecordOnly"]],
+      ]}
+      description={<>{r.ornamentNames && r.ornamentNames.length ? r.ornamentNames.join(", ") : "All ornaments"}{r.status === "Voided" && r.voidReason ? <><br />{r.voidReason}</> : null}</>}
+      actions={r.status === "Voided" ? [] : [
+        ...(canEditPledge ? [{ label: "Edit", icon: "edit" as const, run: () => openPledgeEditor(r.loanId, editable, "edit") }] : []),
+        ...(canErasePledge ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openPledgeEditor(r.loanId, editable, "delete") }] : []),
+      ]}
+    />);
+  }
 
 	function confirmRelease(l: LoanView, pledge: BankPledgeView, treatment: string) {
 		const loanId = l.numericId;
@@ -321,111 +321,111 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
 				/>
 			</div>
 
-			{tab === "active" ? (
-				<div className="card tbl-card tbl-card-fill">
-					<div className="hd"><h3>Re-Pledged Loans</h3></div>
-					{pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
-					<div className="tbl-wrap">
-						<table className="tbl tbl-cards tbl-center">
-							<TableCols widths={[9, 20, 14, 9, 12, 8, 10, 10, 8]} />
-							<thead>
-								<tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th>Due</th><th></th></tr>
-							</thead>
-							<tbody>
-								{pledgedLoading && !(cards && pledged.length > 0) ? (
-									<tr><td colSpan={9} className="empty">Loading…</td></tr>
-								) : pledged.length === 0 ? (
-									<tr><td colSpan={9} className="empty">No loans currently bank-pledged.</td></tr>
+      {tab === "active" ? (
+        <div className="card tbl-card tbl-card-fill">
+          <div className="hd"><h3>Re-Pledged Loans</h3></div>
+          {pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
+          <div className="tbl-wrap">
+            <table className="tbl tbl-cards tbl-center">
+              <TableCols widths={[9, 15, 13, 9, 11, 11, 10, 10, 12]} />
+              <thead>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th>Due</th><th></th></tr>
+              </thead>
+              <tbody>
+                {pledgedLoading && !(cards && pledged.length > 0) ? (
+                  <tr><td colSpan={9} className="empty">Loading…</td></tr>
+                ) : pledged.length === 0 ? (
+                  <tr><td colSpan={9} className="empty">No loans currently bank-pledged.</td></tr>
                 ) : pledged.flatMap((l) => l.bankPledges.filter((p) => p.status === "Active" && (!bankNames.length || bankNames.includes(p.bankName))).map((p) => ({ l, p }))).map(({ l, p: active }) => {
-									const treatment = active.cashTreatment ?? "CashIn";
-									// A pledge with no ornament list covers the whole loan.
-									const covered = active.ornamentIds.length ? l.ornaments.filter((o) => active.ornamentIds.includes(o.id)).map((o) => o.name) : [];
-									return (
-										<tr key={l.id + "-" + active.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
-											<td data-label="Loan">{canOpen("loan") ? <a href={routeHref(`loan/${l.id}`)}>{l.id}</a> : l.id}</td>
-											<td data-label="Customer">{l.customerName}</td>
-											<td data-label="Bank">{active?.bankName || "—"}</td>
-											<td className="num" data-label="Weight">
-												{fmtW(active.ornamentIds.length ? active.pledgedNetWeight : l.totalNetWeight)}
-												<div style={{ fontSize: 11.5, color: "var(--muted)" }}>{covered.length ? covered.join(", ") : "All ornaments"}</div>
-											</td>
-											<td className="num" data-label="Pledged Amount">{active ? fmt(active.pledgedAmount) : "—"}</td>
-											<td data-label="Cash"><CashTreatmentBadge treatment={treatment} /></td>
-											<td data-label="Pledged On">{fmtDate(active?.pledgeDate)}</td>
-											<td data-label="Due">{active.bankPledgeDueDate ? fmtDate(active.bankPledgeDueDate) : "—"}</td>
-											<td style={{ whiteSpace: "nowrap" }}>
-												{active && (
-													<button className="btn ghost sm" onClick={() => viewDetails(l, active, treatment)}>View</button>
-												)}
-											</td>
-										</tr>
-									);
-								})}
-							</tbody>
-						</table>
-					</div>
-					<ScrollSentinel enabled={cards && pledgedHasMore && !pledgedLoading} onVisible={more} watch={pledged.length} />
-					<div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-						<button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => changePledgedPage(Math.max(1, pledgedPage - 1))}>‹ Prev</button>
-						<span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
-						<button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => changePledgedPage(Math.min(pledgedTotalPages, pledgedPage + 1))}>Next ›</button>
-					</div>
-					{/* <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div> */}
-				</div>
-			) : (
-				<div className="card tbl-card tbl-card-fill">
-					<div className="hd"><h3>Re-Pledge History</h3></div>
-					{historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
-					<div className="tbl-wrap">
-						<table className="tbl tbl-cards tbl-center">
-							<TableCols widths={[9, 20, 14, 12, 8, 10, 10, 9, 8]} />
-							<thead>
-								<tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th><th></th></tr>
-							</thead>
-							<tbody>
-								{historyLoading && !(cards && history.length > 0) ? (
-									<tr><td colSpan={9} className="empty">Loading…</td></tr>
-								) : history.length === 0 ? (
-									<tr><td colSpan={9} className="empty">No re-pledge records yet.</td></tr>
-								) : history.map((r) => (
-									<tr key={r.id}>
-										<td data-label="Loan">{r.loanNumber ? (canOpen("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber) : `#${r.loanId}`}</td>
-										<td data-label="Customer">{r.customerName || "—"}</td>
-										<td data-label="Bank">
-											{r.bankName}
-											<div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.ornamentNames && r.ornamentNames.length ? r.ornamentNames.join(", ") : "All ornaments"}</div>
-										</td>
-										<td className="num" data-label="Amount">{fmt(r.pledgedAmount)}</td>
-										<td data-label="Cash"><CashTreatmentBadge treatment={r.cashTreatment} /></td>
-										<td data-label="Pledged">{fmtDate(r.pledgeDate)}</td>
-										<td data-label="Released">{fmtDate(r.releaseDate)}</td>
-										<td data-label="Status">
-											{/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see item #13's
-												* Void→Delete relabel: this is a UI wording change, not a status-value rename. */}
-											<span className={`pill ${r.status === "Voided" ? "red" : r.status === "Released" ? "" : "green"}`}>{r.status === "Voided" ? "Deleted" : r.status}</span>
-											{r.status === "Voided" && r.voidReason && (
-												<div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{r.voidReason}</div>
-											)}
-										</td>
-										<td style={{ whiteSpace: "nowrap" }}>
-											<button className="btn ghost sm" onClick={() => viewRecord(r)}>View</button>
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-					<ScrollSentinel enabled={cards && historyHasMore && !historyLoading} onVisible={more} watch={history.length} />
-					{/* <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div> */}
-					<div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-						<button className="btn plain sm" disabled={historyPage <= 1} onClick={() => changeHistoryPage(Math.max(1, historyPage - 1))}>‹ Prev</button>
-						<span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
-						<button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => changeHistoryPage(Math.min(historyTotalPages, historyPage + 1))}>Next ›</button>
-					</div>
-				</div>
-			)}
-		</>
-	);
+                  const treatment = active.cashTreatment ?? "CashIn";
+                  // A pledge with no ornament list covers the whole loan.
+                  const covered = active.ornamentIds.length ? l.ornaments.filter((o) => active.ornamentIds.includes(o.id)).map((o) => o.name) : [];
+                  return (
+                    <tr key={l.id + "-" + active.id} style={focusLoanNumber && l.id === focusLoanNumber ? { background: "var(--brand-pale)" } : undefined}>
+                      <td data-label="Loan">{canOpen("loan") ? <a href={routeHref(`loan/${l.id}`)}>{l.id}</a> : l.id}</td>
+                      <td data-label="Customer">{l.customerName}</td>
+                      <td data-label="Bank">{active?.bankName || "—"}</td>
+                      <td className="num" data-label="Weight">
+                        {fmtW(active.ornamentIds.length ? active.pledgedNetWeight : l.totalNetWeight)}
+                        <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{covered.length ? covered.join(", ") : "All ornaments"}</div>
+                      </td>
+                      <td className="num" data-label="Pledged Amount">{active ? fmt(active.pledgedAmount) : "—"}</td>
+                      <td data-label="Cash"><CashTreatmentBadge treatment={treatment} /></td>
+                      <td data-label="Pledged On">{fmtDate(active?.pledgeDate)}</td>
+                      <td data-label="Due">{active.bankPledgeDueDate ? fmtDate(active.bankPledgeDueDate) : "—"}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {active && (
+                          <button className="btn ghost sm" onClick={() => viewDetails(l, active, treatment)}>View</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <ScrollSentinel enabled={cards && pledgedHasMore && !pledgedLoading} onVisible={more} watch={pledged.length} />
+          <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={pledgedPage <= 1} onClick={() => changePledgedPage(Math.max(1, pledgedPage - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {pledgedPage} of {pledgedTotalPages}</span>
+            <button className="btn plain sm" disabled={pledgedPage >= pledgedTotalPages} onClick={() => changePledgedPage(Math.min(pledgedTotalPages, pledgedPage + 1))}>Next ›</button>
+          </div>
+          {/* <div className="ft">If a customer requests closure while gold is bank-pledged, the release workflow flags the bank release step first.</div> */}
+        </div>
+      ) : (
+        <div className="card tbl-card tbl-card-fill">
+          <div className="hd"><h3>Re-Pledge History</h3></div>
+          {historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
+          <div className="tbl-wrap">
+            <table className="tbl tbl-cards tbl-center">
+              <TableCols widths={[9, 15, 13, 11, 10, 10, 10, 10, 12]} />
+              <thead>
+                <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th><th></th></tr>
+              </thead>
+              <tbody>
+                {historyLoading && !(cards && history.length > 0) ? (
+                  <tr><td colSpan={9} className="empty">Loading…</td></tr>
+                ) : history.length === 0 ? (
+                  <tr><td colSpan={9} className="empty">No re-pledge records yet.</td></tr>
+                ) : history.map((r) => (
+                  <tr key={r.id}>
+                    <td data-label="Loan">{r.loanNumber ? (canOpen("loan") ? <a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a> : r.loanNumber) : `#${r.loanId}`}</td>
+                    <td data-label="Customer">{r.customerName || "—"}</td>
+                    <td data-label="Bank">
+                      {r.bankName}
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.ornamentNames && r.ornamentNames.length ? r.ornamentNames.join(", ") : "All ornaments"}</div>
+                    </td>
+                    <td className="num" data-label="Amount">{fmt(r.pledgedAmount)}</td>
+                    <td data-label="Cash"><CashTreatmentBadge treatment={r.cashTreatment} /></td>
+                    <td data-label="Pledged">{fmtDate(r.pledgeDate)}</td>
+                    <td data-label="Released">{fmtDate(r.releaseDate)}</td>
+                    <td data-label="Status">
+                      {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see item #13's
+                        * Void→Delete relabel: this is a UI wording change, not a status-value rename. */}
+                      <span className={`pill ${r.status === "Voided" ? "red" : r.status === "Released" ? "" : "green"}`}>{r.status === "Voided" ? "Deleted" : r.status}</span>
+                      {r.status === "Voided" && r.voidReason && (
+                        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{r.voidReason}</div>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn ghost sm" onClick={() => viewRecord(r)}>View</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <ScrollSentinel enabled={cards && historyHasMore && !historyLoading} onVisible={more} watch={history.length} />
+          {/* <div className="ft">Every re-pledge ever recorded, including released and voided ones. Voided records are kept for audit and never deleted.</div> */}
+          <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button className="btn plain sm" disabled={historyPage <= 1} onClick={() => changeHistoryPage(Math.max(1, historyPage - 1))}>‹ Prev</button>
+            <span style={{ fontSize: 12.5 }}>Page {historyPage} of {historyTotalPages}</span>
+            <button className="btn plain sm" disabled={historyPage >= historyTotalPages} onClick={() => changeHistoryPage(Math.min(historyTotalPages, historyPage + 1))}>Next ›</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 type CashTreatmentBadgeProps = { treatment: string };

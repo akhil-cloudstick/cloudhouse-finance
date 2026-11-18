@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 )
@@ -38,6 +39,9 @@ type extensionRequestRequest struct {
 }
 
 func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestInput) (*models.LoanRequest, error) {
+	if utf8.RuneCountInString(in.Detail) > 150 {
+		return nil, common.NewBadRequest("note can be at most 150 characters")
+	}
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")

@@ -143,93 +143,93 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
 		});
 	}
 
-	return (
-		<>
-			<div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
-			<div className="bd bd-scroll ledger-edit-bd bank-pledge-edit">
-				{mode === "edit" ? (
-					<>
-						<div className="frow c2">
-							<div><label className="f">Bank *</label>
-								<SearchableSelect<BackendBank>
-									value={bank}
-									onChange={(id, item) => { setErr(""); setBank(item.name); setBankId(Number(id) || undefined); }}
-									fetchFn={searchBanksPage}
-									searchHint="Searches: bank name"
-									getLabel={(x) => x.name}
-									getId={(x) => String(x.id)}
-									placeholder="Search for a registered bank…"
-								/></div>
-							<div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} value={amount} onChange={(e) => changed(setAmount)(e.target.value)} /></div>
-						</div>
-						<div className="frow c2">
-							<div><label className="f">Pledge Date *</label><DatePicker value={date} max={today} onChange={changed(setDate)} /></div>
-							<div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} min={date} onChange={changed(setDueDate)} /></div>
-						</div>
-						<div className="frow c2">
-							<div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} value={rate} onChange={(e) => changed(setRate)(e.target.value)} /></div>
-							<div><label className="f">Reference Number</label><input className="inp" maxLength={60} value={reference} onChange={(e) => changed(setReference)(e.target.value)} /></div>
-						</div>
-						<h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Cash treatment</h4>
-						{/* the same selectable cards the New Re-Pledge form uses (their styles hang off .repledge-modal-bd) */}
-						<div className="repledge-modal-bd" style={{ padding: 0 }}>
-							<div className="rp-opts">
-								{(["RecordOnly", "CashIn"] as const).map((t) => (
-									<label key={t} className={"cradio rp-opt" + (treatment === t ? " on" : "")}>
-										<input type="radio" name="bpTreatment" checked={treatment === t} onChange={() => { setErr(""); setTreatment(t); }} />
-										<span className="mark" />
-										<span>
-											<strong>{t === "CashIn" ? "Add to Cash-in-Hand" : "Record only"}</strong>
-											<span className="rp-opt-d">{t === "CashIn" ? "Bank money added to branch cash." : "No cash effect."}</span>
-										</span>
-									</label>
-								))}
-							</div>
-						</div>
-						{treatment === "CashIn" && (
-							<>
-								<h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>How the advance was received</h4>
-								<SplitPaymentInput
-									totalAmount={+amount || 0} initialLines={splitLines(p.cashAmount, p.upiAmount, p.bankTransferAmount, p.receivedBankId)} label={null}
-									onChange={(s, r, bid) => { setErr(""); setSplit(s); setRemaining(r); setReceivedBankId(bid); }}
-								/>
-							</>
-						)}
-						{released && (
-							<>
-								<h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Release</h4>
-								<div className="frow">
-									<div><label className="f">Release Date *</label><DatePicker value={releaseDate} min={date} max={today} onChange={changed(setReleaseDate)} /></div>
-								</div>
-								{treatment === "CashIn" && (
-									<>
-										<h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>How the bank was repaid</h4>
-										<SplitPaymentInput
-											totalAmount={+amount || 0}
-											initialLines={p.cashTreatment === "CashIn" && ((p.releaseCashAmount ?? 0) + (p.releaseUpiAmount ?? 0) + (p.releaseBankTransferAmount ?? 0) > 0)
-												? splitLines(p.releaseCashAmount, p.releaseUpiAmount, p.releaseBankTransferAmount, p.releaseBankId) : undefined}
-											label={null}
-											onChange={(s, r, bid) => { setErr(""); setRelSplit(s); setRelRemaining(r); setRelBankId(bid); }}
-										/>
-									</>
-								)}
-							</>
-						)}
-					</>
-				) : (
-					<p style={{ marginBottom: 12 }}>
-						Delete the <b>{fmt(p.pledgedAmount)}</b> pledge to <b>{p.bankName}</b> ({p.pledgeDate.slice(0, 10)})?
-					</p>
-				)}
-				<FieldError msg={err} />
-			</div>
-			<div className="ft">
-				<button className="btn" onClick={openPreview} disabled={saving}>
-					<Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : "Preview the change"}
-				</button>
-			</div>
-		</>
-	);
+  return (
+    <>
+      <div className="hd"><h3>{mode === "delete" ? "Delete" : "Edit"} Bank Pledge</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="bd bd-scroll ledger-edit-bd bank-pledge-edit">
+        {mode === "edit" ? (
+          <>
+            <div className="frow c2">
+              <div><label className="f">Bank *</label>
+                <SearchableSelect<BackendBank>
+                  value={bank}
+                  onChange={(id, item) => { setErr(""); setBank(item.name); setBankId(Number(id) || undefined); }}
+                  fetchFn={searchBanksPage}
+                  searchHint="Searches: bank name"
+                  getLabel={(x) => x.name}
+                  getId={(x) => String(x.id)}
+                  placeholder="Search for a registered bank…"
+                /></div>
+              <div><label className="f">Pledged Amount (₹) *</label><input className="inp" type="number" min={1} value={amount} onChange={(e) => changed(setAmount)(e.target.value)} /></div>
+            </div>
+            <div className="frow c2">
+              <div><label className="f">Pledge Date *</label><DatePicker value={date} max={today} onChange={changed(setDate)} /></div>
+              <div><label className="f">Bank Pledge Due Date</label><DatePicker value={dueDate} min={date} onChange={changed(setDueDate)} /></div>
+            </div>
+            <div className="frow c2">
+              <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} value={rate} onChange={(e) => changed(setRate)(e.target.value)} /></div>
+              <div><label className="f">Reference Number</label><input className="inp" maxLength={150} placeholder="Reference (max 150 characters)" value={reference} onChange={(e) => changed(setReference)(e.target.value)} /></div>
+            </div>
+            <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Cash treatment</h4>
+            {/* the same selectable cards the New Re-Pledge form uses (their styles hang off .repledge-modal-bd) */}
+            <div className="repledge-modal-bd" style={{ padding: 0 }}>
+              <div className="rp-opts">
+                {(["RecordOnly", "CashIn"] as const).map((t) => (
+                  <label key={t} className={"cradio rp-opt" + (treatment === t ? " on" : "")}>
+                    <input type="radio" name="bpTreatment" checked={treatment === t} onChange={() => { setErr(""); setTreatment(t); }} />
+                    <span className="mark" />
+                    <span>
+                      <strong>{t === "CashIn" ? "Add to Cash-in-Hand" : "Record only"}</strong>
+                      <span className="rp-opt-d">{t === "CashIn" ? "Bank money added to branch cash." : "No cash effect."}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {treatment === "CashIn" && (
+              <>
+                <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>How the advance was received</h4>
+                <SplitPaymentInput
+                  totalAmount={+amount || 0} initialLines={splitLines(p.cashAmount, p.upiAmount, p.bankTransferAmount, p.receivedBankId)} label={null}
+                  onChange={(s, r, bid) => { setErr(""); setSplit(s); setRemaining(r); setReceivedBankId(bid); }}
+                />
+              </>
+            )}
+            {released && (
+              <>
+                <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Release</h4>
+                <div className="frow">
+                  <div><label className="f">Release Date *</label><DatePicker value={releaseDate} min={date} max={today} onChange={changed(setReleaseDate)} /></div>
+                </div>
+                {treatment === "CashIn" && (
+                  <>
+                    <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>How the bank was repaid</h4>
+                    <SplitPaymentInput
+                      totalAmount={+amount || 0}
+                      initialLines={p.cashTreatment === "CashIn" && ((p.releaseCashAmount ?? 0) + (p.releaseUpiAmount ?? 0) + (p.releaseBankTransferAmount ?? 0) > 0)
+                        ? splitLines(p.releaseCashAmount, p.releaseUpiAmount, p.releaseBankTransferAmount, p.releaseBankId) : undefined}
+                      label={null}
+                      onChange={(s, r, bid) => { setErr(""); setRelSplit(s); setRelRemaining(r); setRelBankId(bid); }}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </>
+        ) : (
+          <p style={{ marginBottom: 12 }}>
+            Delete the <b>{fmt(p.pledgedAmount)}</b> pledge to <b>{p.bankName}</b> ({p.pledgeDate.slice(0, 10)})?
+          </p>
+        )}
+        <FieldError msg={err} />
+      </div>
+      <div className="ft">
+        <button className="btn" onClick={openPreview} disabled={saving}>
+          <Icon name={mode === "delete" ? "trash" : "check"} /> {saving ? "Working…" : "Preview the change"}
+        </button>
+      </div>
+    </>
+  );
 }
 
 function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "edit" | "delete"; preview: BankPledgeEditPreview; onConfirm: () => Promise<void> }) {
@@ -269,7 +269,17 @@ function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "ed
             {row("Pledged amount", fmt(b.pledgedAmount), a ? fmt(a.pledgedAmount) : "—")}
             {row("Pledge date", b.pledgeDate.slice(0, 10), a ? a.pledgeDate.slice(0, 10) : "—")}
             {row("Cash treatment", treatmentLabel(b.cashTreatment), a ? treatmentLabel(a.cashTreatment) : "—")}
-            {row("Cash received", fmt((b.cashAmount ?? 0) + (b.upiAmount ?? 0) + (b.bankTransferAmount ?? 0)), a ? fmt((a.cashAmount ?? 0) + (a.upiAmount ?? 0) + (a.bankTransferAmount ?? 0)) : "—")}
+            {row("Interest rate", b.bankInterestRate ? `${b.bankInterestRate}% p.a.` : "—", a ? (a.bankInterestRate ? `${a.bankInterestRate}% p.a.` : "—") : "—")}
+            {row("Due date", b.bankPledgeDueDate ? b.bankPledgeDueDate.slice(0, 10) : "—", a ? (a.bankPledgeDueDate ? a.bankPledgeDueDate.slice(0, 10) : "—") : "—")}
+            {/* The amount received always equals the pledged amount, so only how it was received is shown (Added to
+              * Cash-in-Hand pledges) — not the same total a second time. */}
+            {(b.cashTreatment === "CashIn" || a?.cashTreatment === "CashIn") && (
+              <>
+                {row("Received in cash", fmt(b.cashAmount ?? 0), a ? fmt(a.cashAmount ?? 0) : "—")}
+                {row("Received by UPI", fmt(b.upiAmount ?? 0), a ? fmt(a.upiAmount ?? 0) : "—")}
+                {row("Received by bank transfer", fmt(b.bankTransferAmount ?? 0), a ? fmt(a.bankTransferAmount ?? 0) : "—")}
+              </>
+            )}
             {b.releaseDate && row("Release date", b.releaseDate.slice(0, 10), a?.releaseDate ? a.releaseDate.slice(0, 10) : "—")}
           </tbody>
         </table></div>

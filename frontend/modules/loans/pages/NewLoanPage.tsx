@@ -1116,7 +1116,7 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
 					</div>
 					{canPublishRate ? (
 						<>
-							<div className="frow"><div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" onWheel={blurOnWheel} value={rateR24} onChange={(e) => setRateR24(e.target.value)} /></div></div>
+							<div className="frow"><div><label className="f">24K · 999 (₹/g)</label><input className="inp" type="number" onWheel={blurOnWheel} value={rateR24} onChange={(e) => setRateR24(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); if (!rateSaving) void saveTodayRate(); } }} /></div></div>
 							<p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
 								Only the 24K benchmark needs to be set — other purities are resolved per-ornament when pledged.
 							</p>

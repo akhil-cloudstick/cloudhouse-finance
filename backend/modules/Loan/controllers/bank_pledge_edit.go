@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -116,6 +117,9 @@ func applyBankPledgeEdit(old models.BankPledgeRecord, in EditBankPledgeInput, le
 	}
 	if in.ReferenceNumber != nil {
 		n.ReferenceNumber = strings.TrimSpace(*in.ReferenceNumber)
+		if utf8.RuneCountInString(n.ReferenceNumber) > 150 {
+			return n, common.NewBadRequest("reference number can be at most 150 characters")
+		}
 	}
 	if in.CashTreatment != nil {
 		n.CashTreatment = *in.CashTreatment

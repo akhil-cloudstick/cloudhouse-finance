@@ -89,6 +89,79 @@ func checkInvestorUnique(ctx context.Context, column, value, msg string, exclude
 	return nil
 }
 
+// DuplicateIdentityMatch is an existing borrower (customer) that shares a phone number, PAN or Aadhaar with the
+// investor being added.
+type DuplicateIdentityMatch struct {
+	ID     uint     `json:"id"`
+	Source string   `json:"source"` // always "customer" (a borrower)
+	Code   string   `json:"code"`
+	Name   string   `json:"name"`
+	Phone  string   `json:"phone"`
+	Fields []string `json:"fields"` // which of "Phone number", "PAN", "Aadhaar number" match
+}
+
+// DuplicateIdentityError asks the user to confirm that the investor being added is the same person as the borrower
+// that shares a phone number, PAN or Aadhaar. It is a 409 with the matches in the body; the same request sent
+// again with ?confirm_same_person=true is then accepted.
+type DuplicateIdentityError struct{ Matches []DuplicateIdentityMatch }
+
+func (e *DuplicateIdentityError) Error() string {
+	names := make([]string, 0, len(e.Matches))
+	for _, m := range e.Matches {
+		names = append(names, m.Name)
+	}
+	return "This phone number, PAN or Aadhaar already belongs to the borrower " + strings.Join(names, ", ") + ". Are they the same person?"
+}
+
+func (e *DuplicateIdentityError) Status() int { return http.StatusConflict }
+
+// checkInvestorIdentity is the borrower comparison for a new investor: a phone number, PAN or Aadhaar already on a
+// borrower (customer) needs the user to say it is the same person (DuplicateIdentityError) unless `confirmed`.
+// A second INVESTOR with the same number is never allowed — that is refused before this runs (SaveInvestor).
+func checkInvestorIdentity(ctx context.Context, aadhaarHash string, in CustomerCreateInput, confirmed bool) error {
+	if confirmed {
+		return nil
+	}
+	byID := map[uint]*DuplicateIdentityMatch{}
+	var order []uint
+	look := func(column, value, label string) error {
+		if value == "" {
+			return nil
+		}
+		var custs []commonModels.Customer
+		if err := config.DB.WithContext(ctx).Where(column+" = ?", value).Find(&custs).Error; err != nil {
+			return err
+		}
+		for _, r := range custs {
+			m, ok := byID[r.ID]
+			if !ok {
+				m = &DuplicateIdentityMatch{ID: r.ID, Source: "customer", Code: r.Code, Name: r.Name, Phone: r.Phone}
+				byID[r.ID] = m
+				order = append(order, r.ID)
+			}
+			m.Fields = append(m.Fields, label)
+		}
+		return nil
+	}
+	if err := look("phone", in.Phone, "Phone number"); err != nil {
+		return err
+	}
+	if err := look("pan", in.PAN, "PAN"); err != nil {
+		return err
+	}
+	if err := look("aadhaar_hash", aadhaarHash, "Aadhaar number"); err != nil {
+		return err
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	matches := make([]DuplicateIdentityMatch, 0, len(order))
+	for _, id := range order {
+		matches = append(matches, *byID[id])
+	}
+	return &DuplicateIdentityError{Matches: matches}
+}
+
 func investorConflict(err error) error {
 	if err == nil {
 		return nil
@@ -121,14 +194,19 @@ func SaveInvestor(ctx context.Context, in CustomerCreateInput) (*commonModels.In
 	if err := checkCustomerBranch(ctx, in.BranchID); err != nil {
 		return nil, err
 	}
+	aadhaarHash := config.AadhaarCipher.Fingerprint(in.Aadhaar)
+	// A second investor with the same phone number, PAN or Aadhaar is never possible, whatever the name.
 	if err := checkInvestorUnique(ctx, "phone", in.Phone, "phone number is already registered to another investor", 0); err != nil {
 		return nil, err
 	}
 	if err := checkInvestorUnique(ctx, "pan", in.PAN, "PAN is already registered to another investor", 0); err != nil {
 		return nil, err
 	}
-	aadhaarHash := config.AadhaarCipher.Fingerprint(in.Aadhaar)
 	if err := checkInvestorUnique(ctx, "aadhaar_hash", aadhaarHash, "Aadhaar number is already registered to another investor", 0); err != nil {
+		return nil, err
+	}
+	// The only comparison that asks a question: is this investor also an existing borrower?
+	if err := checkInvestorIdentity(ctx, aadhaarHash, in, in.ConfirmSamePerson); err != nil {
 		return nil, err
 	}
 	encrypted, err := config.AadhaarCipher.Encrypt(in.Aadhaar)
@@ -378,8 +456,13 @@ func CreateInvestor(c echo.Context) error {
 			in.PAN = cust.PAN
 		}
 	}
+	in.ConfirmSamePerson = c.QueryParam("confirm_same_person") == "true"
 	rec, err := SaveInvestor(ctx, in)
 	if err != nil {
+		var dup *DuplicateIdentityError
+		if errors.As(err, &dup) {
+			return c.JSON(http.StatusConflict, echo.Map{"success": false, "error": dup.Error(), "code": "same_identity_different_name", "matches": dup.Matches})
+		}
 		return FailErr(c, err)
 	}
 	return Success(c, http.StatusOK, InvestorToResponse(rec))

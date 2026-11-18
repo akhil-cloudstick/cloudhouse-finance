@@ -5,10 +5,13 @@ import { C } from "./base";
 import { doneBarFor } from "./KeyboardDoneBar";
 import { textStyle } from "@/common/theme/typography";
 import { s } from "./formHelpers";
+import { useHoldTip } from "./TipHost";
 
 /** .field input */
 export function Input({ style, editable = true, ...rest }: TextInputProps & { ref?: React.Ref<TextInputInstance> }) {
   const [focused, setFocused] = useState(false);
+  // Hold the box for its full text: what was typed (a long value is cut off by the width), else its placeholder.
+  const hold = useHoldTip(() => (rest.value ? String(rest.value) : rest.placeholder));
   return (
     <TextInput
       placeholderTextColor={C.placeholder}
@@ -23,6 +26,22 @@ export function Input({ style, editable = true, ...rest }: TextInputProps & { re
       editable={editable}
       inputAccessoryViewID={doneBarFor(rest.keyboardType)}
       {...rest}
+      onTouchStart={(e) => {
+        hold.onTouchStart(e);
+        rest.onTouchStart?.(e);
+      }}
+      onTouchMove={(e) => {
+        hold.onTouchMove(e);
+        rest.onTouchMove?.(e);
+      }}
+      onTouchEnd={(e) => {
+        hold.onTouchEnd();
+        rest.onTouchEnd?.(e);
+      }}
+      onTouchCancel={(e) => {
+        hold.onTouchCancel();
+        rest.onTouchCancel?.(e);
+      }}
       onFocus={(e) => {
         setFocused(true);
         rest.onFocus?.(e);

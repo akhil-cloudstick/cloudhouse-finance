@@ -169,7 +169,11 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
   if (!(Number(principal) > 0)) errs.amount = "Enter loan amount.";
   if (!isTodaySet) errs.rate = "Set today's gold rate.";
   if (overallPhotoRequired && !overallPhoto) errs.photo = "Add overall photo.";
-  const missingReason: string | null = Object.keys(errs).length || ornErrs.some(Boolean) ? "Fix the fields marked red." : null;
+  // With no gold rate for today nothing can be valued, so that is the one thing to fix first — say so plainly
+  // rather than the generic "fix the fields" line.
+  const missingReason: string | null = !isTodaySet
+    ? "Set today's gold rate."
+    : Object.keys(errs).length || ornErrs.some(Boolean) ? "Fix the fields marked red." : null;
   const fe = (k: string) => (tried ? errs[k] : undefined);
 
   const reset = () => {
