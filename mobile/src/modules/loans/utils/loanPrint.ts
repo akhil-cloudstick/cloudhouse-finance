@@ -6,6 +6,7 @@
 // backend's per-language templates (see printServerPdf below).
 import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
+import { safeDownload } from "@/common/utils/safeDownload";
 import { toQR } from "toqr";
 import { presentFile } from "@/common/utils/presentFile";
 import { dmy, fmt, todayISO } from "@/common/utils/format";
@@ -244,7 +245,7 @@ async function printServerPdf(path: string, filename: string): Promise<void> {
   const targetUri = `${FileSystem.cacheDirectory}${filename.replace(/[^\w.-]+/g, "-")}`;
   // The render takes a few seconds server-side — show the overlay for it.
   const result = await withPrintProgress(() =>
-    FileSystem.downloadAsync(apiUrl(`${path}`), targetUri, {
+    safeDownload(apiUrl(`${path}`), targetUri, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
   );

@@ -2,12 +2,15 @@
 // merges manual reminders with computed loan due/overdue/interest events.
 export type CalendarEvent = {
   date: string;
-  type: "InterestDue" | "LoanDue" | "Overdue" | "FollowUp" | "PromiseToPay" | "Custom" | "PersonalLoanDue" | "PersonalLoanOverdue" | "AuctionScheduled";
+  type: "InterestDue" | "LoanDue" | "Overdue" | "FollowUp" | "PromiseToPay" | "Custom" | "PersonalLoanDue" | "PersonalLoanOverdue" | "InvestmentPayoutDue" | "InvestmentPayoutOverdue" | "AuctionScheduled";
   title: string;
   detail: string;
   loanId?: number;
   // Set instead of loanId for PersonalLoanDue / PersonalLoanOverdue events.
   personalLoanId?: number;
+  // Set on InvestmentPayoutDue / InvestmentPayoutOverdue events.
+  investmentId?: number;
+  investmentNumber?: string;
   loanNumber?: string;
   customerId?: number;
   customerName?: string;

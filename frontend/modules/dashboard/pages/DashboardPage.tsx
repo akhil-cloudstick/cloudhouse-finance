@@ -371,7 +371,7 @@ export function DashboardPage() {
               * raised (app.css) so every tile fits them. nowrap + ellipsis guards
               * a long amount from spilling past the 213px tile. */}
             <Kpi
-              l="Cash in Hand"
+              l="Balance in Hand"
               v={fmt(cashSummary ? cashSummary.cashInHand + cashSummary.bankBalance : cashInHand)}
               s={cashSummary ? (
                 <>
@@ -529,9 +529,11 @@ export function DashboardPage() {
               <ul className="mini-list">
                 {reminderPageItems.length ? reminderPageItems.map((e, i) => {
                   // The whole row opens its loan (same target as the calendar); manual reminders without a loan stay plain.
-                  const loanHref = e.personalLoanId != null && canOpen("personalloan")
-                    ? routeHref(`personalloan/${e.personalLoanId}`)
-                    : e.personalLoanId == null && e.loanNumber && canOpen("loan") ? routeHref(`loan/${e.loanNumber}`) : null;
+                  const loanHref = e.investmentId != null
+                    ? (canOpen("investment") ? routeHref(`investment/${e.investmentId}`) : null)
+                    : e.personalLoanId != null && canOpen("personalloan")
+                      ? routeHref(`personalloan/${e.personalLoanId}`)
+                      : e.personalLoanId == null && e.loanNumber && canOpen("loan") ? routeHref(`loan/${e.loanNumber}`) : null;
                   const detailText = `${e.detail}${e.loanNumber ? ` · ${e.loanNumber}` : ""} · ${fmtDate(e.date)}`;
                   const ellipsis = { display: "block", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" };
                   const text = (<><b style={ellipsis}>{e.title}</b><small style={ellipsis}>{detailText}</small></>);

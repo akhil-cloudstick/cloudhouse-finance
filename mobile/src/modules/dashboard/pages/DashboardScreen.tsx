@@ -159,6 +159,7 @@ export default function DashboardScreen() {
           initials={initialsOf(employee?.name)}
           name={employee?.name ?? ""}
           branch={employee?.branch?.name ? `${employee.branch.name} Branch` : employee?.role}
+          cashLabel="Balance in Hand"
           cashValue={summary.isLoading || (canViewCash && cashSummary.isLoading) ? "…" : inr(cashTotal)}
           rates={[
             { k: "24K / g", v: inr(Math.round(r24)) },
@@ -222,7 +223,7 @@ export default function DashboardScreen() {
                 onPress={can("Report_Management", "can_view_report_module") ? () => openPage("/reports") : undefined}
                 stats={[
                   { n: String(s?.today.loansIssued ?? 0), l: "Loans issued" },
-                  { n: inrShort(cashTotal), l: "Cash in hand" },
+                  { n: inrShort(s?.today.collections ?? 0), l: "Cash collected" },
                   { n: String(s?.today.newCustomers ?? 0), l: "New customers" },
                 ]}
               />
@@ -248,6 +249,10 @@ export default function DashboardScreen() {
 }
 
 // ---- Approvals & review lists (kept from the old dashboard, restyled) -----
+// Needs Attention's auction cases are loans past the point of being overdue — they are Defaulted. The stored status
+// reads "Overdue" until the loan is marked auction-eligible, so show Defaulted rather than Overdue.
+const attentionStatus = (status?: string, fallback = "Defaulted") => (!status || status === "Overdue" ? fallback : status);
+
 function NeedsAttention() {
   const [kind, setKind] = useState<NeedsAttentionKind>("approvals");
   const query = useInfiniteQuery({
@@ -314,10 +319,10 @@ function NeedsAttention() {
                   ? `${flowOf(it) !== "loan_sanction" ? `${FLOW_NAMES[flowOf(it)] ?? "Approval"} · ` : ""}Awaiting ${stageLabel(it) || "approval"}`
                   : it.kind === "request"
                     ? `${it.requestType ?? "Request"}${it.detail ? ` · ${it.detail}` : ""}`
-                    : it.status ?? "Auction case"
+                    : attentionStatus(it.status, "Auction case")
               }
               amount={it.kind === "approval" ? inr(it.principal) : it.kind === "auction" ? inr(it.outstanding) : undefined}
-              status={it.kind === "approval" ? "Pending" : it.kind === "request" ? "Pending" : it.status ?? "Overdue"}
+              status={it.kind === "approval" ? "Pending" : it.kind === "request" ? "Pending" : attentionStatus(it.status)}
               details={
                 it.kind === "approval"
                   ? [

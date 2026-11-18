@@ -230,7 +230,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-cards tbl-center">
-            <TableCols widths={[10, 10, 20, 28, 10, 10, 12]} />
+            <TableCols widths={[11, 10, 16, 19, 11, 13, 20]} />
             <thead>
               <tr><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
             </thead>
@@ -275,7 +275,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
                       <button
                         className="btn ghost sm"
-                        style={{ minWidth: 74, textAlign: "center", justifyContent: "center" }}
+                        style={{ minWidth: 64, textAlign: "center", justifyContent: "center" }}
                         onClick={() => openModal(
                           r.type === "Extension"
                             ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />

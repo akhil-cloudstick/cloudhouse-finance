@@ -5,6 +5,7 @@ import (
 	common "cloudhouse/backend/common/controllers"
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/config"
+	investment "cloudhouse/backend/modules/Investment/controllers"
 	loan "cloudhouse/backend/modules/Loan/controllers"
 	loanModels "cloudhouse/backend/modules/Loan/models"
 	personalLoan "cloudhouse/backend/modules/PersonalLoan/controllers"
@@ -304,7 +305,7 @@ func deleteReminder(ctx context.Context, id uint) error {
 	return removeReminder(ctx, id)
 }
 
-func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, query string, page, pageSize int) ([]models.CalendarEvent, int, error) {
+func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, query string, page, pageSize int, withInvestments bool) ([]models.CalendarEvent, int, error) {
 	from = truncateDay(from)
 	to = truncateDay(to)
 	var events []models.CalendarEvent
@@ -445,6 +446,77 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 				CustomerID:     &o.first.CustomerID,
 				CustomerName:   o.first.CustomerName,
 				CustomerCode:   o.first.CustomerCode,
+			})
+		}
+	}
+	if withInvestments {
+		payouts, err := investment.ListPendingPayoutsForCalendar(ctx, branchID)
+		if err != nil {
+			return nil, 0, err
+		}
+		// Payouts not yet due get a reminder on their due date. Overdue ones are grouped per investment, like
+		// personal-loan installments: one reminder on the first missed date, or on today when that is outside the window.
+		type overduePayout struct {
+			first  investment.CalendarPayout
+			missed int
+			amount float64
+		}
+		overdue := map[uint]*overduePayout{}
+		var overdueOrder []uint
+		for _, p := range payouts {
+			due := truncateDay(p.DueDate)
+			if due.Before(now) {
+				o, ok := overdue[p.InvestmentID]
+				if !ok {
+					overdue[p.InvestmentID] = &overduePayout{first: p, missed: 1, amount: p.Amount}
+					overdueOrder = append(overdueOrder, p.InvestmentID)
+					continue
+				}
+				o.missed++
+				o.amount += p.Amount
+				if due.Before(truncateDay(o.first.DueDate)) {
+					o.first = p
+				}
+				continue
+			}
+			if due.Before(from) || due.After(to) {
+				continue
+			}
+			invID, custID := p.InvestmentID, p.CustomerID
+			events = append(events, models.CalendarEvent{
+				Date:             due.Format("2006-01-02"),
+				Type:             "InvestmentPayoutDue",
+				Title:            fmt.Sprintf("Investment payout due — %s", p.InvestmentNumber),
+				Detail:           fmt.Sprintf("%s · ₹%.2f", p.CustomerName, p.Amount),
+				InvestmentID:     &invID,
+				InvestmentNumber: p.InvestmentNumber,
+				CustomerID:       &custID,
+				CustomerName:     p.CustomerName,
+			})
+		}
+		for _, id := range overdueOrder {
+			o := overdue[id]
+			at := truncateDay(o.first.DueDate)
+			if at.Before(from) || at.After(to) {
+				if now.Before(from) || now.After(to) {
+					continue
+				}
+				at = now
+			}
+			invID, custID := o.first.InvestmentID, o.first.CustomerID
+			title := fmt.Sprintf("Investment payout overdue — %s", o.first.InvestmentNumber)
+			if o.missed > 1 {
+				title = fmt.Sprintf("Investment payouts overdue (%d missed) — %s", o.missed, o.first.InvestmentNumber)
+			}
+			events = append(events, models.CalendarEvent{
+				Date:             at.Format("2006-01-02"),
+				Type:             "InvestmentPayoutOverdue",
+				Title:            title,
+				Detail:           fmt.Sprintf("%s · ₹%.2f", o.first.CustomerName, o.amount),
+				InvestmentID:     &invID,
+				InvestmentNumber: o.first.InvestmentNumber,
+				CustomerID:       &custID,
+				CustomerName:     o.first.CustomerName,
 			})
 		}
 	}
@@ -840,7 +912,10 @@ func GetReminderCalendar(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid to: expected YYYY-MM-DD"})
 		}
 	}
-	events, total, err := getCalendarEvents(ctx, from, to, auth.GetBranchScope(c), strings.TrimSpace(c.QueryParam("search")), page, pageSize)
+	// Investment payouts are shown only to staff who can open the investment module.
+	_, _, roleID := auth.ActorFromContext(c)
+	withInvestments, _ := common.IsAllowed(ctx, roleID, "can view investment module")
+	events, total, err := getCalendarEvents(ctx, from, to, auth.GetBranchScope(c), strings.TrimSpace(c.QueryParam("search")), page, pageSize, withInvestments)
 	if err != nil {
 		return common.FailErr(c, err)
 	}

@@ -1,6 +1,6 @@
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
 import React, { useEffect, useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { AccRow, AsyncSelect, gfDate, Buffering, C, Card, ChipToggle, FabCorner, Field, FieldGrid, GroupedFilter, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue, FieldRow, FlatHeader, Input, PrimaryButton, Screen, SearchFilterRow, ServerFlatList, Sheet, Txt, WarningBanner, toast } from "@/common/components/ui";
@@ -9,7 +9,6 @@ import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { getCashSummary } from "@/modules/cash/services/cashService";
-import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import { createPersonalLoan, editPersonalLoan, listPersonalLoansPage, previewRenewal, recordPersonalLoanPayment, renewPersonalLoan } from "@/modules/personal-loans/services/personalLoanService";
 import { type Frequency, type InterestType, type PersonalLoan } from "@/modules/personal-loans/types/personal-loan-types";
@@ -163,8 +162,6 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
   const approvalWorkflow = useApprovalWorkflow();
   const needsApproval = !editing && !isFlowOff(approvalWorkflow, "personal_loan");
   const [customer, setCustomer] = useState<Customer | null>(null);
-  const canCreateCustomer = useAuth().can("Customer_Management", "can_create_customer");
-  const [addingCustomer, setAddingCustomer] = useState(false);
   const [principal, setPrincipal] = useState("");
   const [interestType, setInterestType] = useState<InterestType>("Flat");
   const [interestValue, setInterestValue] = useState("");
@@ -274,12 +271,13 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
   return (
     <Sheet visible={visible} onClose={onClose} title={loan ? `Edit ${loan.loanNumber}` : "Create Personal Loan"} maxHeightPct={92}>
       {loan ? (
-        <Field label="Customer">
+        <Field label="Customer" hint="The borrower this loan belongs to. It can't be changed once the loan is created.">
           <Input value={`${loan.customer.name} · ${loan.customer.code}`} editable={false} />
         </Field>
       ) : (
       <AsyncSelect<Customer>
         label="Customer"
+        hint="Searches: customer name, customer code, phone. Only existing customers can be picked."
         placeholder="Search existing customer by name, ID or phone"
         queryKey={["customers", "picker"]}
         fetcher={async (q) => (await listCustomersPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
@@ -291,37 +289,32 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
       />
       )}
       <FieldErr m={fe("customer")} />
-      {!loan && canCreateCustomer && !customer ? (
-        <Pressable onPress={() => setAddingCustomer(true)} hitSlop={6} style={{ marginTop: -6, marginBottom: 12 }} accessibilityRole="button">
-          <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.brandDeep }}>+ Add new customer</Txt>
-        </Pressable>
-      ) : null}
-      <Field label="Principal amount">
+      <Field label="Principal amount" hint="The loan amount given to the customer, before any interest is held back.">
         <Input keyboardType="decimal-pad" placeholder="e.g. 15000" value={principal} onChangeText={setPrincipal} />
       </Field>
       <FieldErr m={fe("principal")} />
-      <Field label="Number of installments">
+      <Field label="Number of installments" hint="How many equal payments the customer will make to repay the loan.">
         <Input keyboardType="number-pad" placeholder="e.g. 100" value={tenureCount} onChangeText={setTenureCount} />
       </Field>
       <FieldErr m={fe("tenure")} />
-      <Field label="Interest type">
+      <Field label="Interest type" hint="Flat: a fixed rupee amount of interest on the loan. Percentage: interest as a percent of the principal.">
         <ChipToggle options={["Flat", "Percentage"] as const} value={interestType} onChange={setInterestType} />
       </Field>
-      <Field label={interestType === "Flat" ? "Interest value (₹)" : "Interest value (%)"}>
+      <Field label={interestType === "Flat" ? "Interest value (₹)" : "Interest value (%)"} hint={interestType === "Flat" ? "The total interest charged on the loan, in rupees." : "The interest as a percentage of the principal amount."}>
         <Input keyboardType="decimal-pad" placeholder={interestType === "Flat" ? "e.g. 1500" : "e.g. 2"} value={interestValue} onChangeText={setInterestValue} />
       </Field>
       <FieldErr m={fe("interest")} />
-      <Field label="Collection frequency">
+      <Field label="Collection frequency" hint="How often an installment is collected: daily, weekly or monthly.">
         <ChipToggle options={FREQS} value={frequency} onChange={setFrequency} />
       </Field>
-      <Field label="Disbursement">
+      <Field label="Disbursement" hint="Withhold interest: the interest is deducted up front and the customer receives the rest. Full amount: the customer receives the whole principal.">
         <ChipToggle options={["Withhold interest", "Full amount"] as const} value={disburse} onChange={setDisburse} />
       </Field>
       <FieldRow>
-        <Field label="Penal interest (% p.a.)" style={{ flex: 1 }}>
+        <Field label="Penal interest (% p.a.)" hint="Extra yearly interest charged on an overdue installment. Left blank, it follows the loan's own rate." style={{ flex: 1 }}>
           <Input keyboardType="decimal-pad" placeholder="Same as loan rate" value={penalRate} onChangeText={setPenalRate} />
         </Field>
-        <Field label="Grace period (days)" style={{ flex: 1 }}>
+        <Field label="Grace period (days)" hint="Days after an installment's due date before penal interest starts to apply." style={{ flex: 1 }}>
           <Input keyboardType="number-pad" placeholder="e.g. 5" value={graceDays} onChangeText={setGraceDays} />
         </Field>
       </FieldRow>
@@ -345,7 +338,6 @@ export function CreatePersonalLoanSheet({ visible, onClose, onCreated, loan }: C
           submit.mutate();
         }}
       />
-      <CustomerFormSheet visible={addingCustomer} onClose={() => setAddingCustomer(false)} onSaved={(c) => { if (c?.id) setCustomer(c); }} />
     </Sheet>
   );
 }

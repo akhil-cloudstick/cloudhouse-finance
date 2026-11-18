@@ -16,6 +16,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 	"time"
 
 	"gorm.io/gorm/clause"
@@ -428,6 +429,10 @@ func SaveAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks
 func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can schedule auction") {
 		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can schedule auction")
+	}
+	referenceNumber = strings.TrimSpace(referenceNumber)
+	if utf8.RuneCountInString(referenceNumber) > 150 {
+		return nil, common.NewBadRequest("reference number can be at most 150 characters")
 	}
 	if err := checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err

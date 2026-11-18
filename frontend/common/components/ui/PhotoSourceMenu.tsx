@@ -6,7 +6,6 @@ import { Icon } from "@/common/components/Icon";
 import { WebcamCapture } from "@/common/components/ui/WebcamCapture";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 
-const MENU_W = 190;
 const MENU_H = 92;
 
 type PhotoSourceMenuProps = {
@@ -40,7 +39,7 @@ export function PhotoSourceMenu({
 }: PhotoSourceMenuProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [webcamOpen, setWebcamOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const { open, setOpen, menuRef, triggerRef, onKeyDown } = useDropdownMenu<HTMLDivElement>();
 
   function toggle() {
@@ -50,7 +49,8 @@ export function PhotoSourceMenu({
       const below = r.bottom + 6 + MENU_H <= window.innerHeight;
       setPos({
         top: below ? r.bottom + 6 : r.top - 6 - MENU_H,
-        left: Math.min(Math.max(8, r.right - MENU_W), window.innerWidth - MENU_W - 8),
+        left: Math.min(Math.max(8, r.left), window.innerWidth - r.width - 8),
+        width: r.width,
       });
     }
     setOpen(true);
@@ -87,16 +87,16 @@ export function PhotoSourceMenu({
           ref={menuRef}
           className="docs-dd-menu"
           role="menu"
-          style={{ position: "fixed", top: pos.top, left: pos.left, right: "auto", width: MENU_W, zIndex: 95 }}
+          style={{ position: "fixed", top: pos.top, left: pos.left, right: "auto", width: pos.width, minWidth: 0, boxSizing: "border-box", zIndex: 95 }}
           // Keep Enter/arrows here from reaching a host modal's
           // Enter-to-submit handler (React bubbles through portals).
           onKeyDown={(e) => { e.stopPropagation(); onKeyDown(e); }}
         >
           <a href="#" role="menuitem" onClick={(e) => { e.preventDefault(); setOpen(false); inputRef.current?.click(); }}>
-            <Icon name="upload" /><span className="tx">Upload from system</span>
+            <Icon name="upload" /><span className="tx" title="Upload from system" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Upload from system</span>
           </a>
           <a href="#" role="menuitem" onClick={(e) => { e.preventDefault(); setOpen(false); setWebcamOpen(true); }}>
-            <Icon name="camera" /><span className="tx">Take photo (webcam)</span>
+            <Icon name="camera" /><span className="tx" title="Take photo (webcam)" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Take photo (webcam)</span>
           </a>
         </div>,
         document.body

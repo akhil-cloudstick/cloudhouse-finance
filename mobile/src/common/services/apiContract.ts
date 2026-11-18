@@ -2077,7 +2077,7 @@ const COMPILED: CompiledRoute[] = ROUTES.map(([method, path, newMethod, newPath]
 });
 
 // Staff paths a route-table miss may still belong to (the table only lists the routes that existed when it was made).
-const STAFF_PREFIXES = ["/loans/", "/personal-loans/", "/investments/", "/cash-movements/"];
+const STAFF_PREFIXES = ["/loans/", "/personal-loans/", "/investments/", "/cash-movements/", "/roles/"];
 
 let cachedToken: string | null = null;
 

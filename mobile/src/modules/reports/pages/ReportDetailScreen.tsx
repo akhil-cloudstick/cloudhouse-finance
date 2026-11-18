@@ -1,9 +1,9 @@
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
+import { previewPdf } from "@/common/utils/presentFile";
 import React, { useRef, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { AccRow, Buffering, C, Card, EmptyText, FabMenu, Field, FlatHeader, Input, PScroll, SelectField, GroupedFilter, gfDate, gfValues, type GroupedFilterValue, type GFSection, Screen, SearchFilterRow,ServerFlatList, Txt, toast } from "@/common/components/ui";
@@ -120,7 +120,7 @@ export default function ReportDetailScreen() {
     setPrinting(true);
     try {
       const uri = await downloadExport(report.key, "pdf", range);
-      await Print.printAsync({ uri });
+      await previewPdf(uri);
     } catch (e) {
       if (isUserCancel(e)) return;
       toast.error("Print failed", userMessage(e, "Could not print — try again."));

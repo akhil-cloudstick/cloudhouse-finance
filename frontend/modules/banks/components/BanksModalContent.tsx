@@ -26,9 +26,6 @@ export function BanksModalContent() {
       <div className="bd bd-scroll bd-tbl">
         <BankTable reloadKey={0} afterChange={reopen} inModal />
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Back</button>
-      </div>
     </>
   );
 }

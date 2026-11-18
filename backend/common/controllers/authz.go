@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
@@ -41,8 +42,30 @@ type RolePermissionRow struct {
 	Permission   bool                    `json:"permission"`
 	Permissions  commonModels.Permission `json:"permissions"`
 	Parents      []PermissionRef         `json:"parents"`
+	AllParents   []PermissionRef         `json:"all_parents"`
 	SoftParents  []PermissionRef         `json:"soft_parents"`
 	Dependents   []PermissionRef         `json:"dependents"`
+}
+
+// RoleDescriptionMax is the longest role description accepted on create/update.
+const RoleDescriptionMax = 150
+
+// RoleListRow is one row of the paginated roles list (GET /roles/list).
+type RoleListRow struct {
+	ID            uint   `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	IsActive      bool   `json:"is_active"`
+	IsSystem      bool   `json:"is_system"`
+	EmployeeCount int64  `json:"employee_count"`
+}
+
+// RoleEmployeeRow is one employee holding a role (GET /roles/:id/employees).
+type RoleEmployeeRow struct {
+	ID         uint   `json:"id"`
+	Code       string `json:"code"`
+	Name       string `json:"name"`
+	BranchName string `json:"branch_name"`
 }
 
 type PermissionRef struct {
@@ -276,6 +299,7 @@ func adminMatrix(ctx context.Context, roleID uint, search string) (map[string][]
 			ID: row.ID, RoleID: row.RoleID, PermissionID: row.PermissionID, Permission: row.Permission,
 			Permissions: commonModels.Permission{ID: row.PID, Name: row.PName, Description: row.PDescription, ModuleName: row.PModuleName, IsActive: row.PIsActive},
 			Parents:     permissionRefs(Parents(row.PName), idByName, granted),
+			AllParents:  permissionRefs(AllParents(row.PName), idByName, granted),
 			SoftParents: permissionRefs(SoftParents(row.PName), idByName, granted),
 			Dependents:  permissionRefs(Dependents(row.PName), idByName, granted),
 		})
@@ -473,6 +497,57 @@ func deleteRole(ctx context.Context, id uint) error {
 	})
 }
 
+// findRolesPage lists every role (system roles included — the screens show them read-only) with how many
+// employees hold each one: system roles first, then by name.
+func findRolesPage(ctx context.Context, search string, limit, offset int) ([]RoleListRow, int64, error) {
+	q := config.DB.
+		WithContext(ctx).Table("roles")
+	if s := strings.TrimSpace(search); s != "" {
+		q = q.Where("name ILIKE ?", "%"+s+"%")
+	}
+	var total int64
+	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	rows := []RoleListRow{}
+	q = q.Select("roles.id, roles.name, roles.description, roles.is_active, roles.is_system, " +
+		"(SELECT COUNT(*) FROM employees e WHERE e.role_id = roles.id AND e.deleted_at IS NULL) AS employee_count").
+		Order("roles.is_system desc, roles.name asc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Scan(&rows).Error
+	return rows, total, err
+}
+
+// findRoleEmployees lists the employees holding one role, by name.
+func findRoleEmployees(ctx context.Context, roleID uint, limit, offset int) ([]RoleEmployeeRow, int64, error) {
+	q := config.DB.
+		WithContext(ctx).Table("employees AS e").
+		Joins("LEFT JOIN branches b ON b.id = e.branch_id").
+		Where("e.role_id = ? AND e.deleted_at IS NULL", roleID)
+	var total int64
+	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	rows := []RoleEmployeeRow{}
+	q = q.Select("e.id, e.code, e.name, COALESCE(b.name, '') AS branch_name").Order("e.name asc")
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Scan(&rows).Error
+	return rows, total, err
+}
+
+// validRoleDescription trims a role description and checks its length.
+func validRoleDescription(desc string) (string, error) {
+	desc = strings.TrimSpace(desc)
+	if utf8.RuneCountInString(desc) > RoleDescriptionMax {
+		return "", NewBadRequest(fmt.Sprintf("Description can be at most %d characters", RoleDescriptionMax))
+	}
+	return desc, nil
+}
+
 func employeesWithRole(ctx context.Context, roleID uint) (*RoleInUseError, error) {
 	inUse := &RoleInUseError{}
 	q := config.DB.
@@ -648,6 +723,35 @@ func ListRoles(c echo.Context) error {
 	return Success(c, http.StatusOK, roles)
 }
 
+// ListRolesPage is GET /roles/list?page=&limit=&search= — the paginated roles list with employee counts.
+func ListRolesPage(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	page, limit, offset := PageParams(c)
+	rows, total, err := findRolesPage(ctx, c.QueryParam("search"), limit, offset)
+	if err != nil {
+		return FailErr(c, err)
+	}
+	return SuccessPage(c, page, limit, total, rows)
+}
+
+// ListRoleEmployees is GET /roles/:id/employees?page=&limit= — the employees holding one role.
+func ListRoleEmployees(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := IDParam(c, "id")
+	if err != nil {
+		return FailErr(c, err)
+	}
+	if _, err := getRole(ctx, id); err != nil {
+		return FailErr(c, NewNotFound("role not found"))
+	}
+	page, limit, offset := PageParams(c)
+	rows, total, err := findRoleEmployees(ctx, id, limit, offset)
+	if err != nil {
+		return FailErr(c, err)
+	}
+	return SuccessPage(c, page, limit, total, rows)
+}
+
 func CreateRole(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	var req roleRequest
@@ -658,7 +762,11 @@ func CreateRole(c echo.Context) error {
 	if name == "" {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "name is required"})
 	}
-	role, err := InsertRole(ctx, name, req.Description)
+	desc, err := validRoleDescription(req.Description)
+	if err != nil {
+		return FailErr(c, err)
+	}
+	role, err := InsertRole(ctx, name, desc)
 	if err != nil {
 		return FailErr(c, err)
 	}
@@ -679,7 +787,11 @@ func UpdateRole(c echo.Context) error {
 	if name == "" {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "name is required"})
 	}
-	role, err := updateRole(ctx, id, name, req.Description, req.IsActive)
+	desc, err := validRoleDescription(req.Description)
+	if err != nil {
+		return FailErr(c, err)
+	}
+	role, err := updateRole(ctx, id, name, desc, req.IsActive)
 	if err != nil {
 		if errors.Is(err, ErrSystemRole) {
 			return c.JSON(http.StatusForbidden, echo.Map{"success": false, "error": "System roles cannot be modified"})

@@ -91,6 +91,9 @@ type CustomerCreateInput struct {
 	BankAccountName   string
 	BankAccountNumber string
 	BankIFSC          string
+	// ConfirmSamePerson: an investor being added shares a phone / PAN / Aadhaar with one under another name, and
+	// the user has confirmed they are the same person (investors only; see checkInvestorIdentity).
+	ConfirmSamePerson bool
 }
 
 type CustomerUpdateInput = CustomerCreateInput

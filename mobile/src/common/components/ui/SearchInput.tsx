@@ -1,6 +1,7 @@
 import { SELECTION_COLOR } from "@/common/theme/colors";
-import { useState } from "react";
-import { Pressable, TextInput, View, type StyleProp, type ViewStyle } from "react-native";
+import { useRef, useState } from "react";
+import { Pressable, TextInput, View, type StyleProp, type TextInputInstance, type ViewStyle } from "react-native";
+import { useHoldTip } from "./TipHost";
 import { textStyle } from "@/common/theme/typography";
 import { C } from "./base";
 import { PIcon } from "./PIcon";
@@ -10,6 +11,8 @@ type SearchInputProps = {
   value: string;
   onChangeText: (v: string) => void;
   placeholder: string;
+  /** Shown when the box is held, instead of the placeholder — what the search looks at. */
+  hint?: string;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -18,13 +21,19 @@ export function SearchInput({
   value,
   onChangeText,
   placeholder,
+  hint,
   style,
 }: SearchInputProps) {
   const [focused, setFocused] = useState(false);
+  const input = useRef<TextInputInstance>(null);
+  // Hold the box for its full hint (a long placeholder is cut off by the width), or the full text typed in it.
+  const hold = useHoldTip(() => hint ?? (value ? value : placeholder));
   return (
     <View style={[s.searchWrap, style]}>
       <View style={{ position: "relative", justifyContent: "center" }}>
       <TextInput
+        ref={input}
+        {...hold}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}

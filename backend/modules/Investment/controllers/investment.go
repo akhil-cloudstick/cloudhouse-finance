@@ -791,7 +791,8 @@ func matureInvestment(ctx context.Context, investmentID uint, branchID *uint, ac
 	}
 }
 
-func listPendingPayoutsForCalendar(ctx context.Context, branchID *uint) ([]CalendarPayout, error) {
+// ListPendingPayoutsForCalendar returns every pending payout of an active or matured investment, for the reminder calendar.
+func ListPendingPayoutsForCalendar(ctx context.Context, branchID *uint) ([]CalendarPayout, error) {
 	return findPendingPayoutsForCalendar(ctx, branchID)
 }
 
@@ -1249,6 +1250,8 @@ func findPendingPayoutsForCalendar(ctx context.Context, branchID *uint) ([]Calen
 		Joins("JOIN investments ON investments.id = investment_payouts.investment_id").
 		Joins("JOIN investors ON investors.id = investments.customer_id").
 		Where("investment_payouts.status = ?", "Pending").
+		// A payout dated on the day the investment was created needs no reminder.
+		Where("investment_payouts.due_date::date > investments.start_date::date").
 		Where("investments.status IN ?", []string{models.StatusActive, models.StatusMatured})
 	if branchID != nil {
 		q = q.Where("investments.branch_id = ?", *branchID)

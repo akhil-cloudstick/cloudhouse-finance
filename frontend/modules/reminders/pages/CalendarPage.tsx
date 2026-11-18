@@ -30,6 +30,8 @@ function evClass(type: CalendarEvent["type"]): string {
     case "PersonalLoanOverdue": return "over";
     case "LoanDue": return "due";
     case "PersonalLoanDue": return "due";
+    case "InvestmentPayoutOverdue": return "over";
+    case "InvestmentPayoutDue": return "pay";
     case "AuctionScheduled": return "due";
     case "InterestDue": return "pay";
     case "PromiseToPay": return "fup";
@@ -45,6 +47,7 @@ const GROUPS: { key: string; label: string; tone: "red" | "amber" | "green" | "i
   { key: "due", label: "Loan due", tone: "amber", types: ["LoanDue", "PersonalLoanDue"] },
   { key: "auction", label: "Auction", tone: "amber", types: ["AuctionScheduled"] },
   { key: "interest", label: "Interest", tone: "green", types: ["InterestDue"] },
+  { key: "investment", label: "Investment payout", tone: "green", types: ["InvestmentPayoutDue", "InvestmentPayoutOverdue"] },
   { key: "followup", label: "Follow-up", tone: "info", types: ["FollowUp"] },
   { key: "promise", label: "Promise to pay", tone: "info", types: ["PromiseToPay"] },
 ];
@@ -297,6 +300,7 @@ export function CalendarPage() {
                 <li><span className="tx"><b>Loan due dates</b><small>{events.filter((e) => e.type === "LoanDue").length} loans due this month</small></span></li>
                 <li><span className="tx"><b>Overdue loans</b><small>{events.filter((e) => e.type === "Overdue").length} loans overdue</small></span></li>
                 <li><span className="tx"><b>Interest reminders</b><small>{events.filter((e) => e.type === "InterestDue").length} scheduled</small></span></li>
+                <li><span className="tx"><b>Investment payouts</b><small>{events.filter((e) => e.type === "InvestmentPayoutDue" || e.type === "InvestmentPayoutOverdue").length} payouts due</small></span></li>
                 <li><span className="tx"><b>Scheduled auctions</b><small>{events.filter((e) => e.type === "AuctionScheduled").length} loans scheduled for auction</small></span></li>
                 <li><span className="tx"><b>Customer follow-ups</b><small>{events.filter((e) => e.type === "FollowUp").length} logged</small></span></li>
                 <li><span className="tx"><b>Promise-to-pay dates</b><small>{events.filter((e) => e.type === "PromiseToPay").length} logged</small></span></li>
@@ -339,9 +343,11 @@ export function CalendarPage() {
                   <li><span className="tx"><small>Select a circle to see its events.</small></span></li>
                 ) : dayEvents.slice(0, dayVisible).map((e, i) => {
                   // The whole entry opens its loan — no separate "Open loan" button.
-                  const loanHref = e.personalLoanId != null && canOpen("personalloan")
-                    ? routeHref(`personalloan/${e.personalLoanId}`)
-                    : e.loanNumber && canOpen("loan") ? routeHref(`loan/${e.loanNumber}`) : null;
+                  const loanHref = e.investmentId != null
+                    ? (canOpen("investment") ? routeHref(`investment/${e.investmentId}`) : null)
+                    : e.personalLoanId != null && canOpen("personalloan")
+                      ? routeHref(`personalloan/${e.personalLoanId}`)
+                      : e.loanNumber && canOpen("loan") ? routeHref(`loan/${e.loanNumber}`) : null;
                   const detailText = `${e.detail}${e.loanNumber ? ` · ${e.loanNumber}` : ""}`;
                   const ellipsis = { display: "block", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" };
                   const text = (
@@ -352,8 +358,8 @@ export function CalendarPage() {
                   );
                   return (
                   <li key={i}>
-                    <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
-                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />
+                    <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue" || e.type === "InvestmentPayoutOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
+                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : e.investmentId != null ? "coin" : "bell"} />
                     </span>
                     {loanHref ? (
                       <a className="tx" href={loanHref} title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1, color: "inherit", textDecoration: "none", cursor: "pointer" }}>{text}</a>

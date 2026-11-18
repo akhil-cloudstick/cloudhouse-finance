@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Buffering, C, CenterModal, ChipToggle, DateField, Field, GrmTabs, Input, PrimaryButton, ReviewWarning, ServerFlatList, Txt, toast } from "@/common/components/ui";
-import { Chevron } from "@/common/components/ui/Chevron";
-import { useServerList } from "@/common/hooks/use-server-list";
-import { latestGoldRate, listGoldRatesPage, publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
+import { Buffering, C, CenterModal, ChipToggle, Field, Input, PrimaryButton, ReviewWarning, Txt, openPage, toast } from "@/common/components/ui";
+import { latestGoldRate, publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { dmy, inr, todayISO } from "@/common/utils/format";
+import { inr } from "@/common/utils/format";
 import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/common/utils/purity";
-import type { GoldRate } from "@/modules/gold-rates/types/gold-rate-types";
 import { userMessage } from "@/common/services/apiErrors";
 import { FieldErr } from "@/common/components/ErrorText";
 import { s } from "./shellModalsShared";
@@ -26,7 +23,8 @@ import { s } from "./shellModalsShared";
 // Only karats whose rate actually changed are published, together as one history row.
 //
 // Set Rate lets staff set all three karats (Auto derives 22K/18K off 24K;
-// Manual types each independently); the History tab lists the 24K rate set on each day, with who published it.
+// Manual types each independently) for today — there is no date to pick. The rate history, with its search and
+// Set By / Date filters, is the Gold Rates page (src/modules/gold-rates/pages/GoldRatesScreen.tsx), linked below the form.
 // ---------------------------------------------------------------------------
 type RateMode = "Auto" | "Manual";
 type Karat = 24 | 22 | 18;
@@ -42,36 +40,12 @@ const savedFineness = (k: Karat, k24: number, rate: number) => (k === 24 ? Strin
 const clampFineness = (v: string) => (v !== "" && +v > 100 ? "100" : v);
 type GoldRateModalProps = { visible: boolean; onClose: () => void };
 
-/* One day in the History tab: the 24K rate, with a chevron to reveal 22K and 18K. */
-function HistoryRate({ r, first, open, onToggle }: { r: GoldRate; first: boolean; open: boolean; onToggle: () => void }) {
-  return (
-    <View style={[s.histRow, !first && { borderTopWidth: 1, borderTopColor: C.line }]}>
-      <Pressable onPress={onToggle} accessibilityRole="button" accessibilityLabel={open ? "Hide 24K, 22K and 18K rates" : "Show 24K, 22K and 18K rates"} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Txt style={{ flex: 1, fontSize: 12.5, color: C.muted }}>{dmy(r.date || r.createdAt)}</Txt>
-        {r.setBy ? <Txt style={{ fontSize: 12.5, fontWeight: "600", color: C.ink, flexShrink: 1 }} numberOfLines={1}>{r.setBy}</Txt> : null}
-        <Chevron open={open} />
-      </Pressable>
-      {open ? (
-        <View style={{ marginTop: 8, gap: 4 }}>
-          {([["24K", r.k24], ["22K", r.k22], ["18K", r.k18]] as const).map(([lbl, v]) => (
-            <View key={lbl} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Txt style={{ fontSize: 12.5, color: C.muted }}>{lbl}</Txt>
-              <Txt style={{ fontSize: 13, fontWeight: "600", color: C.ink }}>{inr(v)}</Txt>
-            </View>
-          ))}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const qc = useQueryClient();
   const { employee, can } = useAuth();
-  // Without "can create gold rate" the modal is history-only.
+  // Without "can create gold rate" there is nothing to set: the Gold Rates page (rates + history) opens instead.
   const canSetRate = can("Gold_Rate_Management", "can_create_gold_rate");
-  const [tab, setTab] = useState<"set" | "history">(canSetRate ? "set" : "history");
-  const latest = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible });
+  const latest = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible && canSetRate });
   const now: Record<Karat, number> = { 24: latest.data?.k24 ?? 0, 22: latest.data?.k22 ?? 0, 18: latest.data?.k18 ?? 0 };
 
   const [mode, setMode] = useState<RateMode>("Auto");
@@ -80,14 +54,9 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const [fin, setFin] = useState<Record<Karat, string>>({ 24: String(FINENESS_24K), 22: savedFineness(22, now[24], now[22]), 18: savedFineness(18, now[24], now[18]) });
   const [lastEdited, setLastEdited] = useState<Karat | null>(null);
   const [tried, setTried] = useState(false);
-  // History: only one day's rates are expanded at a time.
-  const [openRate, setOpenRate] = useState<GoldRate["id"] | null>(null);
-  // The day the rate is for — today unless another day is picked; the same rate may be saved for any day.
-  const [rateDate, setRateDate] = useState(todayISO());
 
   const resetAuto = (k24: number) => {
     setMode("Auto");
-    setRateDate(todayISO());
     setRef24(k24);
     const f22 = savedFineness(22, now[24], now[22]);
     const f18 = savedFineness(18, now[24], now[18]);
@@ -103,9 +72,18 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
 
   useEffect(() => {
     if (!visible) return;
-    setTab(canSetRate ? "set" : "history");
+    if (!canSetRate) {
+      onClose();
+      openPage("/gold-rates");
+      return;
+    }
     if (latest.data) resetAuto(latest.data.k24 || 0);
   }, [visible, latest.data, canSetRate]);
+
+  const openHistory = () => {
+    onClose();
+    openPage("/gold-rates");
+  };
 
   const switchMode = (m: RateMode) => {
     if (m === "Auto") resetAuto(ref24 || now[24]);
@@ -158,19 +136,12 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   };
   const hierarchyMsg = bad2224 ? "22K above 24K." : bad1822 ? "18K above 22K." : bad1824 ? "18K above 24K." : null;
 
-  const history = useServerList<GoldRate>({
-    key: ["gold-rates", "history"],
-    fetchPage: (p) => listGoldRatesPage({ limit: p.limit, offset: p.offset }),
-    enabled: visible && tab === "history",
-  });
-
   const save = useMutation({
     mutationFn: async () => {
       const setBy = employee?.name ?? "Mobile App";
-      if (!rateDate) throw new Error("Pick the date this rate is for.");
-      // All three rates are published for the chosen day, even when they equal the current ones.
+      // All three rates are published for today, even when they equal the current ones.
       const jobs = KARAT_ROWS.filter(({ k }) => n[k] > 0).map(({ k }) => ({ karat: k, rate: n[k] }));
-      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, rateDate);
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy);
       return jobs;
     },
     onSuccess: (jobs) => {
@@ -183,17 +154,13 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   });
 
   const canPublish = n[24] > 0 && n[22] > 0 && n[18] > 0;
-  // Height the Set Rate tab laid out at — the History tab reuses it.
-  const [setTabH, setSetTabH] = useState(0);
 
   return (
     <CenterModal visible={visible} onClose={onClose} title="Gold Rate">
-      {canSetRate ? <GrmTabs tabs={["set", "history"] as const} value={tab} onChange={setTab} labels={{ set: "Set Rate", history: "History" }} /> : null}
-      {tab === "set" && canSetRate ? (
-        latest.isLoading ? (
+      {!canSetRate ? null : latest.isLoading ? (
           <Buffering block />
         ) : (
-          <View style={{ flexShrink: 1 }} onLayout={(e) => setSetTabH(e.nativeEvent.layout.height)}>
+          <View style={{ flexShrink: 1 }}>
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -208,8 +175,6 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
                 </View>
               ))}
             </View>
-            <DateField label="Rate date" value={rateDate} onChange={setRateDate} />
-            {tried && !rateDate ? <FieldErr m="Pick the date this rate is for." /> : null}
             <Field label="Mode">
               <ChipToggle options={["Auto", "Manual"] as const} value={mode} onChange={switchMode} />
             </Field>
@@ -233,28 +198,15 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
               </View>
             ))}
             {hierarchyMsg ? <ReviewWarning>{hierarchyMsg}</ReviewWarning> : null}
+            {/* The full rate history — search plus Set By / Date filters — is its own page. */}
+            <PrimaryButton label="View Rate History" variant="outline" onPress={openHistory} style={{ marginTop: 6 }} />
           </ScrollView>
           {/* Sticky footer — the fields scroll, the button stays put. */}
           <View style={s.modalFooter}>
-            <PrimaryButton label="Save New Rate" onPress={() => (canPublish && rateDate ? save.mutate() : setTried(true))} loading={save.isPending} />
+            <PrimaryButton label="Save New Rate" onPress={() => (canPublish ? save.mutate() : setTried(true))} loading={save.isPending} />
           </View>
           </View>
-        )
-      ) : (
-        // Same height as the Set Rate tab, so switching tabs never resizes
-        // the pop-up (both stay within the card's 76% screen cap).
-        <View style={setTabH ? { height: setTabH } : { maxHeight: 420 }}>
-          <ServerFlatList
-            list={history}
-            items={history.items}
-            inSheet
-            gutter={16}
-            emptyText="No rate history yet."
-            keyOf={(r) => String(r.id)}
-            renderItem={(r, i) => <HistoryRate r={r} first={i === 0} open={openRate === r.id} onToggle={() => setOpenRate((o) => (o === r.id ? null : r.id))} />}
-          />
-        </View>
-      )}
+        )}
     </CenterModal>
   );
 }

@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
+import { safeDownload } from "@/common/utils/safeDownload";
 import { presentFile } from "@/common/utils/presentFile";
 import { AccRow, Buffering, C, Card, ConfirmSheet, EmptyText, FabMenu, FieldGrid, FlatHeader, PillTabs, Screen, ServerFlatList, Sheet, SheetListItem, StatusChip, Txt, WarningBanner, toast, type FabMenuAction } from "@/common/components/ui";
 import { ApprovalChainPanel } from "@/common/components/ApprovalChainPanel";
@@ -109,7 +110,7 @@ export default function PersonalLoanDetailScreen() {
       const token = await getToken();
       const targetUri = `${FileSystem.cacheDirectory}bond-${l.loanNumber}-${lang}.pdf`;
       const result = await withPrintProgress(() =>
-        FileSystem.downloadAsync(personalLoanBondUrl(l.id, lang), targetUri, {
+        safeDownload(personalLoanBondUrl(l.id, lang), targetUri, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
       );

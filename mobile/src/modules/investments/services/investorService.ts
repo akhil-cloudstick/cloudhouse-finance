@@ -20,8 +20,18 @@ export function getInvestorAadhaarFull(id: number) {
   return apiRequest<{ aadhaar: string }>(`/investors/${id}/aadhaar-full`).then((r) => r.aadhaar);
 }
 
-export function createInvestor(input: CustomerInput) {
-  return apiRequest<Investor>("/investors", { method: "POST", body: input });
+/** An investor already on file with the same phone / PAN / Aadhaar under a different name (the server's 409 body). */
+export type SameIdentityMatch = { id: number; source: "investor" | "customer"; code: string; name: string; phone: string; fields: string[] };
+
+/** The matches in a "same person?" 409, or null for any other error. */
+export function sameIdentityMatches(e: unknown): SameIdentityMatch[] | null {
+  const body = (e as { status?: number; body?: { code?: string; matches?: SameIdentityMatch[] } } | null);
+  return body?.status === 409 && body.body?.code === "same_identity_different_name" && Array.isArray(body.body.matches) ? body.body.matches : null;
+}
+
+/** confirmSamePerson: the user confirmed this is the same person as the existing investor(s) sharing a number. */
+export function createInvestor(input: CustomerInput, confirmSamePerson?: boolean) {
+  return apiRequest<Investor>("/investors", { method: "POST", body: input, params: confirmSamePerson ? { confirm_same_person: "true" } : undefined });
 }
 
 export function updateInvestor(id: number, input: CustomerInput) {

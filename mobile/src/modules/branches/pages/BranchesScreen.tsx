@@ -104,30 +104,35 @@ function BranchFormSheet({ visible, onClose, editing }: BranchFormSheetProps) {
   );
 }
 
-type DeactivateSheetProps = { branch: Branch | null; onClose: () => void };
+type StatusSheetProps = { branch: Branch | null; activate: boolean; onClose: () => void };
 
-/** Deactivate confirmation (ports the old [id].tsx's deactivate action). */
-function DeactivateSheet({ branch, onClose }: DeactivateSheetProps) {
+/** Deactivate / Activate confirmation. Activating goes through the same update call the edit form uses (isActive: true);
+ * the server applies the plan's branch limit and answers with its own message when it is reached. */
+function StatusSheet({ branch, activate, onClose }: StatusSheetProps) {
   const queryClient = useQueryClient();
-  const deactivate = useMutation({
-    mutationFn: () => deactivateBranch(branch!.id),
+  const change = useMutation({
+    mutationFn: () =>
+      activate
+        ? updateBranch(branch!.id, { name: branch!.name, code: branch!.code, address: branch!.address, phone: branch!.phone, isActive: true })
+        : deactivateBranch(branch!.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       onClose();
     },
   });
-  useEffect(() => deactivate.reset(), [branch]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => change.reset(), [branch, activate]); // eslint-disable-line react-hooks/exhaustive-deps
+  const verb = activate ? "Activate" : "Deactivate";
   return (
-    <Sheet visible={branch != null} onClose={onClose} title="Deactivate Branch" maxHeightPct={50}>
+    <Sheet visible={branch != null} onClose={onClose} title={`${verb} Branch`} maxHeightPct={50}>
       <Txt style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>
-        {branch?.name} will be marked inactive. Existing records are kept.
+        {activate ? `${branch?.name} will be selectable for new records again.` : `${branch?.name} will be marked inactive. Existing records are kept.`}
       </Txt>
-      {deactivate.isError ? (
+      {change.isError ? (
         <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>
-          {deactivate.error instanceof ApiError ? deactivate.error.message : "Could not deactivate."}
+          {change.error instanceof ApiError ? change.error.message : `Could not ${verb.toLowerCase()}.`}
         </Txt>
       ) : null}
-      <PrimaryButton label="Deactivate Branch" variant="danger" loading={deactivate.isPending} onPress={() => deactivate.mutate()} />
+      <PrimaryButton label={`${verb} Branch`} variant={activate ? "primary" : "danger"} loading={change.isPending} onPress={() => change.mutate()} />
     </Sheet>
   );
 }
@@ -136,6 +141,8 @@ export default function BranchesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Branch | null>(null);
   const [deactivating, setDeactivating] = useState<Branch | null>(null);
+  // Which way the status sheet goes for that branch (a deactivated branch can be activated again).
+  const [activating, setActivating] = useState(false);
   const { can } = useAuth();
   const canCreate = can("Branch_Management", "can_create_branch");
   const canUpdate = can("Branch_Management", "can_update_branch");
@@ -200,7 +207,9 @@ export default function BranchesScreen() {
             ]}
             actions={[
               ...(canViewLedger ? [{ label: "Ledger", onPress: () => openPage(`/branches/${b.id}?label=${encodeURIComponent(b.name)}`) }] : []),
-              ...(b.isActive && canDelete ? [{ label: "Deactivate", danger: true, onPress: () => setDeactivating(b) }] : []),
+              // Always in the same place (between Ledger and Edit): Deactivate while active, Activate once it is not.
+              ...(b.isActive && canDelete ? [{ label: "Deactivate", danger: true, onPress: () => { setActivating(false); setDeactivating(b); } }] : []),
+              ...(!b.isActive && canUpdate ? [{ label: "Activate", onPress: () => { setActivating(true); setDeactivating(b); } }] : []),
               ...(canUpdate
                 ? [
                     {
@@ -219,7 +228,7 @@ export default function BranchesScreen() {
       />
 
       <BranchFormSheet visible={formOpen} onClose={() => setFormOpen(false)} editing={editing} />
-      <DeactivateSheet branch={deactivating} onClose={() => setDeactivating(null)} />
+      <StatusSheet branch={deactivating} activate={activating} onClose={() => setDeactivating(null)} />
     </Screen>
   );
 }

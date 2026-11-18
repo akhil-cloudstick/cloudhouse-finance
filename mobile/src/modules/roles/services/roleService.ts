@@ -1,8 +1,23 @@
 import { apiRequest, apiRequestEnveloped } from "@/common/services/httpClient";
-import type { RoleRecord, MatrixResponse, PermissionRow } from "@/modules/roles/types/role-types";
+import type { RoleRecord, MatrixResponse, PermissionRow, PagedResult, RoleListRow, RoleEmployeeRow } from "@/modules/roles/types/role-types";
 
 export function fetchRoles(): Promise<RoleRecord[]> {
   return apiRequestEnveloped<RoleRecord[]>("/roles");
+}
+
+async function fetchPaged<T>(path: string, params: Record<string, string | number | undefined>): Promise<PagedResult<T>> {
+  const rec = await apiRequestEnveloped<{ items?: T[]; hasMore?: boolean; total?: number }>(path, { params });
+  return { items: rec?.items ?? [], hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+}
+
+/** Paginated roles list (system roles left out) with how many employees hold each role. */
+export function fetchRolesPage(page: number, limit: number, search?: string): Promise<PagedResult<RoleListRow>> {
+  return fetchPaged<RoleListRow>("/roles/list", { page, limit, search: search || undefined });
+}
+
+/** Paginated list of the employees holding one role. */
+export function fetchRoleEmployees(roleId: number, page: number, limit: number): Promise<PagedResult<RoleEmployeeRow>> {
+  return fetchPaged<RoleEmployeeRow>(`/roles/${roleId}/employees`, { page, limit });
 }
 
 // NOT apiRequestEnveloped: this endpoint's body is flat — {success, role,
@@ -24,6 +39,7 @@ const normaliseRow = (r: PermissionRow): PermissionRow => {
     ...withPermissionId(row),
     role_id: row.role_id ?? row.roleId ?? 0,
     parents: row.parents?.map(withPermissionId),
+    all_parents: row.all_parents?.map(withPermissionId),
     soft_parents: row.soft_parents?.map(withPermissionId),
     dependents: row.dependents?.map(withPermissionId),
   };
