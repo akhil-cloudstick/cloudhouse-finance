@@ -28,7 +28,9 @@ export const metadata: Metadata = {
   title: "CloudHouse Finance | Software for licensed gold lenders",
   description:
     "CloudHouse Finance is business software for licensed gold lenders: customer KYC, gold appraisal, loan records, vault tracking and reports, in one staff app.",
-  icons: { icon: "/cloudhouse-icon.png", apple: "/cloudhouse-apple-icon.png" },
+  // The tab icon comes from icon.png / apple-icon.png beside this file: Next
+  // bundles them under /_next/static, so they load on every host (the apex
+  // answered 404 for the copies in /public).
 };
 
 export const viewport: Viewport = {

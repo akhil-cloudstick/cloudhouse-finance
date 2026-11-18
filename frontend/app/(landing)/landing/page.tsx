@@ -5,6 +5,8 @@
  * public to apply for a loan (App Store guideline 3.2.1(viii)). */
 
 import Link from "next/link";
+// Imported, not linked from /public: bundled files are served from /_next/static on every host.
+import markImg from "@/modules/legal/assets/cloudhouse-mark.png";
 import { CONTACT_ADDRESS_LINES, CONTACT_EMAIL, CONTACT_LEGAL_NAME, CONTACT_PHONE_DISPLAY, CONTACT_PHONE_TEL } from "@/modules/legal/content/legalConfig";
 
 const SUPPORT_EMAIL = CONTACT_EMAIL;
@@ -97,7 +99,7 @@ export default function LandingPage() {
         <div className="lp-wrap lp-header-row">
           <Link className="lp-brand" href="/" aria-label="CloudHouse Finance home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/cloudhouse-mark.png" alt="" width={32} height={32} />
+            <img src={markImg.src} alt="" width={32} height={32} />
             <span>CloudHouse Finance</span>
           </Link>
           <nav className="lp-nav" aria-label="Main">
