@@ -287,7 +287,7 @@ export function AccRow({
         <View style={s.body}>
           <View style={s.detail}>
             {details?.map((d) => (
-              <View key={d.k} style={s.detailCell}>
+              <View key={d.k} style={d.full ? [s.detailCell, { width: "100%" }] : s.detailCell}>
                 <Txt style={s.k}>{d.k}</Txt>
                 {typeof d.v === "string" || typeof d.v === "number" ? (
                   <TruncText lines={3} style={[s.v, d.color ? { color: d.color } : null]}>{d.v}</TruncText>

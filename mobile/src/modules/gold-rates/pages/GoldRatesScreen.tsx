@@ -64,9 +64,9 @@ function ChangesDropdown({ entries }: { entries: GoldRate[] }) {
               </View>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {([["24K", e.k24], ["22K", e.k22], ["18K", e.k18]] as const).map(([lbl, v]) => (
-                  <View key={lbl} style={{ flex: 1, backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.line, paddingVertical: 6, alignItems: "center" }}>
+                  <View key={lbl} style={{ flex: 1, minWidth: 0, backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.line, paddingVertical: 6, paddingHorizontal: 4, alignItems: "center" }}>
                     <Txt style={{ color: C.muted, fontSize: 11 }}>{lbl}</Txt>
-                    <Txt style={{ fontWeight: "700", fontSize: 13 }}>{inr(v)}</Txt>
+                    <Txt numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ fontWeight: "700", fontSize: 13 }}>{inr(v)}</Txt>
                   </View>
                 ))}
               </View>

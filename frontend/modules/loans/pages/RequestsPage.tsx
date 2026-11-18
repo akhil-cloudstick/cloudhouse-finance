@@ -265,17 +265,12 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                     )}
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>
-                    {/* Fixed flex layout, not text-align:center on the cell —
-                        centering inline content shifts the View/Review
-                        button's own x-position depending on whether the
-                        Download button beside it exists on that row. A
-                        reserved, always-same-size slot (invisible when not
-                        applicable) keeps every row's View button lined up
-                        in the same column. */}
-                    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
+                    {/* View / Review always keeps the same size. No space is held back for Download: the buttons sit against the
+                        right edge, so a Review row's button moves over into the spot Download would have taken. */}
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
                       <button
                         className="btn ghost sm"
-                        style={{ minWidth: 64, textAlign: "center", justifyContent: "center" }}
+                        style={{ minWidth: 74, textAlign: "center", justifyContent: "center" }}
                         onClick={() => openModal(
                           r.type === "Extension"
                             ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
@@ -285,10 +280,8 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                       >
                         {r.status === "Pending" && canDecide ? "Review" : "View"}
                       </button>
-                      <div
-                        className="docs-dd"
-                        style={{ visibility: r.type === "Release" && r.status === "Approved" ? "visible" : "hidden" }}
-                      >
+                      {r.type === "Release" && r.status === "Approved" && (
+                      <div className="docs-dd" style={{ flex: "none" }}>
                         <button
                           type="button"
                           className="btn ghost sm"
@@ -305,11 +298,11 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                               onConfirm={(lang) => (r.isPartial ? downloadPartialReceipt(r, lang === "ml" ? "ml" : "en") : downloadReleaseAgreement(r, lang === "ml" ? "ml" : "en"))}
                             />
                           )}
-                          tabIndex={r.type === "Release" && r.status === "Approved" ? 0 : -1}
                         >
                           <Icon name="download" />
                         </button>
                       </div>
+                      )}
                     </div>
                   </td>
                 </tr>
