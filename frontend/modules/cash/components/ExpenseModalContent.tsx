@@ -111,9 +111,9 @@ export function ExpenseModalContent({ onSaved, tabs, edit }: ExpenseModalContent
     if (loanBal && isLoanSource(cat) && amount > owed + 0.005) errors["amount"] ??= loanWarning(amount);
     if (!date) errors["date"] ??= "Please select the date.";
     const issue = paymentRowIssue(payRows, amount);
-    if (issue) { setErr(""); setFe({}); setPayIssue(issue); return; }
     if (!branchId) errors["branch"] ??= "Please select a branch.";
-    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+    // The payment-row problem and every other missing field are shown together, not one after the other.
+    if (issue || Object.keys(errors).length) { setErr(""); setFe(errors); setPayIssue(issue ?? null); return; }
     if (!branchId) return; // narrows branchId; the check above already reported it
 
     setSaving(true);

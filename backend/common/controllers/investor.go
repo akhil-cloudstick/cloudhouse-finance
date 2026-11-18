@@ -89,6 +89,106 @@ func checkInvestorUnique(ctx context.Context, column, value, msg string, exclude
 	return nil
 }
 
+// DuplicateIdentityMatch is an existing record (an investor or a borrower) that shares a phone number, PAN or
+// Aadhaar with the investor being added.
+type DuplicateIdentityMatch struct {
+	ID     uint     `json:"id"`
+	Source string   `json:"source"` // "investor" or "customer" (borrower)
+	Code   string   `json:"code"`
+	Name   string   `json:"name"`
+	Phone  string   `json:"phone"`
+	Fields []string `json:"fields"` // which of "Phone number", "PAN", "Aadhaar number" match
+}
+
+// DuplicateIdentityError asks the user to confirm that the investor being added is the same person as the
+// existing investor / borrower that shares a phone number, PAN or Aadhaar. It is a 409 with the matches in the
+// body; the same request sent again with ?confirm_same_person=true is then accepted.
+type DuplicateIdentityError struct{ Matches []DuplicateIdentityMatch }
+
+func (e *DuplicateIdentityError) Error() string {
+	names := make([]string, 0, len(e.Matches))
+	for _, m := range e.Matches {
+		names = append(names, m.Name)
+	}
+	return "This phone number, PAN or Aadhaar already belongs to " + strings.Join(names, ", ") + ". Are they the same person?"
+}
+
+func (e *DuplicateIdentityError) Status() int { return http.StatusConflict }
+
+// checkInvestorIdentity compares the phone number, PAN and Aadhaar being added with the investors AND the
+// borrowers already on file. A phone / PAN / Aadhaar is never put on a second investor record:
+//   - the same name on an investor is a plain duplicate (refused);
+//   - any other match needs the user to say it is the same person (DuplicateIdentityError) unless `confirmed`;
+//   - confirmed, an existing investor is returned and used as is (no second record is added), while a match
+//     only on a borrower returns nil so the investor is created for that same person.
+func checkInvestorIdentity(ctx context.Context, in CustomerCreateInput, aadhaarHash string, confirmed bool) (*commonModels.Investor, error) {
+	byKey := map[string]*DuplicateIdentityMatch{}
+	var order []string
+	var existing *commonModels.Investor
+	sameName := ""
+	note := func(source string, id uint, code, name, phone, label string) {
+		key := fmt.Sprintf("%s:%d", source, id)
+		m, ok := byKey[key]
+		if !ok {
+			m = &DuplicateIdentityMatch{ID: id, Source: source, Code: code, Name: name, Phone: phone}
+			byKey[key] = m
+			order = append(order, key)
+		}
+		m.Fields = append(m.Fields, label)
+	}
+	sameNameAs := func(name string) bool { return strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(in.Name)) }
+	look := func(column, value, label string) error {
+		if value == "" {
+			return nil
+		}
+		var invs []commonModels.Investor
+		if err := config.DB.WithContext(ctx).Where(column+" = ?", value).Find(&invs).Error; err != nil {
+			return err
+		}
+		for i := range invs {
+			r := invs[i]
+			note("investor", r.ID, r.Code, r.Name, r.Phone, label)
+			if existing == nil {
+				existing = &invs[i]
+			}
+			if sameNameAs(r.Name) && sameName == "" {
+				sameName = label
+			}
+		}
+		var custs []commonModels.Customer
+		if err := config.DB.WithContext(ctx).Where(column+" = ?", value).Find(&custs).Error; err != nil {
+			return err
+		}
+		for _, r := range custs {
+			note("customer", r.ID, r.Code, r.Name, r.Phone, label)
+		}
+		return nil
+	}
+	if err := look("phone", in.Phone, "Phone number"); err != nil {
+		return nil, err
+	}
+	if err := look("pan", in.PAN, "PAN"); err != nil {
+		return nil, err
+	}
+	if err := look("aadhaar_hash", aadhaarHash, "Aadhaar number"); err != nil {
+		return nil, err
+	}
+	if len(order) == 0 {
+		return nil, nil
+	}
+	if sameName != "" {
+		return nil, NewConflict(sameName + " is already registered to an investor with this name")
+	}
+	if !confirmed {
+		matches := make([]DuplicateIdentityMatch, 0, len(order))
+		for _, k := range order {
+			matches = append(matches, *byKey[k])
+		}
+		return nil, &DuplicateIdentityError{Matches: matches}
+	}
+	return existing, nil
+}
+
 func investorConflict(err error) error {
 	if err == nil {
 		return nil
@@ -121,15 +221,14 @@ func SaveInvestor(ctx context.Context, in CustomerCreateInput) (*commonModels.In
 	if err := checkCustomerBranch(ctx, in.BranchID); err != nil {
 		return nil, err
 	}
-	if err := checkInvestorUnique(ctx, "phone", in.Phone, "phone number is already registered to another investor", 0); err != nil {
-		return nil, err
-	}
-	if err := checkInvestorUnique(ctx, "pan", in.PAN, "PAN is already registered to another investor", 0); err != nil {
-		return nil, err
-	}
 	aadhaarHash := config.AadhaarCipher.Fingerprint(in.Aadhaar)
-	if err := checkInvestorUnique(ctx, "aadhaar_hash", aadhaarHash, "Aadhaar number is already registered to another investor", 0); err != nil {
+	existing, err := checkInvestorIdentity(ctx, in, aadhaarHash, in.ConfirmSamePerson)
+	if err != nil {
 		return nil, err
+	}
+	if existing != nil {
+		// Confirmed to be the same person as an investor already on file: that record is used, not duplicated.
+		return existing, nil
 	}
 	encrypted, err := config.AadhaarCipher.Encrypt(in.Aadhaar)
 	if err != nil {
@@ -378,8 +477,13 @@ func CreateInvestor(c echo.Context) error {
 			in.PAN = cust.PAN
 		}
 	}
+	in.ConfirmSamePerson = c.QueryParam("confirm_same_person") == "true"
 	rec, err := SaveInvestor(ctx, in)
 	if err != nil {
+		var dup *DuplicateIdentityError
+		if errors.As(err, &dup) {
+			return c.JSON(http.StatusConflict, echo.Map{"success": false, "error": dup.Error(), "code": "same_identity_different_name", "matches": dup.Matches})
+		}
 		return FailErr(c, err)
 	}
 	return Success(c, http.StatusOK, InvestorToResponse(rec))

@@ -21,6 +21,7 @@ import {
 } from "@/common/services/approvalWorkflowService";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
+import { TruncText } from "@/common/components/ui/TruncText";
 import { AdditionalInfoView } from "@/common/components/ui/AdditionalInfoView";
 import { fmt, fmtW, fmtDate, fmtDateTime, fmtToday } from "@/common/utils/format";
 import { rupeesInWords } from "@/common/utils/numberToWords";
@@ -1282,7 +1283,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
             {docsMenuOpen && (
-              <div className="docs-dd-menu" role="menu">
+              <div className="docs-dd-menu docs-dd-fit" role="menu">
                 <a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
                   <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
                 </a>
@@ -1596,7 +1597,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td data-label="Date">{fmtDate(entry.date)}</td>
-                            <td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
+                            <td data-label="Ref No"><TruncText text={a.auctionReferenceNumber} maxWidth={120} /></td>
                             <td data-label="Particulars">Auction Sale</td>
                             <td data-label="Method">Auction</td>
                             <td className="num" data-label="Debit">—</td>
@@ -1604,7 +1605,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                             <td className="num" data-label="Balance">—
                               {infoIcon({
                                 title: "Auction Sale", kind: "Auction · Sale",
-                                rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Sale amount", fmt(a.saleAmount)], ["Auction expenses", fmt(a.auctionExpenses)]],
+                                rows: [["Date", fmtDate(entry.date)], ["Reference", <TruncText key="ref" text={a.auctionReferenceNumber} maxWidth="100%" />], ["Sale amount", fmt(a.saleAmount)], ["Auction expenses", fmt(a.auctionExpenses)]],
                                 description: <>Auction Sale<br />{auctionBreakdown(a)}</>,
                                 actions: [
                                   ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("sale", "edit") }] : []),
@@ -1626,7 +1627,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td data-label="Date">{fmtDate(entry.date)}</td>
-                            <td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
+                            <td data-label="Ref No"><TruncText text={a.auctionReferenceNumber} maxWidth={120} /></td>
                             <td data-label="Particulars">Auction Surplus {fmt(a.surplusPayableAmount)}{a.surplusRemarks && <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{a.surplusRemarks}</span>}</td>
                             <td data-label="Method">{refunded ? "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
                             <td className="num" style={{ color: refunded ? "var(--red)" : undefined }} data-label="Debit">{refunded ? fmt(a.surplusPayableAmount) : "—"}</td>
@@ -1634,7 +1635,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                             <td className="num" data-label="Balance">—
                               {infoIcon({
                                 title: "Auction Surplus", kind: "Auction · Surplus",
-                                rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Surplus", fmt(a.surplusPayableAmount)], ["Status", baseNote], ...(a.surplusRemarks ? [["Remarks", a.surplusRemarks] as [string, string]] : [])],
+                                rows: [["Date", fmtDate(entry.date)], ["Reference", <TruncText key="ref" text={a.auctionReferenceNumber} maxWidth="100%" />], ["Surplus", fmt(a.surplusPayableAmount)], ["Status", baseNote], ...(a.surplusRemarks ? [["Remarks", a.surplusRemarks] as [string, string]] : [])],
                                 description: <>Auction Surplus {fmt(a.surplusPayableAmount)}<br />{note}</>,
                                 actions: [
                                   ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("surplus", "edit") }] : []),

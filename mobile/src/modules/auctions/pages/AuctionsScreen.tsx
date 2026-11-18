@@ -175,7 +175,6 @@ function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: AuctionCa
   const hasRecord = l.status === "Auction Eligible" || l.status === "Auctioned";
   const auction = useQuery({ queryKey: ["auction", String(l.id)], queryFn: () => getAuction(l.id), enabled: hasRecord });
   const days = l.daysOverdue ?? 0;
-  const overdue = !!l.isOverdue || days > 0;
   return (
     <AccRow
       defaultOpen={defaultOpen}
@@ -183,7 +182,8 @@ function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: AuctionCa
       name={l.customer?.name ?? `Customer #${l.customerId}`}
       sub={sub}
       amount={inr(l.totalOutstandingBalance ?? l.outstandingAmount)}
-      status={overdue ? "Overdue" : l.status}
+      // The case status (Defaulted / Auction Eligible / Auctioned), the same one shown under the name — not "Overdue".
+      status={sub}
       details={[
         { k: "Gold weight", v: l.totalNetWeight != null ? `${+Number(l.totalNetWeight).toFixed(2)} g` : "—" },
         { k: "Days overdue", v: `${days} day${days === 1 ? "" : "s"}`, color: days > 0 ? C.red : undefined },

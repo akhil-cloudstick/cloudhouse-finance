@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AsyncSelect, Field, Input, PrimaryButton, Sheet, toast } from "@/common/components/ui";
+import { AsyncSelect, ConfirmSheet, Field, Input, PrimaryButton, Sheet, toast } from "@/common/components/ui";
 import { FieldErr } from "@/common/components/ErrorText";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
-import { createInvestor, getInvestorAadhaarFull, updateInvestor, type Investor } from "@/modules/investments/services/investorService";
+import { createInvestor, getInvestorAadhaarFull, sameIdentityMatches, updateInvestor, type Investor, type SameIdentityMatch } from "@/modules/investments/services/investorService";
 import { ApiError } from "@/common/services/httpClient";
 
 const digits = (t: string) => t.replace(/\D/g, "");
@@ -47,8 +47,10 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, investor?.id]);
 
+  // Matches of a "same person?" answer: the save is held until the user confirms or backs out.
+  const [dup, setDup] = useState<SameIdentityMatch[] | null>(null);
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: (confirmSamePerson?: boolean) => {
       const body = {
         name: name.trim(),
         phone: phone.trim(),
@@ -60,7 +62,7 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
         bankAccountNumber: bankNo.trim(),
         bankIfsc: ifsc.trim().toUpperCase(),
       };
-      return investor ? updateInvestor(investor.id, body) : createInvestor(body);
+      return investor ? updateInvestor(investor.id, body) : createInvestor(body, confirmSamePerson);
     },
     onSuccess: (i) => {
       qc.invalidateQueries({ queryKey: ["investors"] });
@@ -68,7 +70,11 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
       onSaved?.(i);
       onClose();
     },
-    onError: (e) => toast.error("Could not save investor", e instanceof ApiError ? e.message : "Try again."),
+    onError: (e) => {
+      const matches = investor ? null : sameIdentityMatches(e);
+      if (matches) return setDup(matches);
+      toast.error("Could not save investor", e instanceof ApiError ? e.message : "Try again.");
+    },
   });
 
   const errs: Record<string, string> = {};
@@ -117,7 +123,25 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
         loading={save.isPending}
         onPress={() => {
           if (Object.keys(errs).length) return setTried(true);
-          save.mutate();
+          save.mutate(false);
+        }}
+      />
+      <ConfirmSheet
+        visible={!!dup}
+        onClose={() => setDup(null)}
+        title="Same person?"
+        message={
+          dup
+            ? `This ${[...new Set(dup.flatMap((m) => m.fields))].join(" / ").toLowerCase()} is already on file for ${dup.map((m) => `${m.name} (${m.code}, ${m.source === "investor" ? "investor" : "borrower"})`).join(", ")}.
+
+Is ${name.trim()} the same person?`
+            : ""
+        }
+        confirmLabel={dup?.some((m) => m.source === "investor") ? "Yes, use existing investor" : "Yes, same person"}
+        loading={save.isPending}
+        onConfirm={() => {
+          setDup(null);
+          save.mutate(true);
         }}
       />
     </Sheet>

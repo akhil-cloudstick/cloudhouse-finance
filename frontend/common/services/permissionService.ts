@@ -1,5 +1,5 @@
 import { apiFetchEnveloped as apiFetch, apiFetchEnvelope } from "@/common/services/httpClient";
-import type { PermissionMap, Role, MatrixResponse } from "@/common/types/permission-types";
+import type { PermissionMap, Role, MatrixResponse, PagedResult, RoleListRow, RoleEmployeeRow } from "@/common/types/permission-types";
 
 export function fetchMyPermissions(employeeId: number): Promise<PermissionMap> {
   return apiFetch<PermissionMap>(`/employees/${employeeId}/permissions/by-employee`);
@@ -7,6 +7,23 @@ export function fetchMyPermissions(employeeId: number): Promise<PermissionMap> {
 
 export function fetchRoles(): Promise<Role[]> {
   return apiFetch<Role[]>("/roles");
+}
+
+async function fetchPaged<T>(path: string, params: URLSearchParams): Promise<PagedResult<T>> {
+  const rec = await apiFetch<{ items?: T[]; hasMore?: boolean; total?: number }>(`${path}?${params.toString()}`);
+  return { items: rec?.items ?? [], hasMore: !!rec?.hasMore, total: rec?.total ?? 0 };
+}
+
+/* Paginated roles list (system roles left out) with how many employees hold each role. */
+export function fetchRolesPage(page: number, limit: number, search?: string): Promise<PagedResult<RoleListRow>> {
+  const q = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (search) q.set("search", search);
+  return fetchPaged<RoleListRow>("/roles/list", q);
+}
+
+/* Paginated list of the employees holding one role. */
+export function fetchRoleEmployees(roleId: number, page: number, limit: number): Promise<PagedResult<RoleEmployeeRow>> {
+  return fetchPaged<RoleEmployeeRow>(`/roles/${roleId}/employees`, new URLSearchParams({ page: String(page), limit: String(limit) }));
 }
 
 export function fetchRoleMatrix(actingEmployeeId: number, roleId: number, search?: string): Promise<MatrixResponse> {

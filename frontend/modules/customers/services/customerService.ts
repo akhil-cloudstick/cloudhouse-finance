@@ -130,8 +130,8 @@ const CUSTOMER_PAGE_SIZE = 5;
  * scroll (see SearchableSelect.tsx). `page` is 0-based; the backend
  * responds with an {items, hasMore} envelope whenever `limit` is passed
  * (see backend/internal/customer/handler.go's List). */
-export async function searchCustomersPage(q: string, page: number): Promise<{ items: CustomerView[]; hasMore: boolean }> {
-  const params = new URLSearchParams({ q, limit: String(CUSTOMER_PAGE_SIZE), offset: String(page * CUSTOMER_PAGE_SIZE) });
+export async function searchCustomersPage(q: string, page: number, pageSize: number = CUSTOMER_PAGE_SIZE): Promise<{ items: CustomerView[]; hasMore: boolean }> {
+  const params = new URLSearchParams({ q, limit: String(pageSize), offset: String(page * pageSize) });
   const rec = await apiFetch<{ items: BackendCustomer[]; hasMore: boolean }>(`/customers?${params}`);
   return { items: (rec?.items || []).map(toView), hasMore: !!rec?.hasMore };
 }

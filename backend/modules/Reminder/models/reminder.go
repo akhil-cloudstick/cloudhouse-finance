@@ -32,9 +32,12 @@ type CalendarEvent struct {
 	LoanID         *uint  `json:"loan_id,omitempty"`
 	LoanNumber     string `json:"loan_number,omitempty"`
 	PersonalLoanID *uint  `json:"personal_loan_id,omitempty"`
-	CustomerID     *uint  `json:"customer_id,omitempty"`
-	CustomerName   string `json:"customer_name,omitempty"`
-	CustomerCode   string `json:"customer_code,omitempty"`
-	ReminderID     *uint  `json:"reminder_id,omitempty"`
-	Status         string `json:"status,omitempty"`
+	// InvestmentID / InvestmentNumber are set on investment payout events.
+	InvestmentID     *uint  `json:"investment_id,omitempty"`
+	InvestmentNumber string `json:"investment_number,omitempty"`
+	CustomerID       *uint  `json:"customer_id,omitempty"`
+	CustomerName     string `json:"customer_name,omitempty"`
+	CustomerCode     string `json:"customer_code,omitempty"`
+	ReminderID       *uint  `json:"reminder_id,omitempty"`
+	Status           string `json:"status,omitempty"`
 }

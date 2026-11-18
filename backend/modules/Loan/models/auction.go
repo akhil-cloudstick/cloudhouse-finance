@@ -21,7 +21,7 @@ type AuctionRecord struct {
 	Stage                  string     `json:"stage" gorm:"not null;size:20"`
 	AuctionEligibleDate    time.Time  `json:"auction_eligible_date" gorm:"not null"`
 	AuctionDate            *time.Time `json:"auction_date,omitempty"`
-	AuctionReferenceNumber string     `json:"auction_reference_number" gorm:"size:60"`
+	AuctionReferenceNumber string     `json:"auction_reference_number" gorm:"size:150"`
 	SaleAmount             float64    `json:"sale_amount" gorm:"type:numeric(16,2);default:0"`
 	AuctionExpenses        float64    `json:"auction_expenses" gorm:"type:numeric(16,2);default:0"`
 	SurplusShortfall       float64    `json:"surplus_shortfall" gorm:"type:numeric(16,2);default:0"`

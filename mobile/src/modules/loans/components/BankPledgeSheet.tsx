@@ -152,7 +152,7 @@ export function BankPledgeSheet({
                 { k: "Pledged amount", v: inr(ap.pledgedAmount) },
                 { k: "Pledge date", v: dmy(ap.pledgeDate) },
                 { k: "Reference", v: ap.referenceNumber || "—" },
-                { k: "Interest rate", v: ap.bankInterestRate ? `${ap.bankInterestRate}% p.m.` : "—" },
+                { k: "Interest rate", v: ap.bankInterestRate ? `${ap.bankInterestRate}% p.a.` : "—" },
                 { k: "Due date", v: dmy(ap.bankPledgeDueDate) + (pledgeOverdue(ap) ? "  · Overdue" : ""), color: pledgeOverdue(ap) ? C.red : undefined },
                 { k: "Cash treatment", v: ap.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect" },
               ]}
@@ -207,7 +207,7 @@ export function BankPledgeSheet({
                       { k: "Ornaments", v: pledgeOrnaments(r, l) },
                       { k: "Gross weight", v: fmtW(r.pledgedGrossWeight) },
                       { k: "Net weight", v: fmtW(r.pledgedNetWeight) },
-                      { k: "Interest rate", v: r.bankInterestRate ? `${r.bankInterestRate}% p.m.` : "—" },
+                      { k: "Interest rate", v: r.bankInterestRate ? `${r.bankInterestRate}% p.a.` : "—" },
                       { k: "Pledged", v: dmy(r.pledgeDate) },
                       { k: "Due date", v: dmy(r.bankPledgeDueDate) },
                       { k: "Released", v: dmy(r.releaseDate) },

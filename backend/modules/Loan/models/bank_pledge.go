@@ -27,7 +27,7 @@ type BankPledgeRecord struct {
 	PledgedGrossWeight    float64    `json:"pledged_gross_weight"`
 	PledgedNetWeight      float64    `json:"pledged_net_weight"`
 	BankInterestRate      float64    `json:"bank_interest_rate"`
-	ReferenceNumber       string     `json:"reference_number" gorm:"size:60"`
+	ReferenceNumber       string     `json:"reference_number" gorm:"size:150"`
 	CashMovementID        *uint      `json:"cash_movement_id,omitempty"`
 	ExpenseID             *uint      `json:"expense_id,omitempty"`
 	ReleaseCashMovementID *uint      `json:"release_cash_movement_id,omitempty"`

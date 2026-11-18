@@ -269,6 +269,7 @@ export default function TabsLayout() {
         <Tabs.Screen name="reports" options={{ title: "Reports" }} />
         <Tabs.Screen name="ledger-statement" options={{ title: "Ledger / Statement" }} />
         <Tabs.Screen name="loan-risk" options={{ title: "Loan Risk" }} />
+        <Tabs.Screen name="gold-rates" options={{ title: "Gold Rates" }} />
         <Tabs.Screen name="employees" options={{ title: "Employees" }} />
         <Tabs.Screen name="branches" options={{ title: "Branches" }} />
         <Tabs.Screen name="roles" options={{ title: "Roles & Permissions" }} />

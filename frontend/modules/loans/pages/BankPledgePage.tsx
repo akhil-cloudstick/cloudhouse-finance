@@ -243,7 +243,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
       kind={r.status === "Voided" ? "Deleted" : r.status}
       rows={[
         ["Loan", r.loanNumber || `#${r.loanId}`], ["Customer", r.customerName || "—"], ["Bank", r.bankName || "—"],
-        ["Pledged amount", fmt(r.pledgedAmount)], ["Interest rate", r.bankInterestRate ? `${r.bankInterestRate}% p.m.` : "—"],
+        ["Pledged amount", fmt(r.pledgedAmount)], ["Interest rate", r.bankInterestRate ? `${r.bankInterestRate}% p.a.` : "—"],
         ["Pledged on", fmtDate(r.pledgeDate)], ["Released on", r.releaseDate ? fmtDate(r.releaseDate) : "—"],
         ["Due date", r.bankPledgeDueDate ? fmtDate(r.bankPledgeDueDate) : "—"], ["Reference no.", r.referenceNumber || "—"],
         ["Cash treatment", CASH_TREATMENT_LABELS[r.cashTreatment === "CashIn" ? "CashIn" : "RecordOnly"]],
@@ -314,7 +314,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           {pledgedError && <div className="notice" style={{ margin: 14 }}>{pledgedError}</div>}
           <div className="tbl-wrap">
             <table className="tbl tbl-cards tbl-center">
-              <TableCols widths={[9, 20, 14, 9, 12, 8, 10, 10, 8]} />
+              <TableCols widths={[9, 15, 13, 9, 11, 11, 10, 10, 12]} />
               <thead>
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Weight</th><th className="num">Pledged Amount</th><th>Cash</th><th>Pledged On</th><th>Due</th><th></th></tr>
               </thead>
@@ -365,7 +365,7 @@ export function BankPledgePage({ focusLoanNumber }: BankPledgePageProps = {}) {
           {historyError && <div className="notice" style={{ margin: 14 }}>{historyError}</div>}
           <div className="tbl-wrap">
             <table className="tbl tbl-cards tbl-center">
-              <TableCols widths={[9, 20, 14, 12, 8, 10, 10, 9, 8]} />
+              <TableCols widths={[9, 15, 13, 11, 10, 10, 10, 10, 12]} />
               <thead>
                 <tr><th>Loan</th><th>Customer</th><th>Bank</th><th className="num">Amount</th><th>Cash</th><th>Pledged</th><th>Released</th><th>Status</th><th></th></tr>
               </thead>

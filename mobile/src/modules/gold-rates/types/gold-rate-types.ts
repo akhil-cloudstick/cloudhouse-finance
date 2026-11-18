@@ -10,5 +10,9 @@ export type GoldRate = {
   k22: number;
   k18: number;
   setBy: string;
+  /** The setter's role (designation), stamped by the server. */
+  setByDesignation?: string;
   createdAt: string;
+  /** Day-grouped listing only (`group=day`): every change made that day, newest first. */
+  entries?: GoldRate[];
 };

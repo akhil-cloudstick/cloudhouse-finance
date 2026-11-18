@@ -15,7 +15,7 @@ const MORE_ROWS: MoreRow[] = [
   { key: "personal-loans", route: "personal-loans", title: "Personal Loans", sub: "Non-gold loans & collections", icon: "card" },
   { key: "investments", route: "investments", title: "Investments", sub: "Deposits, plans & payouts", icon: "coin" },
   { key: "loan-risk", route: "loan-risk", title: "Loan Risk", sub: "Risk assessment across active loans", icon: "chart" },
-  { key: "gold-rates", title: "Gold Rates", sub: "Set today's rate & view history", icon: "coin", perms: [["Gold_Rate_Management", "can_view_gold_rate_module"]], action: "gold" },
+  { key: "gold-rates", route: "gold-rates", title: "Gold Rates", sub: "Today's rate & rate history", icon: "coin" },
   { key: "requests", route: "requests", title: "Extension & Release", sub: "Loan extensions & gold release", icon: "edit" },
   { key: "packets", route: "packets", title: "Packets & Lockers", sub: "Ornament custody tracking", icon: "doc" },
   { key: "banks", route: "banks", title: "Bank Pledges", sub: "Loans pledged to a bank", icon: "card" },

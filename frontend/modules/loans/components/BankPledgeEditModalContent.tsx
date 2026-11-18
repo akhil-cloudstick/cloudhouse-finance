@@ -159,7 +159,7 @@ export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }:
             </div>
             <div className="frow c2">
               <div><label className="f">Interest Rate (% p.a.)</label><input className="inp" type="number" min={0} step={0.01} value={rate} onChange={(e) => changed(setRate)(e.target.value)} /></div>
-              <div><label className="f">Reference Number</label><input className="inp" maxLength={60} value={reference} onChange={(e) => changed(setReference)(e.target.value)} /></div>
+              <div><label className="f">Reference Number</label><input className="inp" maxLength={150} placeholder="Reference (max 150 characters)" value={reference} onChange={(e) => changed(setReference)(e.target.value)} /></div>
             </div>
             <h4 style={{ margin: "14px 0 6px", fontSize: 13 }}>Cash treatment</h4>
             {/* the same selectable cards the New Re-Pledge form uses (their styles hang off .repledge-modal-bd) */}
@@ -260,7 +260,17 @@ function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "ed
             {row("Pledged amount", fmt(b.pledgedAmount), a ? fmt(a.pledgedAmount) : "—")}
             {row("Pledge date", b.pledgeDate.slice(0, 10), a ? a.pledgeDate.slice(0, 10) : "—")}
             {row("Cash treatment", treatmentLabel(b.cashTreatment), a ? treatmentLabel(a.cashTreatment) : "—")}
-            {row("Cash received", fmt((b.cashAmount ?? 0) + (b.upiAmount ?? 0) + (b.bankTransferAmount ?? 0)), a ? fmt((a.cashAmount ?? 0) + (a.upiAmount ?? 0) + (a.bankTransferAmount ?? 0)) : "—")}
+            {row("Interest rate", b.bankInterestRate ? `${b.bankInterestRate}% p.a.` : "—", a ? (a.bankInterestRate ? `${a.bankInterestRate}% p.a.` : "—") : "—")}
+            {row("Due date", b.bankPledgeDueDate ? b.bankPledgeDueDate.slice(0, 10) : "—", a ? (a.bankPledgeDueDate ? a.bankPledgeDueDate.slice(0, 10) : "—") : "—")}
+            {/* The amount received always equals the pledged amount, so only how it was received is shown (Added to
+              * Cash-in-Hand pledges) — not the same total a second time. */}
+            {(b.cashTreatment === "CashIn" || a?.cashTreatment === "CashIn") && (
+              <>
+                {row("Received in cash", fmt(b.cashAmount ?? 0), a ? fmt(a.cashAmount ?? 0) : "—")}
+                {row("Received by UPI", fmt(b.upiAmount ?? 0), a ? fmt(a.upiAmount ?? 0) : "—")}
+                {row("Received by bank transfer", fmt(b.bankTransferAmount ?? 0), a ? fmt(a.bankTransferAmount ?? 0) : "—")}
+              </>
+            )}
             {b.releaseDate && row("Release date", b.releaseDate.slice(0, 10), a?.releaseDate ? a.releaseDate.slice(0, 10) : "—")}
           </tbody>
         </table></div>

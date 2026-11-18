@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, View, type ImageStyle, type StyleProp, type ViewStyle } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import { safeDownload } from "@/common/utils/safeDownload";
 import { presentFile } from "@/common/utils/presentFile";
 import { C, PrimaryButton, Sheet, Txt, toast } from "@/common/components/ui";
 import { API_ORIGIN } from "@/common/services/httpClient";
@@ -53,7 +54,7 @@ async function shareUpload(path: string, title: string) {
   const ext = (path.match(/\.([a-z0-9]{2,5})(\?|$)/i)?.[1] ?? "bin").toLowerCase();
   const target = `${FileSystem.cacheDirectory}bill-${Date.now()}.${ext}`;
   const url = uploadUrl(path);
-  const res = await FileSystem.downloadAsync(url, target, { headers: token && isOwnUrl(url) ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await safeDownload(url, target, { headers: token && isOwnUrl(url) ? { Authorization: `Bearer ${token}` } : {} });
   if (res.status < 200 || res.status >= 300) throw new Error(`The ${title === "Bill" ? "bill" : "document"} could not be loaded.`);
   await presentFile(res.uri, { mimeType: ext === "pdf" ? "application/pdf" : undefined, title });
 }
@@ -85,7 +86,7 @@ export function UploadImage({ path, style, title = "Photo", viewer = true }: Upl
       try {
         const token = await getToken();
         const url = uploadUrl(path);
-        const res = await FileSystem.downloadAsync(url, `${FileSystem.cacheDirectory}img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, {
+        const res = await safeDownload(url, `${FileSystem.cacheDirectory}img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, {
           headers: token && isOwnUrl(url) ? { Authorization: `Bearer ${token}` } : {},
         });
         if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
@@ -162,7 +163,7 @@ export function BillSheet({ path, onClose, title = "Bill", onReplace }: BillShee
           const url = uploadUrl(path);
           const ext = (path.match(/\.([a-z0-9]{2,5})(\?|$)/i)?.[1] ?? "jpg").toLowerCase();
           const target = `${FileSystem.cacheDirectory}doc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
-          const res = await FileSystem.downloadAsync(url, target, { headers: token && isOwnUrl(url) ? { Authorization: `Bearer ${token}` } : {} });
+          const res = await safeDownload(url, target, { headers: token && isOwnUrl(url) ? { Authorization: `Bearer ${token}` } : {} });
           if (!live) return;
           if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
           setLocalUri(res.uri);
@@ -174,7 +175,7 @@ export function BillSheet({ path, onClose, title = "Bill", onReplace }: BillShee
         }
       }
       if (live) {
-        setReason(lastErr instanceof Error ? lastErr.message : "");
+        setReason(userMessage(lastErr, ""));
         setFailed(true);
       }
     })();

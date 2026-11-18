@@ -198,7 +198,7 @@ export default function BankPledgeScreen() {
           { k: "Due date", v: dmy(p?.bankPledgeDueDate) + (p && pledgeOverdue(p) ? "  · Overdue" : ""), color: p && pledgeOverdue(p) ? C.red : undefined },
           { k: "Gross weight", v: fmtW(p?.pledgedGrossWeight) },
           { k: "Net weight", v: fmtW(p?.pledgedNetWeight) },
-          { k: "Interest rate", v: p?.bankInterestRate ? `${p.bankInterestRate}% p.m.` : "—" },
+          { k: "Interest rate", v: p?.bankInterestRate ? `${p.bankInterestRate}% p.a.` : "—" },
           { k: "Ornaments", v: p ? pledgeOrnaments(p, l) : "—" },
           { k: "Ref no", v: or(p?.referenceNumber) },
         ]}
@@ -305,7 +305,7 @@ export default function BankPledgeScreen() {
                 { k: "Pledged", v: dmy(r.pledgeDate) },
                 { k: "Released", v: dmy(r.releaseDate) },
                 { k: "Due date", v: dmy(r.bankPledgeDueDate) },
-                { k: "Interest rate", v: r.bankInterestRate ? `${r.bankInterestRate}% p.m.` : "—" },
+                { k: "Interest rate", v: r.bankInterestRate ? `${r.bankInterestRate}% p.a.` : "—" },
                 { k: "Gross weight", v: fmtW(r.pledgedGrossWeight) },
                 { k: "Net weight", v: fmtW(r.pledgedNetWeight) },
                 { k: "Ornaments", v: pledgeOrnaments(r) },

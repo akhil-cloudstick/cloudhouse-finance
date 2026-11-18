@@ -8,7 +8,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { BranchModalContent } from "@/modules/branches/components/BranchModalContent";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
-import { deactivateBranch, getBranchQuota, listBranches } from "@/modules/branches/services/branchService";
+import { deactivateBranch, getBranchQuota, listBranches, updateBranch } from "@/modules/branches/services/branchService";
 import { type BranchQuota, type BranchView } from "@/modules/branches/types/branch-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { routeHref } from "@/common/services/appRoutes";
@@ -71,6 +71,23 @@ export function BranchesPage() {
 
   function onSaved() {
     load();
+  }
+
+  function onActivate(b: BranchView) {
+    openModal(
+      <ConfirmModalContent
+        title="Activate Branch"
+        message={`Activate branch "${b.name}"? It will be selectable for new records again.`}
+        confirmLabel="Activate"
+        busyLabel="Activating…"
+        danger={false}
+        onConfirm={async () => {
+          await updateBranch(b.id, { name: b.name, code: b.code, address: b.address, phone: b.phone, isActive: true });
+          toast(`Branch "${b.name}" activated`);
+          load();
+        }}
+      />
+    );
   }
 
   function onDeactivate(b: BranchView) {
@@ -158,11 +175,19 @@ export function BranchesPage() {
                     <td data-label="Phone">{b.phone || "—"}</td>
                     <td data-label="Status">{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
                     <td className="tbl-acts">
-                      {canViewBranchLedger && <a href={routeHref("ledger-branch", b.id)}>Ledger</a>}
-                      {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
-                      {canUpdateBranches && b.isActive && (
-                        <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
-                      )}
+                      {/* Three fixed slots — Ledger | Edit | Deactivate / Activate — so every action stays in the same
+                          place whatever the branch's status or the role's permissions. */}
+                      <div style={{ display: "inline-grid", gridTemplateColumns: "52px 36px 72px", columnGap: 14, justifyItems: "start", alignItems: "center" }}>
+                        <span>{canViewBranchLedger && <a href={routeHref("ledger-branch", b.id)}>Ledger</a>}</span>
+                        <span>{canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}</span>
+                        <span>
+                          {canUpdateBranches && (b.isActive ? (
+                            <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
+                          ) : (
+                            <a href="#" style={{ color: "var(--green)" }} onClick={(e) => { e.preventDefault(); onActivate(b); }}>Activate</a>
+                          ))}
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 ))}

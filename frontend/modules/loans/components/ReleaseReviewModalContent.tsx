@@ -6,7 +6,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
-import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, releaseBankPledge, editReleaseRecord } from "@/modules/loans/services/loanService";
+import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, releaseBankPledge } from "@/modules/loans/services/loanService";
 import { type RequestView, type LoanView } from "@/modules/loans/types/loan-types";
 import { listPackets, recordMovement, PACKET_STATUS } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
@@ -60,7 +60,6 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const { can, role, isSystem } = useAuth();
   const canOpen = useCanOpenRoute();
   const canDecide = can("Loan_Management", "can_update_loan");
-  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
   // Checklist verification and the two Manager/Management approval stages
   // each need their own "Release Approval" permission on top of the
   // general canDecide gate — see internal/authz.Catalogue and backend/
@@ -244,26 +243,12 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
     }
   }); }
 
-  // The release's own date can still be corrected once it is recorded (the tick beside the date picker).
-  const dateChanged = !!req.requestedAt && releaseDate !== req.requestedAt.slice(0, 10) && (req.status !== "Pending" || req.paymentRecorded);
+  // Once the request has left the first (manager) stage — payment recorded, or approved on to the next stage — or
+  // has been decided, the release date and verification notes are fixed.
+  const fieldsLocked = req.status !== "Pending" || req.locked || (!!req.approvalStage && req.approvalStage !== "PendingManager");
 
   // A pending request keeps the date the manager picked: it is sent with the checklist and the approval, so the next stage sees it.
   const pendingDateChanged = req.status === "Pending" && !!req.requestedAt && releaseDate !== req.requestedAt.slice(0, 10);
-
-  async function saveReleaseDate() { return singleFlight("modal:releasereview:saveDate", async () => {
-    setSaving(true);
-    setErr("");
-    try {
-      await editReleaseRecord(req.id, { requestedAt: releaseDate });
-      await refreshRequest();
-      onSaved();
-      toast("Release date updated");
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not update the release date — try again.");
-    } finally {
-      setSaving(false);
-    }
-  }); }
 
   async function saveNotes() { return singleFlight("modal:releasereview:saveNotes", async () => {
     setSaving(true);
@@ -410,14 +395,8 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
           <div>
             <label className="f">Release Date</label>
-            {/* Tick-only "Save date" shares the cell, shown once a recorded release's date is changed. */}
-            <div className={`rel-date${canEditLedger && dateChanged ? " has-save" : ""}`}>
-              <DatePicker value={releaseDate} min={loan?.opened?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={req.status === "Pending" ? !canDecide : !canEditLedger} />
-              {canEditLedger && dateChanged && (
-                <button type="button" className="btn ghost rel-icon-btn" disabled={saving} onClick={saveReleaseDate} title="Save date" aria-label="Save date">
-                  <Icon name="check" />
-                </button>
-              )}
+            <div className="rel-date">
+              <DatePicker value={releaseDate} min={loan?.opened?.slice(0, 10) || undefined} max={localToday()} onChange={setReleaseDate} disabled={!canDecide || fieldsLocked} />
             </div>
           </div>
 
@@ -483,7 +462,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
             </p>
           )}
 
-        <div className="frow"><div className={notesErr ? "has-err" : undefined}><label className="f">Verification Notes</label><NoteField value={notes} disabled={!canDecide || req.locked} onChange={(v) => { setNotes(v); setNotesErr(""); }} onBlur={saveNotes} placeholder="Optional" /><FieldError msg={notesErr} /></div></div>
+        <div className="frow"><div className={notesErr ? "has-err" : undefined}><label className="f">Verification Notes</label><NoteField value={notes} disabled={!canDecide || fieldsLocked} onChange={(v) => { setNotes(v); setNotesErr(""); }} onBlur={saveNotes} placeholder="Optional" /><FieldError msg={notesErr} /></div></div>
 
         {req.status === "Pending" && (!req.customerSawGold || !paymentConditionMet) && (
           <p className="notice" style={{ marginTop: 12 }}>

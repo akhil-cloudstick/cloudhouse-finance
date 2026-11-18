@@ -27,6 +27,15 @@ type editReleaseRecordRequest struct {
 	VerificationNotes *string `json:"verification_notes"`
 }
 
+// releaseFieldsLocked reports whether a release request's date and verification notes are fixed: once it has
+// been sent on past the first (manager) stage — payment recorded or approved to the next stage — or decided.
+func releaseFieldsLocked(req *models.LoanRequest) bool {
+	return req.Status != models.RequestStatusPending || req.Locked ||
+		(req.ApprovalStage != "" && req.ApprovalStage != models.ApprovalStagePendingManager)
+}
+
+var errReleaseFieldsLocked = common.NewConflict("the release date and verification notes cannot be changed once the request has been sent for approval")
+
 func loadReleaseRequest(ctx context.Context, tx *gorm.DB, requestID uint, branchID *uint) (*models.LoanRequest, error) {
 	var req models.LoanRequest
 	if err := tx.WithContext(ctx).First(&req, requestID).Error; err != nil {
@@ -69,6 +78,9 @@ func EditReleaseRecord(c echo.Context) error {
 	}
 	if body.VerificationNotes != nil {
 		req.VerificationNotes = strings.TrimSpace(*body.VerificationNotes)
+	}
+	if releaseFieldsLocked(&old) && (!req.RequestedAt.Equal(old.RequestedAt) || req.VerificationNotes != old.VerificationNotes) {
+		return common.FailErr(c, errReleaseFieldsLocked)
 	}
 	if len(req.Remarks) > 255 || len(req.VerificationNotes) > 255 {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "notes can be at most 255 characters"})

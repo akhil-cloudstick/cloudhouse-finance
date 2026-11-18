@@ -4,7 +4,7 @@ import { C } from "@/common/components/ui";
 import type { CalendarEvent } from "@/modules/reminders/types/reminder-types";
 
 export function reminderKind(t: CalendarEvent["type"]): "overdue" | "due" | "ptp" {
-  if (t === "Overdue" || t === "PersonalLoanOverdue") return "overdue";
+  if (t === "Overdue" || t === "PersonalLoanOverdue" || t === "InvestmentPayoutOverdue") return "overdue";
   if (t === "PromiseToPay" || t === "FollowUp" || t === "Custom") return "ptp";
   return "due";
 }
@@ -12,7 +12,10 @@ export function reminderLabel(t: CalendarEvent["type"]) {
   switch (t) {
     case "Overdue":
     case "PersonalLoanOverdue":
+    case "InvestmentPayoutOverdue":
       return "Overdue";
+    case "InvestmentPayoutDue":
+      return "Investment payout";
     case "PersonalLoanDue":
       return "Personal loan due";
     case "AuctionScheduled":

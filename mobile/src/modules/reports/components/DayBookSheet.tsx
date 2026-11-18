@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { previewPdf } from "@/common/utils/presentFile";
 import { View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import {
   AccBtn,
@@ -105,7 +105,7 @@ export function DayBookSheet({ visible, onClose }: DayBookSheetProps) {
   async function onPrint() {
     setPrinting(true);
     try {
-      await Print.printAsync({ uri: await downloadExport("day-book", "pdf", filters) });
+      await previewPdf(await downloadExport("day-book", "pdf", filters));
     } catch (e) {
       if (!isUserCancel(e)) toast.error("Print failed", userMessage(e, "Could not print — try again."));
     } finally {

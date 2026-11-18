@@ -49,6 +49,7 @@ export type ReminderFilters = { customerId?: number; loanId?: number; status?: s
 export type CalendarEventType =
   | "InterestDue" | "LoanDue" | "Overdue"
   | "PersonalLoanDue" | "PersonalLoanOverdue"
+  | "InvestmentPayoutDue" | "InvestmentPayoutOverdue"
   | "AuctionScheduled" | "FollowUp" | "PromiseToPay" | "Custom";
 export type CalendarEvent = {
   date: string; // "YYYY-MM-DD"
@@ -61,6 +62,9 @@ export type CalendarEvent = {
   // kept separate so a personal loan's numeric ID is never mistaken for a
   // gold loan's (see backend/internal/reminder/model.go's CalendarEvent).
   personalLoanId?: number;
+  // Set on InvestmentPayoutDue/InvestmentPayoutOverdue events.
+  investmentId?: number;
+  investmentNumber?: string;
   customerId?: number;
   customerName?: string;
   reminderId?: number; // only set for manual (persisted) events

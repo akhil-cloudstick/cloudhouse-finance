@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Buffering,
   BtnRow2,
@@ -32,7 +32,7 @@ import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
 import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { ApiError } from "@/common/services/httpClient";
 import { fetchRoles, fetchRoleMatrix, updateRolePermissions, createRole, updateRole, deleteRole } from "@/modules/roles/services/roleService";
-import { type PermissionRef, type PermissionRow, type RoleRecord } from "@/modules/roles/types/role-types";
+import { ROLE_DESCRIPTION_MAX, type PermissionRef, type PermissionRow, type RoleRecord } from "@/modules/roles/types/role-types";
 import { userMessage } from "@/common/services/apiErrors";
 import { FieldErr } from "@/common/components/ErrorText";
 
@@ -120,7 +120,7 @@ function EditRoleSheet({
     <Sheet visible={visible && !!role} onClose={onClose} title={role ? `Edit Role — ${role.name}` : "Edit Role"} maxHeightPct={75}>
       <TextField label="Role name" value={name} onChangeText={setName} editable={canUpdate} />
       <FieldErr m={tried && !name.trim() ? "Enter the role name." : undefined} />
-      <TextField label="Description" value={desc} onChangeText={setDesc} editable={canUpdate} />
+      <TextField label="Description" value={desc} onChangeText={setDesc} editable={canUpdate} maxLength={ROLE_DESCRIPTION_MAX} placeholder={`What this role is for (max ${ROLE_DESCRIPTION_MAX} characters)`} />
       {canUpdate ? <PrimaryButton label="Save Changes" onPress={onSave} loading={busy} /> : null}
       {canDelete ? (
         <PrimaryButton
@@ -166,7 +166,7 @@ function NewRoleSheet({ visible, onClose, onCreated }: NewRoleSheetProps) {
     <Sheet visible={visible} onClose={onClose} title="New Role" maxHeightPct={75}>
       <TextField label="Role name" placeholder="e.g. Regional Auditor" value={name} onChangeText={setName} />
       <FieldErr m={tried && !name.trim() ? "Enter the role name." : undefined} />
-      <TextField label="Description" placeholder="What this role is for" value={desc} onChangeText={setDesc} />
+      <TextField label="Description" placeholder={`What this role is for (max ${ROLE_DESCRIPTION_MAX} characters)`} value={desc} onChangeText={setDesc} maxLength={ROLE_DESCRIPTION_MAX} />
       <NoticeBanner>New roles get everything.</NoticeBanner>
       <PrimaryButton label="Create Role" onPress={onCreate} loading={busy} />
     </Sheet>
@@ -181,6 +181,7 @@ type PageTab = (typeof PAGE_TABS)[number];
 
 export default function RolesPermissionsScreen() {
   const { employee, can, refetchPermissions } = useAuth();
+  const router = useRouter();
   // Opened from an employee's "Role permissions": start on that employee's role.
   const params = useLocalSearchParams<{ role?: string; t?: string }>();
   const canView = can("Role_Management", "can_view_role_and_permission_module");
@@ -312,13 +313,14 @@ export default function RolesPermissionsScreen() {
     const savedValue = savedById.get(row.permission_id) ?? row.permission;
     const current = pending[row.permission_id] ?? row.permission;
     if (!current) {
-      // A permission can't be switched on while any parent is still off.
-      const missing = (row.parents ?? []).filter((p) => !isOn(p));
-      if (missing.length > 0) {
-        toast.error("Turn on its parent first", `Please turn on ${missing.map((p) => p.label).join(", ")} first.`);
-        return;
-      }
-      setPending((p) => withValue(p, row.permission_id, true, savedValue));
+      // Switching a permission on also switches on every permission it depends on (its whole chain upward).
+      const alsoOn = (row.all_parents ?? row.parents ?? []).filter((p) => !isOn(p));
+      setPending((p) => {
+        let next = withValue(p, row.permission_id, true, savedValue);
+        for (const r of alsoOn) next = withValue(next, r.permission_id, true, r.granted);
+        return next;
+      });
+      if (alsoOn.length > 0) toast.success("Also turned on", alsoOn.map((r) => r.label).join(", "));
       return;
     }
     const goingOff = (row.dependents ?? []).filter(isOn);
@@ -401,15 +403,14 @@ export default function RolesPermissionsScreen() {
       floating={
         // One corner button that opens upward into both actions — the same
         // grouping as the Bank Pledges page.
-        canEditRole || canCreateRole ? (
-          <FabMenu
-            label="Role actions"
-            actions={[
-              ...(canCreateRole ? [{ label: "New Role", icon: "plus", onPress: () => setShowNewRole(true) }] : []),
-              ...(canEditRole ? [{ label: "Edit Role", icon: "edit", onPress: () => setEditVisible(true) }] : []),
-            ]}
-          />
-        ) : undefined
+        <FabMenu
+          label="Role actions"
+          actions={[
+            { label: "Roles", icon: "layers", onPress: () => router.push("/roles/list" as never) },
+            ...(canCreateRole ? [{ label: "New Role", icon: "plus", onPress: () => setShowNewRole(true) }] : []),
+            ...(canEditRole ? [{ label: "Edit Role", icon: "edit", onPress: () => setEditVisible(true) }] : []),
+          ]}
+        />
       }
     >
       <PScroll extraBottom={60}>
@@ -427,6 +428,11 @@ export default function RolesPermissionsScreen() {
               onPress={() => setPickerOpen(true)}
               right={<PIcon name="chevdown" color={C.brandDeep} />}
             />
+            {role?.description ? (
+              <Txt numberOfLines={1} style={{ color: C.muted, fontSize: 12.5, paddingHorizontal: 14, paddingBottom: 8 }}>
+                {role.description}
+              </Txt>
+            ) : null}
           </Card>
         )}
 
@@ -434,7 +440,7 @@ export default function RolesPermissionsScreen() {
 
         <View style={{ paddingHorizontal: 18 }}>
           {role?.isSystem ? (
-            <NoticeBanner>{role.name} is a system role — its permissions cannot be changed, and it cannot be renamed or deleted.</NoticeBanner>
+            <NoticeBanner>System role — read-only.</NoticeBanner>
           ) : null}
           {!canChangeAnything ? <NoticeBanner>You can view roles and permissions but not change them — ask an administrator.</NoticeBanner> : null}
           {editable ? (
@@ -464,7 +470,7 @@ export default function RolesPermissionsScreen() {
                   key={row.permission_id}
                   row={row}
                   onToggle={onToggle}
-                  sub={[row.permissions.description, (row.soft_parents ?? []).filter((p) => !isOn(p)).length ? `Works best with ${(row.soft_parents ?? []).filter((p) => !isOn(p)).map((p) => p.label).join(", ")}` : ""].filter(Boolean).join(" — ") || undefined}
+                  sub={[row.permissions.description, (row.parents ?? []).length ? `Requires ${(row.parents ?? []).map((p) => `${p.label}${isOn(p) ? "" : " (off)"}`).join(", ")}` : "", (row.soft_parents ?? []).filter((p) => !isOn(p)).length ? `Works best with ${(row.soft_parents ?? []).filter((p) => !isOn(p)).map((p) => p.label).join(", ")}` : ""].filter(Boolean).join(" — ") || undefined}
                 />
               ))}
             </Card>
@@ -482,7 +488,8 @@ export default function RolesPermissionsScreen() {
         onConfirm={confirmCascade}
       />
       <Sheet visible={pickerOpen} onClose={() => setPickerOpen(false)} title="Select Role" maxHeightPct={75}>
-        {(roles ?? []).filter((r) => !r.isSystem || r.id === roleId).map((r, i) => (
+        {/* Every role is listed — system roles (Administrator) too, shown read-only. */}
+        {(roles ?? []).map((r, i) => (
           <SheetListItem
             key={r.id}
             first={i === 0}

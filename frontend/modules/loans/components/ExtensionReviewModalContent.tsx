@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TruncText } from "@/common/components/ui/TruncText";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
@@ -122,6 +123,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
               className="inp"
               autoFocus
               value={rejectReason}
+              maxLength={150}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="optional"
             />
@@ -169,8 +171,8 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
                 <div className="i"><div className="k">Requested On</div><div className="v">{fmtDate(req.requestedAt)}</div></div>
                 <div className="i"><div className="k">Customer</div><div className="v">{req.customerName}</div></div>
                 <div className="i"><div className="k">Gold Pledged</div><div className="v">{loan ? fmtW(loan.totalNetWeight) : "—"}</div></div>
-                {req.detail && <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Note</div><div className="v">{req.detail}</div></div>}
-                {req.status === "Rejected" && req.remarks && <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Reason Rejected</div><div className="v">{req.remarks}</div></div>}
+                {req.detail && <div className="i" style={{ gridColumn: "1 / -1", minWidth: 0, border: "none", boxShadow: "none" }}><div className="k">Note</div><div className="v" style={{ minWidth: 0, overflow: "hidden", border: "none", boxShadow: "none", textDecoration: "none" }}><TruncText text={req.detail} maxWidth="100%" /></div></div>}
+                {req.status === "Rejected" && req.remarks && <div className="i" style={{ gridColumn: "1 / -1", minWidth: 0 }}><div className="k">Reason Rejected</div><div className="v" style={{ minWidth: 0, overflow: "hidden" }}><TruncText text={req.remarks} maxWidth="100%" /></div></div>}
               </div>
             </div>
 

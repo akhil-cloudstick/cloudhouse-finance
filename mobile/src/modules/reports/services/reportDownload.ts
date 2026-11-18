@@ -1,4 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
+import { safeDownload } from "@/common/utils/safeDownload";
 import { getToken } from "@/common/services/tokenStorage";
 import { reportExportUrl } from "@/modules/reports/services/reportsService";
 
@@ -12,7 +13,7 @@ export async function downloadExport(key: string, format: "xlsx" | "pdf", range:
   if (range.q) qs.set("q", range.q);
   if (range.branchId) qs.set("branch_id", range.branchId);
   for (const [k, v] of Object.entries(range.extra ?? {})) if (v) qs.set(k, v);
-  const result = await FileSystem.downloadAsync(reportExportUrl(key, qs), targetUri, {
+  const result = await safeDownload(reportExportUrl(key, qs), targetUri, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (result.status < 200 || result.status >= 300) throw new Error(`${format === "pdf" ? "Print" : "Export"} failed (${result.status})`);
