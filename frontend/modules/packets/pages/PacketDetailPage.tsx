@@ -203,7 +203,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
                     <td className="num">{it.netWeight.toFixed(1)}</td>
                     <td className="num">{it.quantity}</td>
                     <td className="num">{fmt(it.goldValue)}</td>
-                    <td><TruncText text={it.remarks || "—"} /></td>
+                    <td><TruncText text={it.remarks || "—"} maxWidth="100%" /></td>
                   </tr>
                 ))}
               </tbody>
@@ -218,7 +218,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
         <div className="card">
           <div className="hd"><h3>Movement History</h3></div>
           <div className="tbl-wrap">
-            <table className="tbl"><TableCols widths={[16, 17, 17, 14, 16, 20]} />
+            <table className="tbl"><TableCols widths={[14, 14, 14, 11, 13, 34]} />
               <thead><tr><th>Date/Time</th><th>From</th><th>To</th><th>Locker</th><th>Employee</th><th>Remarks</th></tr></thead>
               <tbody>
                 {movements.length === 0 && <tr><td colSpan={6} style={{ color: "var(--muted)" }}>No movements yet.</td></tr>}
@@ -231,7 +231,7 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
                       <td>{m.toStatus}</td>
                       <td>{lk ? lk.code : "—"}</td>
                       <td>{m.actorEmployeeId ? `EMP-${m.actorEmployeeId}` : "System"}</td>
-                      <td><TruncText text={m.remarks || "—"} /></td>
+                      <td title={m.remarks || undefined} style={{ whiteSpace: "normal" }}>{m.remarks || "—"}</td>
                     </tr>
                   );
                 })}
