@@ -18,8 +18,6 @@ type SameInvestorModalContentProps = {
 export function SameInvestorModalContent({ newName, matches, onConfirm }: SameInvestorModalContentProps) {
   const { closeModal } = useModal();
   const [busy, setBusy] = useState(false);
-  // Already an investor: "yes" uses that record (no second one is added). Only a borrower: the investor is created for them.
-  const hasInvestor = matches.some((m) => m.source === "investor");
 
   async function yes() {
     setBusy(true);
@@ -53,16 +51,15 @@ export function SameInvestorModalContent({ newName, matches, onConfirm }: SameIn
       </div>
       <div className="bd bd-scroll">
         <p style={{ margin: "0 0 14px", fontSize: 13.5, lineHeight: 1.5 }}>
-          This phone number, PAN or Aadhaar is already on file{hasInvestor ? " for an investor" : " for a borrower"}. Is <b>{newName}</b> the same person?
+          This phone number, PAN or Aadhaar is already on file for a borrower. Is <b>{newName}</b> the same person?
         </p>
 
-        <label className="f">Already on file</label>
+        <label className="f">Existing borrower</label>
         <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
           {matches.map((m) => (
-            <div key={m.id} className="card" style={{ padding: "12px 14px", display: "grid", gap: 10 }}>
+            <div key={`${m.source}-${m.id}`} className="card" style={{ padding: "12px 14px", display: "grid", gap: 10 }}>
               {person(m.name, [m.code, m.phone].filter(Boolean).join(" · "), "old")}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                <span className="chip">{m.source === "investor" ? "Investor" : "Borrower"}</span>
                 {m.fields.map((f) => <span key={f} className="chip amber">{f} matches</span>)}
               </div>
             </div>
@@ -74,8 +71,8 @@ export function SameInvestorModalContent({ newName, matches, onConfirm }: SameIn
       </div>
       <div className="ft" style={{ display: "flex", gap: 8 }}>
         <div className="sp" />
-        <button className="btn ghost" onClick={closeModal} disabled={busy}>No, different person</button>
-        <button className="btn" onClick={yes} disabled={busy}><Icon name="check" /> {busy ? "Please wait…" : hasInvestor ? "Yes, use existing investor" : "Yes, same person"}</button>
+        <button className="btn ghost" onClick={closeModal} disabled={busy}>No</button>
+        <button className="btn" onClick={yes} disabled={busy}><Icon name="check" /> {busy ? "Please wait…" : "Yes"}</button>
       </div>
     </>
   );

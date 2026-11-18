@@ -90,7 +90,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
   }, [edit]);
 
   // confirmSamePerson: the user has said the number already on file belongs to this same person.
-  async function save(confirmSamePerson = false, matchedInvestor = false) {
+  async function save(confirmSamePerson = false) {
     const n = name.trim();
     const p = phone.trim();
     // Every problem is shown at once, each beside its own field.
@@ -129,8 +129,6 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         bankIfsc: bankIfsc.trim().toUpperCase(),
       };
       const c = edit ? await updateInvestor(edit.id, input) : await createInvestor(input, undefined, confirmSamePerson);
-      // Confirmed as the same person as an investor already on file: that record comes back, none is added.
-      if (confirmSamePerson && matchedInvestor) toast(`${c.name} (${c.code}) is already an investor — using the existing record`);
       onCreated(c);
     } catch (e) {
       // The phone number, PAN or Aadhaar is on another investor under a different name: nothing is added until
@@ -138,7 +136,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
       const matches = edit ? null : sameIdentityMatches(e);
       if (matches) {
         toast("Possible duplicate — please confirm before adding");
-        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => { closeModal(); await save(true, matches.some((m) => m.source === "investor")); }} />);
+        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => { closeModal(); await save(true); }} />);
         return;
       }
       const msg = e instanceof Error ? e.message : "Failed to create investor.";

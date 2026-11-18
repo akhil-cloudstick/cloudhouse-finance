@@ -92,6 +92,7 @@ export * from "./ServerFlatList";
 export * from "./CountLine";
 export * from "./Popover";
 export * from "./ToastHost";
+export * from "./TipHost";
 export * from "./GroupedFilter";
 
 export * from "./BoundedList";

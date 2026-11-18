@@ -1,8 +1,11 @@
-import React from "react";
-import { View } from "react-native";
+import React, { useState } from "react";
+import { LayoutAnimation, Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import {
   AccRow,
+  C,
+  PIcon,
+  Txt,
   FabCorner,
   FlatHeader,
   GroupedFilter,
@@ -32,6 +35,48 @@ const timeOf = (iso: string) => {
   const d = iso ? new Date(iso) : null;
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "—";
 };
+/** A day's rate changes as a dropdown: one line ("3 changes") that opens a card per change — its time, who set it and
+ * the 24K / 22K / 18K rates side by side — instead of a long run of text lines. */
+function ChangesDropdown({ entries }: { entries: GoldRate[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ borderWidth: 1, borderColor: C.line, borderRadius: 12, overflow: "hidden", backgroundColor: C.card }}>
+      <Pressable
+        onPress={() => {
+          LayoutAnimation.configureNext(LayoutAnimation.create(200, "easeInEaseOut", "opacity"));
+          setOpen((o) => !o);
+        }}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 10, gap: 8 }}
+      >
+        <Txt style={{ flex: 1, fontWeight: "700", fontSize: 13 }}>{entries.length} rate changes</Txt>
+        <View style={{ transform: [{ rotate: open ? "180deg" : "0deg" }] }}>
+          <PIcon name="chevdown" color={C.muted} />
+        </View>
+      </Pressable>
+      {open
+        ? entries.map((e) => (
+            <View key={e.id} style={{ borderTopWidth: 1, borderTopColor: C.line, backgroundColor: C.brandFaint, paddingHorizontal: 12, paddingVertical: 10 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6, gap: 8 }}>
+                <Txt style={{ fontWeight: "700", fontSize: 12.5 }}>{timeOf(e.createdAt)}</Txt>
+                <Txt numberOfLines={1} style={{ color: C.muted, fontSize: 12, flexShrink: 1 }}>{publisher(e)}</Txt>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {([["24K", e.k24], ["22K", e.k22], ["18K", e.k18]] as const).map(([lbl, v]) => (
+                  <View key={lbl} style={{ flex: 1, backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: C.line, paddingVertical: 6, alignItems: "center" }}>
+                    <Txt style={{ color: C.muted, fontSize: 11 }}>{lbl}</Txt>
+                    <Txt style={{ fontWeight: "700", fontSize: 13 }}>{inr(v)}</Txt>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))
+        : null}
+    </View>
+  );
+}
+
 const publisher = (r: GoldRate) => (r.setByDesignation ? `${r.setBy} · ${r.setByDesignation}` : r.setBy || "—");
 
 // Gold Rates — mobile twin of the web Gold Rates page: today's published rates on top, then the rate history, one row
@@ -109,10 +154,8 @@ export default function GoldRatesScreen() {
             { k: "22K / g", v: inr(r.k22) },
             { k: "18K / g", v: inr(r.k18) },
             { k: "Published by", v: publisher(r) },
-            // Every change that day, newest first (only when the rate was changed more than once).
-            ...(changes
-              ? entries.map((e) => ({ k: `Change · ${timeOf(e.createdAt)}`, v: `24K ${inr(e.k24)} · 22K ${inr(e.k22)} · 18K ${inr(e.k18)} — ${publisher(e)}` }))
-              : []),
+            // Every change that day, newest first — a dropdown, only when the rate was changed more than once.
+            ...(changes ? [{ k: "Changes", v: <ChangesDropdown entries={entries} />, full: true }] : []),
           ];
           return (
             <AccRow

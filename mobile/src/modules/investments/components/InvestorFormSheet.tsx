@@ -132,12 +132,13 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
         title="Same person?"
         message={
           dup
-            ? `This ${[...new Set(dup.flatMap((m) => m.fields))].join(" / ").toLowerCase()} is already on file for ${dup.map((m) => `${m.name} (${m.code}, ${m.source === "investor" ? "investor" : "borrower"})`).join(", ")}.
+            ? `This ${[...new Set(dup.flatMap((m) => m.fields))].join(" / ").toLowerCase()} is already on file for the borrower ${dup.map((m) => `${m.name} (${m.code})`).join(", ")}.
 
 Is ${name.trim()} the same person?`
             : ""
         }
-        confirmLabel={dup?.some((m) => m.source === "investor") ? "Yes, use existing investor" : "Yes, same person"}
+        confirmLabel="Yes"
+        cancelLabel="No"
         loading={save.isPending}
         onConfirm={() => {
           setDup(null);

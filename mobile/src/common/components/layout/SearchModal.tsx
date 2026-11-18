@@ -1,7 +1,7 @@
 import { SELECTION_COLOR } from "@/common/theme/colors";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, TextInput, View, type TextInputInstance } from "react-native";
-import { C, EmptyText, FilterChipRow, Hit, PIcon, ServerFlatList, TopModal, Txt, openPage } from "@/common/components/ui";
+import { C, EmptyText, FilterChipRow, Hit, PIcon, ServerFlatList, TopModal, Txt, openPage, showTip, hideTip, useHoldTip } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
@@ -18,6 +18,8 @@ import { s } from "./shellModalsShared";
 const SEARCH_SCOPES = ["All", "Customers", "Loan No.", "Scheme"] as const;
 type SearchScope = (typeof SEARCH_SCOPES)[number];
 type SearchModalProps = { visible: boolean; onClose: () => void };
+// Shown when the search box's icon is held (the box itself cuts the placeholder short, and is being typed in).
+const SEARCH_HINT = "Searches: customers (name, code, phone), loans (loan number, customer name or code), schemes (name, code). Pick a chip below to search only one kind.";
 
 export function SearchModal({ visible, onClose }: SearchModalProps) {
   const [picked, setScope] = useState<SearchScope>("All");
@@ -32,6 +34,8 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
   // mount (and start fetching) and the keyboard rises only once it has
   // finished — doing either mid-slide is what made the opening stutter.
   const searchInput = useRef<TextInputInstance>(null);
+  // Hold the search box for what it searches (or the full text typed in it).
+  const hold = useHoldTip(() => (text ? text : SEARCH_HINT));
   const [opened, setOpened] = useState(false);
   useEffect(() => {
     if (!visible) setOpened(false);
@@ -161,6 +165,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
         <View style={s.searchBox}>
           <TextInput
             ref={searchInput}
+            {...hold}
             value={text}
             onChangeText={setText}
             placeholder="Search customer, LN number, ID, scheme"
@@ -173,13 +178,13 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
             style={s.searchInput}
           />
           {text ? (
-            <Pressable style={s.searchIc} hitSlop={10} onPress={() => setText("")} accessibilityLabel="Clear search">
+            <Pressable style={s.searchIc} hitSlop={10} onPress={() => setText("")} onLongPress={(e) => showTip(SEARCH_HINT, e)} delayLongPress={350} onPressOut={hideTip} accessibilityLabel="Clear search">
               <PIcon name="close" color={C.muted} size={14} />
             </Pressable>
           ) : (
-            <View style={s.searchIc} pointerEvents="none">
+            <Pressable style={s.searchIc} hitSlop={10} onLongPress={(e) => showTip(SEARCH_HINT, e)} delayLongPress={350} onPressOut={hideTip} accessibilityLabel="Search — hold for what it searches">
               <PIcon name="search" color={C.muted} />
-            </View>
+            </Pressable>
           )}
         </View>
         <Pressable onPress={onClose} hitSlop={10}>

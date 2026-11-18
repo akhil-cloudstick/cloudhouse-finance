@@ -9,6 +9,7 @@ import { type ChipTone } from "./chipTones";
 import { StatusChip } from "./StatusChip";
 import { AccCell, AccDetail, AccAction, AccGroupContext, AccRowKey, TableRowCtx, type TableHeadCol, s } from "./rowContext";
 import { AccBtn } from "./AccBtn";
+import { hideTip, showTip } from "./TipHost";
 
 /** The pinned column-title row of the table (iPad and bigger). */
 export function TableHead({ cols }: { cols: TableHeadCol[] }) {
@@ -27,6 +28,10 @@ export function TableHead({ cols }: { cols: TableHeadCol[] }) {
 /** Narrowest a table column stays readable at (see AccCell.min). */
 const cellMin = (c: AccCell) => c.min ?? (c.chip ? 112 : c.num ? 92 : (c.flex ?? 1) > 1 ? 150 : 100);
 const expandAnim = () => LayoutAnimation.configureNext(LayoutAnimation.create(250, "easeInEaseOut", "opacity"));
+/** What holding a row shows: its id, name, sub-line, amount and status in full — the row itself cuts them to one line. */
+const holdText = (id?: string, name?: React.ReactNode, sub?: React.ReactNode, amount?: string, status?: string) =>
+  [id, typeof name === "string" ? name : undefined, typeof sub === "string" ? sub : undefined, amount, status].filter(Boolean).join(" · ");
+
 type AccRowProps = {
   id?: string;
   idColor?: string;
@@ -122,7 +127,7 @@ export function AccRow({
       <View style={table ? [s.body, t.bodyFlat] : s.body}>
         <View style={s.detail}>
           {panelDetails?.map((d) => (
-            <View key={d.k} style={s.detailCell}>
+            <View key={d.k} style={d.full ? [s.detailCell, { width: "100%" }] : s.detailCell}>
               <Txt style={s.k}>{d.k}</Txt>
               {typeof d.v === "string" || typeof d.v === "number" ? (
                 <TruncText lines={3} style={[s.v, d.color ? { color: d.color } : null]}>{d.v}</TruncText>
@@ -160,7 +165,7 @@ export function AccRow({
     return (
       <View style={style}>
         <View style={[t.rowWrap, table.last && t.rowWrapLast]}>
-          <Pressable style={t.row} onPress={toggle}>
+          <Pressable style={t.row} onPress={toggle} onLongPress={(e) => showTip(holdText(id, name, sub, amount, status), e)} delayLongPress={400} onPressOut={hideTip}>
             {visCells.map((c) => (
               <View key={c.h} style={{ flex: c.flex ?? 1, minWidth: cellMin(c), alignItems: "center" }}>
                 {c.chip && typeof c.v === "string" && c.v ? (
@@ -188,7 +193,7 @@ export function AccRow({
     return (
       <View style={style}>
         <View style={[t.rowWrap, table.last && t.rowWrapLast]}>
-          <Pressable style={t.row} onPress={toggle}>
+          <Pressable style={t.row} onPress={toggle} onLongPress={(e) => showTip(holdText(id, name, sub, amount, status), e)} delayLongPress={400} onPressOut={hideTip}>
             {id ? (
               <Txt style={[t.idCol, s.lidTxt, t.center, idColor ? { color: idColor } : null]} numberOfLines={1}>
                 {id}
@@ -234,6 +239,8 @@ export function AccRow({
     <View style={[s.row, style]}>
       <Pressable
         style={s.head}
+        onLongPress={(e) => showTip(holdText(id, name, sub, amount, status), e)}
+        delayLongPress={400} onPressOut={hideTip}
         onPress={() => {
           if (onPress) return onPress();
           if (!expandable) return;

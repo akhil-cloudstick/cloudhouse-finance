@@ -5,7 +5,9 @@ import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
 import { setOverlayOrigin } from "./overlayOrigin";
 import { HEADER_LOGO } from "@/common/config/brand";
-import { HeroBackground } from "./HeroBackground";import { s, HeroMorphContext } from "./shellContext";
+import { HeroBackground } from "./HeroBackground";
+import { hideTip, showTip } from "./TipHost";
+import { s, HeroMorphContext } from "./shellContext";
 import { onWindowSizeChange } from "@/common/theme/layout";
 
 /** The Dashboard's scroll offset (PScroll `scrollY`, native thread). As the page scrolls up the hero
@@ -194,6 +196,9 @@ export function HeroHeader({
               searchBtn.current?.measureInWindow((x, y, w, h) => setOverlayOrigin({ x: x + w / 2, y: y + h / 2 }))
             }
             onPress={onSearch}
+            onLongPress={(e) => showTip("Search customers, loans and schemes", e)}
+            delayLongPress={350}
+            onPressOut={hideTip}
             accessibilityLabel="Search"
           >
             <PIcon name="search" color="#fff" />
