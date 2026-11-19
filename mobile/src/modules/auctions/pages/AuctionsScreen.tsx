@@ -180,9 +180,9 @@ function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: AuctionCa
       defaultOpen={defaultOpen}
       id={l.loanNumber}
       name={l.customer?.name ?? `Customer #${l.customerId}`}
-      sub={sub}
       amount={inr(l.totalOutstandingBalance ?? l.outstandingAmount)}
-      // The case status (Defaulted / Auction Eligible / Auctioned), the same one shown under the name — not "Overdue".
+      // The case status (Defaulted / Auction Eligible / Auctioned) shows only as the status pill — not "Overdue",
+      // and not repeated as a line under the customer's name.
       status={sub}
       details={[
         { k: "Gold weight", v: l.totalNetWeight != null ? `${+Number(l.totalNetWeight).toFixed(2)} g` : "—" },

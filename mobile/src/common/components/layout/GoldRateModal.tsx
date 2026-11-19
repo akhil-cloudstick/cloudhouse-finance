@@ -33,10 +33,10 @@ const KARAT_ROWS: { k: Karat; label: string }[] = [
   { k: 22, label: "22K · 916" },
   { k: 18, label: "18K · 750" },
 ];
-// Fineness isn't stored — restore what the last published rates imply
-// (rate ÷ 24K) rather than the standard karat/24 ratio, so a custom fineness
-// set earlier is still showing when the modal is reopened.
-const savedFineness = (k: Karat, k24: number, rate: number) => (k === 24 ? String(FINENESS_24K) : String(finenessFromRate(k24, rate, k)));
+// The fineness last set in Auto mode is stored with the rate (as on web), so a custom fineness is still showing when
+// the modal is reopened. A rate saved before that was kept falls back to what its rates imply (rate ÷ 24K).
+const savedFineness = (k: Karat, k24: number, rate: number, stored?: number) =>
+  k === 24 ? String(FINENESS_24K) : stored && stored > 0 ? String(stored) : String(finenessFromRate(k24, rate, k));
 const clampFineness = (v: string) => (v !== "" && +v > 100 ? "100" : v);
 type GoldRateModalProps = { visible: boolean; onClose: () => void };
 
@@ -51,15 +51,15 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
   const [mode, setMode] = useState<RateMode>("Auto");
   const [ref24, setRef24] = useState(0);
   const [rates, setRates] = useState<Record<Karat, string>>({ 24: "", 22: "", 18: "" });
-  const [fin, setFin] = useState<Record<Karat, string>>({ 24: String(FINENESS_24K), 22: savedFineness(22, now[24], now[22]), 18: savedFineness(18, now[24], now[18]) });
+  const [fin, setFin] = useState<Record<Karat, string>>({ 24: String(FINENESS_24K), 22: savedFineness(22, now[24], now[22], latest.data?.fineness22), 18: savedFineness(18, now[24], now[18], latest.data?.fineness18) });
   const [lastEdited, setLastEdited] = useState<Karat | null>(null);
   const [tried, setTried] = useState(false);
 
   const resetAuto = (k24: number) => {
     setMode("Auto");
     setRef24(k24);
-    const f22 = savedFineness(22, now[24], now[22]);
-    const f18 = savedFineness(18, now[24], now[18]);
+    const f22 = savedFineness(22, now[24], now[22], latest.data?.fineness22);
+    const f18 = savedFineness(18, now[24], now[18], latest.data?.fineness18);
     setFin({ 24: String(FINENESS_24K), 22: f22, 18: f18 });
     setRates({
       24: k24 > 0 ? String(Math.round(k24)) : "",
@@ -141,7 +141,9 @@ export function GoldRateModal({ visible, onClose }: GoldRateModalProps) {
       const setBy = employee?.name ?? "Mobile App";
       // All three rates are published for today, even when they equal the current ones.
       const jobs = KARAT_ROWS.filter(({ k }) => n[k] > 0).map(({ k }) => ({ karat: k, rate: n[k] }));
-      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy);
+      // Auto mode saves its fineness with the rate, so a 24K-only publish elsewhere derives 22K/18K the same way.
+      const fineness = mode === "Auto" && +fin[22] > 0 && +fin[18] > 0 ? { 22: +fin[22], 18: +fin[18] } : undefined;
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, undefined, fineness);
       return jobs;
     },
     onSuccess: (jobs) => {

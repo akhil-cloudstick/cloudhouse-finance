@@ -5,6 +5,7 @@ import { colors, SELECTION_COLOR } from "@/common/theme/colors";
 import { typeScale, textStyle } from "@/common/theme/typography";
 import { ThemedText } from "./ThemedText";
 import { doneBarFor } from "./KeyboardDoneBar";
+import { useStableText } from "./useStableText";
 
 // `right` renders an accessory (e.g. the show/hide-password eye toggle)
 // inside the input's right edge without every caller reimplementing the
@@ -41,6 +42,8 @@ export function GoldTextInput({
   // for everyday validation text.
   invalid?: boolean;
 }) {
+  // The box shows its own copy of the text so a late or reshaped value from the parent cannot duplicate it or move the cursor.
+  const stable = useStableText(rest.value, rest.onChangeText);
   const InputSurface = blur && Platform.OS === "ios" ? BlurView : View;
   return (
     <View style={[styles.wrap, containerStyle]}>
@@ -66,6 +69,8 @@ export function GoldTextInput({
             style={textStyle([styles.input, right ? styles.inputWithRight : null, style], false)}
             inputAccessoryViewID={doneBarFor(rest.keyboardType)}
             {...rest}
+            value={stable.value}
+            onChangeText={stable.onChangeText}
           />
         </InputSurface>
         {right ? <View style={styles.right}>{right}</View> : null}

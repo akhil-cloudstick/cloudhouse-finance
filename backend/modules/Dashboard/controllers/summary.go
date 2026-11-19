@@ -144,20 +144,14 @@ func getSummary(ctx context.Context, branchScope *uint) (*Summary, error) {
 	}
 	out.Today.LoansIssued = issued.Count
 	out.Today.LoansIssuedAmount = common.RoundMoney(issued.Total)
-	var coll sumRow
-	pq := config.DB.
-		WithContext(ctx).Model(&loanModels.LoanPayment{}).
-		Joins("JOIN loans ON loans.id = loan_payments.loan_id AND loans.deleted_at IS NULL").
-		Where("loan_payments.paid_on >= ? AND loan_payments.paid_on < ?", today, tomorrow).
-		Where("loan_payments.type IN ?", collectionPaymentTypes)
-	if branchScope != nil {
-		pq = pq.Where("loans.branch_id = ?", *branchScope)
-	}
-	if err := pq.Select("COUNT(*) AS count, COALESCE(SUM(loan_payments.amount), 0) AS total").Scan(&coll).Error; err != nil {
+	// Cash collected is every Cash In record of the day — gold and personal loan repayments and all the other money
+	// received — read from the cash book, the same record the Cash page totals, not just gold-loan payments.
+	collected, collectedCount, err := cash.CollectedByDate(ctx, branchScope, now)
+	if err != nil {
 		return nil, err
 	}
-	out.Today.Collections = common.RoundMoney(coll.Total)
-	out.Today.CollectionsCount = coll.Count
+	out.Today.Collections = common.RoundMoney(collected)
+	out.Today.CollectionsCount = collectedCount
 	cq := config.DB.
 		WithContext(ctx).Model(&commonModels.Customer{}).
 		Where("created_at >= ? AND created_at < ?", today, tomorrow)
