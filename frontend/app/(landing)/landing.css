@@ -814,5 +814,28 @@ h3 {
   display: block;
   width: min(100%, 400px);
   height: auto;
-  filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.35));
+}
+
+/* "Powered by CloudHouse": the vendor's own gradient, same as the login page. */
+.lp-powered {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--lp-muted);
+}
+.lp-powered a {
+  font-weight: 600;
+  text-decoration: none;
+}
+.lp-powered a span {
+  background: linear-gradient(90deg, #6644de 0%, #c61f8f 52%, #f99603 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.lp-brand img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
 }

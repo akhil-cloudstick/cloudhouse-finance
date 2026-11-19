@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { Dimensions, useWindowDimensions } from "react-native";
+import { Dimensions, Platform, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Tablets: the shortest side of the physical screen is >= 600dp (the same
@@ -96,6 +96,8 @@ export function usePContentBottom(extra = 0) {
 // Gap kept between the floating bar and the system navigation (buttons / gesture bar) when there is one.
 const SYSTEM_NAV_GAP = 8;
 export function tabBarLift(insetBottom: number) {
+  // iOS: the home indicator is a thin bar inside the inset, so the floating bar can sit much closer to the screen edge.
+  if (Platform.OS === "ios") return insetBottom > 0 ? Math.max(insetBottom - PTAB_INSET - 12, 0) : 0;
   return insetBottom > 0 ? Math.max(insetBottom - PTAB_INSET + SYSTEM_NAV_GAP, 0) : 0;
 }
 

@@ -708,8 +708,8 @@ export const s = StyleSheet.create({
     zIndex: 50,
     height: PTAB_HEIGHT,
     backgroundColor: C.card,
-    // Fully rounded ends, the same pill shape as the active-page highlight (tabPill: radius = half its height).
-    borderRadius: PTAB_HEIGHT / 2,
+    // Softly rounded corners (not a full pill).
+    borderRadius: 24,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",

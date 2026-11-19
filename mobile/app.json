@@ -3,7 +3,7 @@
     "name": "CloudHouse Finance",
     "slug": "cloudhousefinance",
     "owner": "cloudhouse-production",
-    "version": "1.0.2",
+    "version": "1.0.5",
     "orientation": "default",
     "icon": "./assets/cloudhouse.png",
     "userInterfaceStyle": "light",
@@ -37,7 +37,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash-tile.png",
-          "imageWidth": 96,
+          "imageWidth": 144,
           "resizeMode": "contain",
           "backgroundColor": "#6e1423"
         }

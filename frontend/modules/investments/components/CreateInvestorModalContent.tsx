@@ -5,6 +5,7 @@ import { stripDigits, panLiveError } from "@/common/utils/kyc";
 import { useModal } from "@/common/components/ModalProvider";
 import { Select } from "@/common/components/ui/Select";
 import { createInvestor, updateInvestor, getInvestorAadhaarFull, sameIdentityMatches } from "@/modules/investments/services/investorService";
+import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
 import { SameInvestorModalContent } from "@/modules/investments/components/SameInvestorModalContent";
 import { useToast } from "@/common/components/ToastProvider";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
@@ -89,6 +90,31 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
     return () => { live = false; };
   }, [edit]);
 
+  // Set once the user confirms the person is an existing borrower: the form is then filled from that borrower.
+  const [linkedCustomerId, setLinkedCustomerId] = useState<string | undefined>();
+
+  // Fills the form with what the borrower already has on file; the rest is left for staff to complete.
+  async function prefillFromBorrower(id: string) {
+    try {
+      const c = await getCustomer(id);
+      setLinkedCustomerId(id);
+      setName(c.name || "");
+      setPhone(c.phone || "");
+      if (c.address) setAddress(c.address);
+      if (c.pan) setPan(c.pan);
+      if (c.bankAccountName) setBankAccountName(c.bankAccountName);
+      if (c.bankAccountNumber) setBankAccountNumber(c.bankAccountNumber);
+      if (c.bankIfsc) setBankIfsc(c.bankIfsc);
+      if (c.branchId && !lockedBranchId) setBranchId(c.branchId);
+      getCustomerAadhaarFull(id).then((a) => { if (a) setAadhaar(a); }).catch(() => {});
+      setErr("");
+      setFe({});
+      toast("Borrower details filled in — please complete the remaining fields");
+    } catch {
+      setErr("Could not load the borrower's details.");
+    }
+  }
+
   // confirmSamePerson: the user has said the number already on file belongs to this same person.
   async function save(confirmSamePerson = false) {
     const n = name.trim();
@@ -128,7 +154,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         bankAccountNumber: bankAccountNumber.trim(),
         bankIfsc: bankIfsc.trim().toUpperCase(),
       };
-      const c = edit ? await updateInvestor(edit.id, input) : await createInvestor(input, undefined, confirmSamePerson);
+      const c = edit ? await updateInvestor(edit.id, input) : await createInvestor(input, linkedCustomerId, confirmSamePerson || !!linkedCustomerId);
       onCreated(c);
     } catch (e) {
       // The phone number, PAN or Aadhaar is on another investor under a different name: nothing is added until
@@ -136,7 +162,13 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
       const matches = edit ? null : sameIdentityMatches(e);
       if (matches) {
         toast("Possible duplicate — please confirm before adding");
-        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => { closeModal(); await save(true); }} />);
+        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => {
+          closeModal();
+          // An existing borrower: fill the form from them and let staff complete the rest before adding.
+          const borrower = matches.find((m) => m.source === "customer");
+          if (borrower) await prefillFromBorrower(String(borrower.id));
+          else await save(true);
+        }} />);
         return;
       }
       const msg = e instanceof Error ? e.message : "Failed to create investor.";

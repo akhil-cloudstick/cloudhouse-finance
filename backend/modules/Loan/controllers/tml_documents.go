@@ -230,6 +230,7 @@ type tmlSlipTemplateData struct {
 	PrintTime                                        string
 	LoanNumber, LoanDate, CustomerName, CustomerCode string
 	Address, SchemeName, Amount, Tenure, DueDate     string
+	// (the pledge slip's weights print to one decimal — see fmtWeightOneDecimal)
 	InterestRate, MinimumDaysNote                    string
 	Slabs                                            []tmlSlipSlab
 	CustomerPhoto, OverallPhoto                      template.URL
@@ -286,7 +287,7 @@ func tmlSlipData(ctx context.Context, l *models.Loan) tmlSlipTemplateData {
 		if o.ReleasedAt != nil {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%d %s - Net wt=%sgm", max(o.Quantity, 1), o.Name, fmtWeight(o.NetWeight)))
+		parts = append(parts, fmt.Sprintf("%d %s - Net wt=%sgm", max(o.Quantity, 1), o.Name, fmtWeightOneDecimal(o.NetWeight)))
 		gross += o.GrossWeight
 		net += o.NetWeight
 		stone += o.DeductionWeight
@@ -310,7 +311,7 @@ func tmlSlipData(ctx context.Context, l *models.Loan) tmlSlipTemplateData {
 		InterestDue: interestDue.Format("02/01/2006"), InterestDueNote: fmt.Sprintf("every 90 days from pledge date or last interest paid date, whichever is later but not exceeding Principal Due Date %s", l.DueDate.Format("02/01/2006")),
 		CustomerPhoto: uploadDataURL(tenantID, l.Customer.PhotoURL), OverallPhoto: uploadDataURL(tenantID, l.OverallPhotoURL),
 		Particulars: strings.Join(parts, ", "),
-		TotalWeight: fmtWeight(gross), StoneWeight: fmtWeight(stone), NetWeight: fmtWeight(net),
+		TotalWeight: fmtWeightOneDecimal(gross), StoneWeight: fmtWeightOneDecimal(stone), NetWeight: fmtWeightOneDecimal(net),
 		LenderSignature: lenderSignature(ctx),
 	}
 }
@@ -514,3 +515,6 @@ func tmlZoomCSS(items int, policy string) string {
 
 // tmlZoomFrom is the item count from which the whole sheet is scaled down.
 const tmlZoomFrom = 11
+
+// fmtWeightOneDecimal prints a weight in grams to one decimal place (TML pledge slip only).
+func fmtWeightOneDecimal(w float64) string { return fmt.Sprintf("%.1f", w) }

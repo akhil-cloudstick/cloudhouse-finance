@@ -90,6 +90,14 @@ export default function LoanRiskScreen() {
         header={
           <>
             <View style={{ paddingTop: 14 }}>
+              <SearchFilterRow
+                value={list.search}
+                onChangeText={list.setSearch}
+                placeholder="Search by loan ID, customer name or ID"
+                filter={<GroupedFilter title="Filter Loan Risk" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
+              />
+            </View>
+            <View style={{ paddingTop: 12 }}>
               <SummaryCard
                 title="Gold-value risk"
                 stats={[
@@ -97,14 +105,6 @@ export default function LoanRiskScreen() {
                   { n: String(counts?.atRisk ?? 0), l: "At risk" },
                   { n: String(counts?.safe ?? 0), l: "Safe" },
                 ]}
-              />
-            </View>
-            <View style={{ paddingTop: 12 }}>
-              <SearchFilterRow
-                value={list.search}
-                onChangeText={list.setSearch}
-                placeholder="Search by loan ID, customer name or ID"
-                filter={<GroupedFilter title="Filter Loan Risk" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
               />
             </View>
           </>

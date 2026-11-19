@@ -8,7 +8,7 @@ import { fonts } from "@/common/theme/typography";
 // "Hero Gradient" splash — the animated hand-off from the native splash.
 //
 // The native splash (app.json: expo-splash-screen) is the logo tile
-// (assets/splash-tile.png, 96 wide) centred on solid nav2 maroon. This
+// (assets/splash-tile.png, 144 wide) centred on solid nav2 maroon. This
 // starts in exactly that state, so there's no jump when the native one
 // hides, then:
 //   1. the hero gradient (nav → nav2 → brand, as on every page header)
@@ -22,7 +22,7 @@ import { fonts } from "@/common/theme/typography";
 // All on the native driver, except the name's letter-spacing (layout), which
 // is approximated with a native scaleX instead.
 
-const TILE = 96; // matches app.json expo-splash-screen imageWidth
+const TILE = 144; // matches app.json expo-splash-screen imageWidth — change both together
 const SPLASH_TILE = require("../../../../assets/splash-tile.png");
 
 type AnimatedSplashProps = { onReady: () => void; onDone: () => void };
