@@ -793,6 +793,23 @@ func CreateCustomer(c echo.Context) error {
 	}
 	branchID := auth.EnforceBranchOnWrite(c, input.BranchID)
 	input.BranchID = branchID
+	// A new borrower who is also an investor (same phone / PAN / Aadhaar) is held until the user confirms.
+	if input.CustomerType != "Investor" && c.QueryParam("confirm_same_person") != "true" {
+		var aadhaarHash string
+		if in := strings.TrimSpace(input.Aadhaar); in != "" {
+			aadhaarHash = config.AadhaarCipher.Fingerprint(in)
+		}
+		phoneIn := input
+		phoneIn.Phone = strings.TrimSpace(phoneIn.Phone)
+		normalizeKYC(&phoneIn)
+		if err := checkBorrowerIdentity(ctx, aadhaarHash, phoneIn, false); err != nil {
+			var dup *DuplicateIdentityError
+			if errors.As(err, &dup) {
+				return c.JSON(http.StatusConflict, echo.Map{"success": false, "error": dup.Error(), "code": "same_identity_different_name", "matches": dup.Matches})
+			}
+			return FailErr(c, err)
+		}
+	}
 	rec, err := SaveCustomer(ctx, input)
 	if err != nil {
 		return FailErr(c, err)

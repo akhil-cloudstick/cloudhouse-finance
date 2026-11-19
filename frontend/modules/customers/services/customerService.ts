@@ -193,8 +193,10 @@ export async function checkAadhaarVerify(customerId: string): Promise<AadhaarVer
   return { status: res.status, customer: res.customer ? toView(res.customer) : undefined, matchedName: res.matchedName, dob: res.dob, failureReasons: res.failureReasons ?? [] };
 }
 
-export async function createCustomer(input: CustomerFormInput): Promise<CustomerView> {
-  const rec = await apiFetch<BackendCustomer>("/customers", {
+/* confirmSamePerson: the user has confirmed this borrower is the same person as the investor(s) that share a phone
+ * number, PAN or Aadhaar (the server answers 409 "same_identity_different_name" until then). */
+export async function createCustomer(input: CustomerFormInput, confirmSamePerson?: boolean): Promise<CustomerView> {
+  const rec = await apiFetch<BackendCustomer>(`/customers${confirmSamePerson ? "?confirm_same_person=true" : ""}`, {
     method: "POST",
     body: JSON.stringify(toRequestBody(input)),
   });

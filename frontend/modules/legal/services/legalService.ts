@@ -17,7 +17,7 @@ import {
   CONTACT_WEBSITE,
 } from "@/modules/legal/content/legalConfig";
 import type { Provider } from "@/modules/legal/types/legal-types";
-import markImg from "@/modules/legal/assets/cloudhouse-mark.png";
+import markImg from "@/modules/legal/assets/cloudhouse-app-logo.png";
 
 export async function fetchProvider(): Promise<Provider | null> {
   return {

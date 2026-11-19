@@ -35,6 +35,7 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+*.keystore
 
 # generated native folders
 /ios
@@ -46,3 +47,5 @@ yarn-error.*
 *.p12
 *.mobileprovision
 *.p8
+*.keystore
+keystore.properties

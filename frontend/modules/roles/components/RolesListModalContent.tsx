@@ -22,7 +22,7 @@ type RolesListModalContentProps = {
 };
 
 /* Every role — paged in the footer, like the Investors modal — each opening to the employees who hold it. */
-export function RolesListModalContent({ onOpenRole }: RolesListModalContentProps) {
+export function RolesListModalContent(_props: RolesListModalContentProps) {
   const { closeModal } = useModal();
   const [q, setQ] = useState("");
   const search = useDebouncedValue(q.trim(), 300);
@@ -64,8 +64,8 @@ export function RolesListModalContent({ onOpenRole }: RolesListModalContentProps
           <TableSearch value={q} onChange={(v) => { setQ(v); setPage(1); setOpenId(null); }} placeholder="Search roles…" searches="role name" />
         </div>
         {error && <div className="notice">{error}</div>}
-        <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-cards-sm tbl-compact">
-          <TableCols widths={[30, 36, 14, 20]} />
+        <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards-sm tbl-compact">
+          <TableCols widths={[28, 38, 22, 12]} />
           <thead><tr><th>Role</th><th>Description</th><th className="num">Employees</th><th></th></tr></thead>
           <tbody>
             {loading && roles.length === 0 ? (
@@ -78,7 +78,6 @@ export function RolesListModalContent({ onOpenRole }: RolesListModalContentProps
                 role={r}
                 open={openId === r.id}
                 onToggle={() => setOpenId(openId === r.id ? null : r.id)}
-                onOpenPermissions={() => { onOpenRole(r.id); closeModal(); }}
               />
             ))}
           </tbody>
@@ -97,10 +96,10 @@ export function RolesListModalContent({ onOpenRole }: RolesListModalContentProps
   );
 }
 
-type RoleRowsProps = { role: RoleListRow; open: boolean; onToggle: () => void; onOpenPermissions: () => void };
+type RoleRowsProps = { role: RoleListRow; open: boolean; onToggle: () => void };
 
 /* A role's row, and — while open — the employees who hold it underneath. */
-function RoleRows({ role, open, onToggle, onOpenPermissions }: RoleRowsProps) {
+function RoleRows({ role, open, onToggle }: RoleRowsProps) {
   return (
     <>
       <tr className="click" onClick={onToggle} aria-expanded={open}>
@@ -113,10 +112,7 @@ function RoleRows({ role, open, onToggle, onOpenPermissions }: RoleRowsProps) {
         <td data-label="Description"><TruncText text={role.description} maxWidth="100%" /></td>
         <td className="num" data-label="Employees">{role.employee_count}</td>
         <td className="td-chev" style={{ whiteSpace: "nowrap" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-            <button type="button" title="Open permissions" aria-label="Open permissions" onClick={(e) => { e.stopPropagation(); onOpenPermissions(); }} style={{ border: 0, background: "none", cursor: "pointer", padding: 4, color: "var(--brand-deep)", display: "inline-flex", alignItems: "center" }}><Icon name="shield" /></button>
-            <Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .15s", verticalAlign: "middle" }} />
-          </div>
+          <Icon name="chevronDown" style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .15s", verticalAlign: "middle" }} />
         </td>
       </tr>
       {open && (

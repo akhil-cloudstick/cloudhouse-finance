@@ -48,7 +48,7 @@ const EDITABLE_TYPES = ["Interest", "Penal Interest", "Principal", "Partial", "F
 
 const PAGE = 10;
 
-type ChargeEntry = { key: string; kind: string; date: string; amount: number; note?: string };
+type ChargeEntry = { key: string; kind: string; date: string; amount: number; note?: string; auction?: { surplusDisposition?: string; surplusRemarks?: string } };
 
 function modeSplit(r: { cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number }) {
   return [
@@ -113,7 +113,11 @@ export function buildLedger(l: Loan, topUps: LoanTopUp[], charges: ChargeEntry[]
         sortKey: c.date,
         date: c.date,
         title: memoTitle,
-        sub: Number(c.amount) > 0 ? inr(Number(c.amount)) : undefined,
+        // The surplus row carries the remark entered when the surplus was settled (e.g. kept as company income).
+        sub: [
+          Number(c.amount) > 0 ? inr(Number(c.amount)) : "",
+          c.kind === "auction-surplus" && c.auction?.surplusRemarks ? `Remarks: ${c.auction.surplusRemarks}` : "",
+        ].filter(Boolean).join(" · ") || undefined,
         memo: "Auction",
         kind: "auction",
         auctionKind: c.kind === "auction-sale" ? "sale" : "surplus",
