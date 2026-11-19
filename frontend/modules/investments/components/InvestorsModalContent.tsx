@@ -161,7 +161,7 @@ export function InvestorsModalContent() {
                 onDelete={canDeleteInvestor ? () => {
                   // Investments still held block the delete; they are listed as links and the list refreshes by itself.
                   const loadBlockers = async (): Promise<DeleteBlocker[]> =>
-                    (await listInvestmentsForCustomer(Number(c.id))).map((i) => ({
+                    (await listInvestmentsForCustomer(c.id)).map((i) => ({
                       key: String(i.id), kind: "Investment", ref: i.investmentNumber, status: i.status, href: routeHref("investment", String(i.id)),
                     }));
                   openChildModal(

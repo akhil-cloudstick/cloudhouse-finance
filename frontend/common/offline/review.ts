@@ -10,7 +10,7 @@ import type { EntityName, OutboxEntry } from "./types";
 
 export const REVIEW_CHANGED_EVENT = "app:offline-review-changed";
 
-const ENTITIES: EntityName[] = ["loans", "customers", "schemes", "categories", "lockers"];
+const ENTITIES: EntityName[] = ["loans", "customers", "schemes", "categories", "lockers", "investors"];
 
 export type ReviewRow = {
 	id: string;
@@ -133,6 +133,9 @@ const ACTIONS: [RegExp, string][] = [
 	[/^(PUT|PATCH) \/customers\/[^/]+$/, "Customer edit"],
 	[/^DELETE \/customers\/[^/]+\/hard-delete/, "Customer permanent delete"],
 	[/^DELETE \/customers\//, "Customer delete"],
+	[/^POST \/investors$/, "New investor"],
+	[/^(PUT|PATCH) \/investors\/[^/]+$/, "Investor edit"],
+	[/^DELETE \/investors\//, "Investor permanent delete"],
 	[/^POST \/schemes$/, "New scheme"],
 	[/^(PUT|PATCH) \/schemes\//, "Scheme edit"],
 	[/^DELETE \/schemes\//, "Scheme delete"],
@@ -179,7 +182,7 @@ const ACTIONS: [RegExp, string][] = [
 ];
 
 const RESOURCE_NAMES: Record<string, string> = {
-	loans: "loan", customers: "customer", schemes: "scheme", lockers: "locker", packets: "packet", investments: "investment",
+	loans: "loan", customers: "customer", investors: "investor", schemes: "scheme", lockers: "locker", packets: "packet", investments: "investment",
 	"investment-plans": "investment plan", "personal-loans": "personal loan", reminders: "reminder", expenses: "expense",
 	"cash-movements": "cash entry", "gold-rates": "gold rate", banks: "bank", branches: "branch", employees: "employee",
 };

@@ -328,7 +328,7 @@ function isOfCustomer(e: OutboxEntry, customerRef: string): boolean {
 
 /* GET /customers/<id>/investments: the investor's investments, with the ones made for them on this PC and not sent yet. */
 export async function adjustCustomerInvestments(path: string, kept: string | null): Promise<string | null> {
-	const m = /\/customers\/([^/?]+)\/investments(\?|$)/.exec(path);
+	const m = /\/(?:customers|investors)\/([^/?]+)\/investments(\?|$)/.exec(path);
 	if (!m) return kept;
 	const ref = decodeURIComponent(m[1]);
 	const rows = (await Promise.all((await waiting("POST", "/investments"))

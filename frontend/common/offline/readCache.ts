@@ -16,6 +16,7 @@ import { adjustReferenceLists } from "./referenceAdjust";
 import { adjustExpenses, adjustGoldSales, adjustLedger, adjustPartyLedger, LEDGER_PATH, PARTY_PATH } from "./ledgerAdjust";
 import { adjustAuctionRecord } from "./auctionAdjust";
 import { adjustPendingLoanByNumber, adjustPendingLoanPages, adjustPersonalLoanDetail, adjustPersonalLoanFixes, adjustPersonalLedgerFixes, adjustPersonalLoanListPayments, adjustPersonalLoanPayments, adjustPersonalLoanSchedule, adjustPersonalLoans } from "./personalLoanAdjust";
+import { adjustInvestors } from "./investorAdjust";
 import { adjustCustomerInvestments, adjustInvestmentOps, adjustInvestmentPlans, adjustInvestments, adjustPendingInvestmentByNumber, adjustPendingInvestmentPages } from "./investmentAdjust";
 import { adjustCalendar, adjustReminders } from "./reminderAdjust";
 import { adjustAccess } from "./accessAdjust";
@@ -300,7 +301,7 @@ async function recallBase(path: string, view: string): Promise<string | null> {
   // employees, roles, permission matrices and approval chains: the same, for what this PC changed and has not sent yet
   const body = await adjustAccess(path, await adjustSetup(path, await recallCopy(path, view), recallCopy, view), recallCopy);
   // the investments of one investor: the ones made for them on this PC and not sent yet are on the list
-  if (/\/customers\/[^/?]+\/investments(\?|$)/.test(path)) return adjustCustomerInvestments(path, body);
+  if (/\/(customers|investors)\/[^/?]+\/investments(\?|$)/.test(path)) return adjustCustomerInvestments(path, body);
   // what was done to an investment on this PC (cash added, withdrawn, a payout paid) is in its ledger, transactions and schedule
   if (/\/investments\/\d+\/(ledger|transactions|schedule)(\?|$)/.test(path)) return adjustInvestmentOps(path, body);
   // A loan's auction case: the steps taken on this PC and not sent yet are on it. A loan with no case yet (nothing kept, or an
@@ -316,6 +317,8 @@ async function recallBase(path: string, view: string): Promise<string | null> {
   // investment plans and investments made on this PC and not sent yet are listed too
   if (/\/investment-plans(\?|$)/.test(path)) return adjustInvestmentPlans(path, body);
   if (/\/users\/\d+\/investments(\?|$)/.test(path)) return adjustInvestments(path, body);
+  // investors made, edited or deleted on this PC and not sent yet
+  if (/\/users\/\d+\/investors(\/(uuid:[^/?]+|\d+))?(\?|$)/.test(path)) return adjustInvestors(path, body);
   // personal loans made on this PC and not sent yet are listed as pending ones
   if (/\/personal-loans(\?|$)/.test(path)) {
     const withNew = await adjustPersonalLoans(path, body);

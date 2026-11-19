@@ -25,6 +25,7 @@ interface LanStatusInfo {
   mainOnline: boolean;
   hasKey: boolean;
   shared: boolean;
+  firewallDrift: string; // not empty while Windows Firewall rules the app set up are missing
 }
 interface LanModeInfo {
   shared: boolean;

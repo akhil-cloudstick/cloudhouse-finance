@@ -265,6 +265,9 @@ export function LanPanel() {
 						</span>
 						{(status.tcpError || status.udpError) && (
 							<span className="sa-error" style={{ fontSize: 12.5 }}>{status.tcpError} {status.udpError}</span>
+							)}
+							{status.firewallDrift && (
+								<span className="sa-error" style={{ fontSize: 12.5 }}>{status.firewallDrift}</span>
 						)}
 					</>
 				) : (

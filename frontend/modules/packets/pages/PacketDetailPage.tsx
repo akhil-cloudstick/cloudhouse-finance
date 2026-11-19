@@ -192,64 +192,64 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
 				<Stepper status={displayStatus} />
 			)}
 
-			<div className="grid cols21">
-				<div className="grid">
-				{/* What is physically sealed inside this packet — the pledged
-						ornaments of the loan it belongs to. Staff opening a locker need
-						to check the packet against this list, so it belongs here and not
-						only on the loan page. */}
-				<div className="card gtop">
-					<div className="hd"><h3>Contents of the Packet — {p.itemCount} item(s) · {fmtW(p.totalWeight)}{p.items.some((it) => it.released) ? ` · ${p.items.filter((it) => it.released).length} released` : ""}</h3></div>
-					<div className="tbl-wrap">
-						<table className="tbl"><TableCols widths={[20, 10, 11, 11, 7, 14, 27]} />
-							<thead><tr><th>Ornament</th><th>Purity</th><th className="num">Gross (g)</th><th className="num">Net (g)</th><th className="num">Qty</th><th className="num">Gold Value</th><th>Remarks</th></tr></thead>
-							<tbody>
-								{p.items.length === 0 && <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No ornaments recorded on this loan.</td></tr>}
-								{p.items.map((it) => (
-									<tr key={it.id} style={it.released ? { opacity: 0.6 } : undefined}>
-										<td>{it.name}{it.released && <span className="chip" style={{ marginLeft: 8 }} title={it.releasedAt ? `Released ${fmtDateTime(it.releasedAt)}` : "Released to the customer"}>Released</span>}</td>
-										<td><span className="chip brand">{it.purity}</span></td>
-										<td className="num">{it.grossWeight.toFixed(1)}</td>
-										<td className="num">{it.netWeight.toFixed(1)}</td>
-										<td className="num">{it.quantity}</td>
-										<td className="num">{fmt(it.goldValue)}</td>
-                    <td><TruncText text={it.remarks || "—"} /></td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
-					<div className="ft" style={{ position: "static" }}>
-						Sealed contents of packet {pendingLabel(p.code)}, taken from loan{" "}
-						{canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)}>{pendingLabel(p.loanNumber)}</a> : pendingLabel(p.loanNumber)} — ornament photos are on the loan page.
-					</div>
-				</div>
+      <div className="grid cols21">
+        <div className="grid">
+        {/* What is physically sealed inside this packet — the pledged
+            ornaments of the loan it belongs to. Staff opening a locker need
+            to check the packet against this list, so it belongs here and not
+            only on the loan page. */}
+        <div className="card gtop">
+          <div className="hd"><h3>Contents of the Packet — {p.itemCount} item(s) · {fmtW(p.totalWeight)}{p.items.some((it) => it.released) ? ` · ${p.items.filter((it) => it.released).length} released` : ""}</h3></div>
+          <div className="tbl-wrap">
+            <table className="tbl"><TableCols widths={[20, 10, 11, 11, 7, 14, 27]} />
+              <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Gross (g)</th><th className="num">Net (g)</th><th className="num">Qty</th><th className="num">Gold Value</th><th>Remarks</th></tr></thead>
+              <tbody>
+                {p.items.length === 0 && <tr><td colSpan={7} style={{ color: "var(--muted)" }}>No ornaments recorded on this loan.</td></tr>}
+                {p.items.map((it) => (
+                  <tr key={it.id} style={it.released ? { opacity: 0.6 } : undefined}>
+                    <td>{it.name}{it.released && <span className="chip" style={{ marginLeft: 8 }} title={it.releasedAt ? `Released ${fmtDateTime(it.releasedAt)}` : "Released to the customer"}>Released</span>}</td>
+                    <td><span className="chip brand">{it.purity}</span></td>
+                    <td className="num">{it.grossWeight.toFixed(1)}</td>
+                    <td className="num">{it.netWeight.toFixed(1)}</td>
+                    <td className="num">{it.quantity}</td>
+                    <td className="num">{fmt(it.goldValue)}</td>
+                    <td><TruncText text={it.remarks || "—"} maxWidth="100%" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="ft" style={{ position: "static" }}>
+            Sealed contents of packet {p.code}, taken from loan{" "}
+            {canOpen("loan") ? <a href={routeHref(`loan/${p.loanNumber}`)}>{p.loanNumber}</a> : p.loanNumber} — ornament photos are on the loan page.
+          </div>
+        </div>
 
-				<div className="card">
-					<div className="hd"><h3>Movement History</h3></div>
-					<div className="tbl-wrap">
-						<table className="tbl"><TableCols widths={[16, 17, 17, 14, 16, 20]} />
-							<thead><tr><th>Date/Time</th><th>From</th><th>To</th><th>Locker</th><th>Employee</th><th>Remarks</th></tr></thead>
-							<tbody>
-								{movements.length === 0 && <tr><td colSpan={6} style={{ color: "var(--muted)" }}>No movements yet.</td></tr>}
-								{movements.map((m) => {
-									const lk = lockers.find((l) => l.id === m.lockerId);
-									return (
-										<tr key={m.id}>
-											<td>{fmtDateTime(m.createdAt)}</td>
-											<td>{m.fromStatus || "—"}</td>
-											<td>{m.toStatus}</td>
-											<td>{lk ? lk.code : "—"}</td>
-											<td>{m.actorEmployeeId ? `EMP-${m.actorEmployeeId}` : "System"}</td>
-                      <td><TruncText text={m.remarks || "—"} /></td>
-										</tr>
-									);
-								})}
-							</tbody>
-						</table>
-					</div>
-				</div>
-				</div>
+        <div className="card">
+          <div className="hd"><h3>Movement History</h3></div>
+          <div className="tbl-wrap">
+            <table className="tbl"><TableCols widths={[14, 14, 14, 11, 13, 34]} />
+              <thead><tr><th>Date/Time</th><th>From</th><th>To</th><th>Locker</th><th>Employee</th><th>Remarks</th></tr></thead>
+              <tbody>
+                {movements.length === 0 && <tr><td colSpan={6} style={{ color: "var(--muted)" }}>No movements yet.</td></tr>}
+                {movements.map((m) => {
+                  const lk = lockers.find((l) => l.id === m.lockerId);
+                  return (
+                    <tr key={m.id}>
+                      <td>{fmtDateTime(m.createdAt)}</td>
+                      <td>{m.fromStatus || "—"}</td>
+                      <td>{m.toStatus}</td>
+                      <td>{lk ? lk.code : "—"}</td>
+                      <td>{m.actorEmployeeId ? `EMP-${m.actorEmployeeId}` : "System"}</td>
+                      <td title={m.remarks || undefined} style={{ whiteSpace: "normal" }}>{m.remarks || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        </div>
 
 				<div className="card">
 					<div className="hd"><h3>Details</h3></div>

@@ -65,6 +65,7 @@ const PATHS = [
 	`/packets?${ALL}`,
 	`/personal-loans?${ALL}`,
 	`/investments?${ALL}`,
+	"/investors?limit=200&offset=0",
 	"/investment-plans",
 	// auctions: pending decisions, and the two History tables ("conducted" and "closed without auction")
 	"/loans/auctions/decisions/pending",
@@ -184,6 +185,15 @@ async function warmInvestments(): Promise<void> {
 	}
 }
 
+/* The Investors list opens one investor's investments, and an investor is opened by id or code, so each is kept. */
+async function warmInvestors(): Promise<void> {
+	for (const i of withIds(await listRows(`/investors?${ALL}`)).slice(0, NO_CAP)) {
+		await warmGet(`/investors/${i.id}`);
+		await warmGet(`/investors/${i.id}/investments`);
+		if (i.code) await warmGet(`/investors/by-code/${encodeURIComponent(i.code)}`);
+	}
+}
+
 /* The ledgers that belong to one bank, one branch or one customer. */
 async function warmLedgers(): Promise<void> {
 	for (const id of await idsOf("/banks", NO_CAP)) {
@@ -256,6 +266,7 @@ const BRANCH_PATHS = [
 	`/packets?${ALL}`,
 	`/personal-loans?${ALL}`,
 	`/investments?${ALL}`,
+	"/investors?limit=200&offset=0",
 	"/loans/risk-assessment?limit=100&offset=0",
 ];
 
@@ -314,6 +325,7 @@ export async function warmReadCache(force = false): Promise<void> {
 				await warmPackets();
 				await warmPersonalLoans();
 				await warmInvestments();
+				await warmInvestors();
 				await warmLedgers();
 				await warmAuctions();
 				await warmConcludedAuctions();

@@ -218,132 +218,117 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
 		<>
 			<div className="page-h">
         <div><h1>Extension &amp; Release</h1><p>Extension/release requests </p></div>
-				<div className="sp" />
-				<TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />
-			</div>
-			<hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-			<div className="filter-row-right" style={{ marginBottom: 12 }}>
-					<FilterPanel
-						categories={filterCategories}
-						value={filterValue}
-						onChange={(next) => {
-							setType(Array.isArray(next.type) ? next.type.join(",") : "");
-							setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
-							setFromDate(next.__dateFrom || "");
-							setToDate(next.__dateTo || "");
-							setPage(1);
-						}}
-						hideChips
-						hideClearAll
-					/>
-				</div>
-			<div className="card tbl-card tbl-card-fill tbl-rounded">
-				<div className="tbl-wrap tbl-scroll">
-					<table className="tbl tbl-cards tbl-center">
-						<TableCols widths={[11, 10, 16, 19, 11, 13, 20]} />
-						<thead>
-							<tr><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
-						</thead>
-						<tbody>
-							{loading && !(cards && reqs.length > 0) ? (
-								<tr><td colSpan={7} className="empty">Loading requests…</td></tr>
-							) : reqs.length === 0 ? (
-								<tr><td colSpan={7} className="empty">No extension or release requests yet.</td></tr>
-							) : reqs.map((r) => (
-								<tr key={r.id}>
-									<td data-label="Type">
-										<span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type}</span>
-										{/* Only meaningful for Release — flags at a glance which
-												rows hand back every ornament vs. only some, since
-												the review chain and CompleteRelease behave
-												differently for each (see backend/internal/loan/
-												model_request.go's LoanRequest.IsPartial). */}
-										{r.type === "Release" && r.isPartial && (
-											<span className="chip" style={{ marginLeft: 4 }}>Partial</span>
-										)}
-									</td>
-									<td data-label="Loan">
-										<a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a>
-										{/* the loan's packet number, so the gold can be found from this list */}
-										{packetByLoan[r.loanNumericId] && <div style={{ color: "var(--muted)", fontSize: 12 }}>Packet {packetByLoan[r.loanNumericId]}</div>}
-									</td>
-									<td data-label="Customer">
-										{r.customerName}
-										{/* a partial release hands back only some ornaments: say so right after the customer */}
-										{r.type === "Release" && r.isPartial && <span style={{ color: "var(--muted)" }}> · Partial release</span>}
-									</td>
-									<td data-label="Detail"><span title={r.detail} style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.detail}</span></td>
-									<td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.requestedAt)}</td>
-									<td data-label="Status">
-										<StatusChip status={r.status} />
-										{/* Set by RecordReleaseRequestPayment when a recorded discount+payment
-												fell short of the final settlement — see ReleaseReviewModal.tsx. */}
-										{r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && new Date(r.paymentDueDate) < new Date() && (
-											<span className="chip" style={{ marginLeft: 6, color: "var(--red)", borderColor: "var(--red)" }}>Payment Overdue</span>
-										)}
-									</td>
-									<td style={{ whiteSpace: "nowrap" }}>
-										{/* Fixed flex layout, not text-align:center on the cell —
-												centering inline content shifts the View/Review
-												button's own x-position depending on whether the
-												Download button beside it exists on that row. A
-												reserved, always-same-size slot (invisible when not
-												applicable) keeps every row's View button lined up
-												in the same column. */}
-										<div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
-											<button
-												className="btn ghost sm"
-												style={{ minWidth: 64, textAlign: "center", justifyContent: "center" }}
-												onClick={() => openModal(
-													r.type === "Extension"
-														? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
-														: <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
-													true
-												)}
-											>
-												{r.status === "Pending" && canDecide ? "Review" : "View"}
-											</button>
-											<div
-												className="docs-dd"
-												style={{ visibility: r.type === "Release" && r.status === "Approved" ? "visible" : "hidden" }}
-											>
-												<button
-													type="button"
-													className="btn ghost sm"
-													style={{ padding: "6px 10px", display: "inline-flex", alignItems: "center" }}
-													title={downloadingId === r.id ? "Preparing…" : "Download Release Agreement"}
-													disabled={downloadingId === r.id}
-													onClick={() => openModal(
-														<EsignLanguageModalContent
-															loanNumber={r.loanNumber}
-															customerName={r.customerName}
-															title={r.isPartial ? "Partial Release Receipt" : "Release Agreement"}
-															confirmLabel="🖨 Download"
-															options={RELEASE_LANG_OPTIONS}
-															onConfirm={(lang) => (r.isPartial ? downloadPartialReceipt(r, lang === "ml" ? "ml" : "en") : downloadReleaseAgreement(r, lang === "ml" ? "ml" : "en"))}
-														/>
-													)}
-													tabIndex={r.type === "Release" && r.status === "Approved" ? 0 : -1}
-												>
-													<Icon name="download" />
-												</button>
-											</div>
-										</div>
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				</div>
-				<ScrollSentinel enabled={cards && (page < totalPages)} onVisible={more} watch={reqs.length} />
-				<div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-					<button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-					<span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-				<span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
-					<button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
-				</div>
-				{/* <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div> */}
-			</div>
-		</>
-	);
+        <div className="sp" />
+        <TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />
+      </div>
+      <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
+      <div className="filter-row-right" style={{ marginBottom: 12 }}>
+          <FilterPanel
+            categories={filterCategories}
+            value={filterValue}
+            onChange={(next) => {
+              setType(Array.isArray(next.type) ? next.type.join(",") : "");
+              setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
+              setFromDate(next.__dateFrom || "");
+              setToDate(next.__dateTo || "");
+              setPage(1);
+            }}
+            hideChips
+            hideClearAll
+          />
+        </div>
+      <div className="card tbl-card tbl-card-fill tbl-rounded">
+        <div className="tbl-wrap tbl-scroll">
+          <table className="tbl tbl-cards tbl-center">
+            <TableCols widths={[11, 10, 16, 19, 11, 13, 20]} />
+            <thead>
+              <tr><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
+            </thead>
+            <tbody>
+              {loading && !(cards && reqs.length > 0) ? (
+                <tr><td colSpan={7} className="empty">Loading requests…</td></tr>
+              ) : reqs.length === 0 ? (
+                <tr><td colSpan={7} className="empty">No extension or release requests yet.</td></tr>
+              ) : reqs.map((r) => (
+                <tr key={r.id}>
+                  <td data-label="Type">
+                    <span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type}</span>
+                    {/* Only meaningful for Release — flags at a glance which
+                        rows hand back every ornament vs. only some, since
+                        the review chain and CompleteRelease behave
+                        differently for each (see backend/internal/loan/
+                        model_request.go's LoanRequest.IsPartial). */}
+                    {r.type === "Release" && r.isPartial && (
+                      <span className="chip" style={{ marginLeft: 4 }}>Partial</span>
+                    )}
+                  </td>
+                  <td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
+                  <td data-label="Customer">{r.customerName}</td>
+                  <td data-label="Detail"><span title={r.detail} style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.detail}</span></td>
+                  <td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.requestedAt)}</td>
+                  <td data-label="Status">
+                    <StatusChip status={r.status} />
+                    {/* Set by RecordReleaseRequestPayment when a recorded discount+payment
+                        fell short of the final settlement — see ReleaseReviewModal.tsx. */}
+                    {r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && new Date(r.paymentDueDate) < new Date() && (
+                      <span className="chip" style={{ marginLeft: 6, color: "var(--red)", borderColor: "var(--red)" }}>Payment Overdue</span>
+                    )}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {/* View / Review always keeps the same size. No space is held back for Download: the buttons sit against the
+                        right edge, so a Review row's button moves over into the spot Download would have taken. */}
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+                      <button
+                        className="btn ghost sm"
+                        style={{ minWidth: 74, textAlign: "center", justifyContent: "center" }}
+                        onClick={() => openModal(
+                          r.type === "Extension"
+                            ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
+                            : <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
+                          true
+                        )}
+                      >
+                        {r.status === "Pending" && canDecide ? "Review" : "View"}
+                      </button>
+                      {r.type === "Release" && r.status === "Approved" && (
+                      <div className="docs-dd" style={{ flex: "none" }}>
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          style={{ padding: "6px 10px", display: "inline-flex", alignItems: "center" }}
+                          title={downloadingId === r.id ? "Preparing…" : "Download Release Agreement"}
+                          disabled={downloadingId === r.id}
+                          onClick={() => openModal(
+                            <EsignLanguageModalContent
+                              loanNumber={r.loanNumber}
+                              customerName={r.customerName}
+                              title={r.isPartial ? "Partial Release Receipt" : "Release Agreement"}
+                              confirmLabel="🖨 Download"
+                              options={RELEASE_LANG_OPTIONS}
+                              onConfirm={(lang) => (r.isPartial ? downloadPartialReceipt(r, lang === "ml" ? "ml" : "en") : downloadReleaseAgreement(r, lang === "ml" ? "ml" : "en"))}
+                            />
+                          )}
+                        >
+                          <Icon name="download" />
+                        </button>
+                      </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <ScrollSentinel enabled={cards && (page < totalPages)} onVisible={more} watch={reqs.length} />
+        <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+          <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
+          <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
+        </div>
+        {/* <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div> */}
+      </div>
+    </>
+  );
 }

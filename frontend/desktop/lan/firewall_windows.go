@@ -38,6 +38,22 @@ func ruleExists(name string) bool {
 	return err == nil
 }
 
+// quickRules lists which of the rules Allow network access adds are missing. It asks for each rule by name, so it is fast
+// enough to run every few minutes. A rule that cannot be asked about counts as present: no false alarm.
+func quickRules(httpPort, discPort int) (missing []string, checked bool) {
+	for _, name := range []string{ruleNameTCP(httpPort), ruleNameUDP(discPort), ruleProgTCP, ruleProgUDP} {
+		out, err := run(8*time.Second, "netsh", "advfirewall", "firewall", "show", "rule", "name="+name)
+		if err != nil && out == "" {
+			continue // netsh itself did not answer (timeout)
+		}
+		checked = true
+		if err != nil {
+			missing = append(missing, name)
+		}
+	}
+	return missing, checked
+}
+
 func queryFirewall(httpPort, discPort int) FirewallInfo {
 	info := FirewallInfo{Supported: true}
 	info.RuleTCP = ruleExists(ruleNameTCP(httpPort))

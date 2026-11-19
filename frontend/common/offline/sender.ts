@@ -59,13 +59,16 @@ async function applyReply(entry: OutboxEntry, body: unknown): Promise<void> {
 	if (/^\/lockers(\/|$)/.test(entry.path) && getLocal("lockers", entry.id)) await removeLocal("lockers", entry.id);
 	// a scheme edit or delete waiting on this PC is on the server now: the server's own list has it
 	if (/^\/schemes\/\d+$/.test(entry.path) && getLocal("schemes", entry.id)) await removeLocal("schemes", entry.id);
+	// an investor edit or delete waiting on this PC is on the server now: the server's own list has it
+	const investorOp = /^\/investors\/(\d+)(\/hard-delete)?$/.exec(entry.path);
+	if (investorOp && entry.method !== "POST" && getLocal("investors", "inv-" + investorOp[1])) await removeLocal("investors", "inv-" + investorOp[1]);
 	const rec = ((body as { data?: unknown } | undefined)?.data ?? body) as Record<string, unknown> | undefined;
 	const uuid = rec && typeof rec.uuid === "string" ? rec.uuid : entry.targets?.[0];
 	if (!rec || !uuid) return;
 	// a scheme made on this PC is now on the server: drop the pending copy, the server's own list has it
 	if (entry.method === "POST" && entry.path === "/schemes" && getLocal("schemes", entry.id)) await removeLocal("schemes", entry.id);
 	if (entry.method === "POST" && (entry.path === "/cash-sources" || entry.path === "/expense-categories" || entry.path === "/categories") && getLocal("categories", entry.id)) await removeLocal("categories", entry.id);
-	for (const entity of ["loans", "customers"] as EntityName[]) {
+	for (const entity of ["loans", "customers", "investors"] as EntityName[]) {
 		if (!getLocal(entity, uuid)) continue;
 		const fields: Record<string, unknown> = {};
 		for (const key of ["id", "loan_number", "loanNumber", "code"]) if (rec[key] !== undefined) fields[key] = rec[key];
@@ -147,7 +150,7 @@ export async function drain(why: string): Promise<boolean> {
 			const customerRef = typeof (body as { customerId?: unknown } | null)?.customerId === "string" ? String((body as { customerId: string }).customerId) : "";
 			let sendBody: unknown = body;
 			if (customerRef.startsWith("uuid:")) {
-				const known = getLocal("customers", customerRef.slice(5)) as { id?: number } | undefined;
+				const known = (getLocal("customers", customerRef.slice(5)) ?? getLocal("investors", customerRef.slice(5))) as { id?: number } | undefined;
 				if (known?.id && known.id > 0) {
 					sendBody = { ...(body as object), customerId: known.id };
 				} else {

@@ -46,7 +46,7 @@ export function NewInvestmentModalContent({ onSaved, investment, presetInvestor 
 
 	// The picker's own id: a number, or "uuid:..." for an investor this PC registered that the server has not numbered yet
 	// (the investment points at them by that, and the server resolves it when the investment is sent, after the investor).
-	const [customerRef, setCustomerRef] = useState<number | string | undefined>(investment?.customerId ?? (presetInvestor ? Number(presetInvestor.id) : undefined));
+	const [customerRef, setCustomerRef] = useState<number | string | undefined>(investment?.customerId ?? (presetInvestor ? (/^\d+$/.test(presetInvestor.id) ? Number(presetInvestor.id) : presetInvestor.id) : undefined));
 	const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(investment?.branchId ?? presetInvestor?.branchId);
 	const [customerLabel, setCustomerLabel] = useState(investment ? `${investment.customer.name} (${investment.customer.code})` : presetInvestor ? `${presetInvestor.name} (${presetInvestor.code})` : "");
 	const pickInvestor = (id: string | number, branchId: number | undefined, label: string) => {

@@ -57,6 +57,28 @@ type AllowResult struct {
 func ruleNameTCP(port int) string { return fmt.Sprintf("Cloudhouse LAN TCP %d", port) }
 func ruleNameUDP(port int) string { return fmt.Sprintf("Cloudhouse LAN UDP %d", port) }
 
+// the two program rules Allow network access adds (they name the exe, so they hold whatever port is used)
+const (
+	ruleProgTCP = "Cloudhouse LAN app TCP"
+	ruleProgUDP = "Cloudhouse LAN app UDP"
+)
+
+// inPlace says whether everything Allow network access sets up is already there: both port rules, both program rules
+// switched on and allowing, and no Block rule for this program. It is only true when the rule list was really read, so a
+// Windows whose labels could not be understood never skips the permission prompt by mistake.
+func (f FirewallInfo) inPlace() bool {
+	if !f.Supported || !f.RuleTCP || !f.RuleUDP || !f.ProgramChecked || len(f.BlockedRules()) > 0 {
+		return false
+	}
+	have := map[string]bool{}
+	for _, r := range f.ProgramRules {
+		if r.Enabled && strings.EqualFold(r.Action, "Allow") {
+			have[r.Name] = true
+		}
+	}
+	return have[ruleProgTCP] && have[ruleProgUDP]
+}
+
 // parseProgramRules picks the rules that name exe out of the text `netsh advfirewall firewall show rule name=all dir=in
 // verbose` prints. It returns how many rules it understood, so a list it could not read (the labels are translated on a
 // Windows in another language) is told apart from a list with no rule for this program.
@@ -98,9 +120,17 @@ func (a *Agent) FirewallInfo() FirewallInfo {
 // AllowAccess removes any rule that blocks this program, then adds the allow rules (one Windows permission prompt) and
 // checks they are in place.
 func (a *Agent) AllowAccess() AllowResult {
+	// the rules stay in Windows between runs, so when all of them are already right there is nothing to ask permission for
+	if info := a.FirewallInfo(); info.inPlace() {
+		msg := fmt.Sprintf("Network access is already set up (TCP %d, UDP %d, and this program is allowed, nothing blocks it). No permission prompt was needed.", a.cfg.HTTPPort, a.cfg.DiscoveryPort)
+		a.log.Log("ok", "FIREWALL", "%s", msg)
+		a.clearDrift()
+		return AllowResult{OK: true, Message: msg}
+	}
 	a.log.Log("info", "FIREWALL", "adding inbound rules for TCP %d and UDP %d and clearing any block on this program (Windows will ask for permission)", a.cfg.HTTPPort, a.cfg.DiscoveryPort)
 	res := allowAccess(a.cfg.HTTPPort, a.cfg.DiscoveryPort)
 	if res.OK {
+		a.clearDrift()
 		a.log.Log("ok", "FIREWALL", "%s", res.Message)
 	} else {
 		a.log.Log("error", "FIREWALL", "%s", res.Message)

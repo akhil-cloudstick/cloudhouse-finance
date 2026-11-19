@@ -118,6 +118,8 @@ type Status struct {
 	// PC, and this PC has the key)
 	HasKey bool `json:"hasKey"`
 	Shared bool `json:"shared"`
+	// FirewallDrift is not empty while Windows Firewall rules this app set up are missing (see firewall_watch.go)
+	FirewallDrift string `json:"firewallDrift"`
 }
 
 // Agent is the LAN part of one running app.
@@ -155,6 +157,8 @@ type Agent struct {
 	hubStats map[string]*callStat // storage calls served, per calling PC, for the log (see hub.go)
 	hinted   map[string]bool      // one-time hints already logged
 	rpc      *http.Client         // the connection to the main PC (see remote.go)
+	fwDrift  string               // set while rules this app set up are missing (see firewall_watch.go)
+	fwCheck  func() ([]string, bool)
 
 	udp  *net.UDPConn
 	srv  *http.Server
@@ -202,6 +206,7 @@ func New(cfg Config) *Agent {
 	a.via = map[string]string{}
 	a.hubStats = map[string]*callStat{}
 	a.hinted = map[string]bool{}
+	a.fwCheck = func() ([]string, bool) { return quickRules(a.cfg.HTTPPort, a.cfg.DiscoveryPort) }
 	a.loadMain()
 	a.loadKey()
 	return a
@@ -257,10 +262,11 @@ func (a *Agent) Start() {
 	a.log.Log("info", "LAN", "starting: name=%q id=%s version=%s ports: TCP %d, UDP %d", a.cfg.Name, a.id, a.cfg.Version, a.cfg.HTTPPort, a.cfg.DiscoveryPort)
 	a.startUDP()
 	a.startHTTP()
-	a.wg.Add(3)
+	a.wg.Add(4)
 	a.goSafe("beacon loop", a.beaconLoop)
 	a.goSafe("expire loop", a.expireLoop)
 	a.goSafe("probe loop", a.probeLoop)
+	a.goSafe("firewall check", a.driftLoop)
 }
 
 // Stop ends the background work and closes the ports.
@@ -865,5 +871,7 @@ func (a *Agent) Status() Status {
 		MainOnline: a.mainID != "" && (a.mainID == a.id || a.peers[a.mainID] != nil),
 		HasKey:     len(a.key) > 0,
 		Shared:     a.mainID != "" && a.mainID != a.id && len(a.key) > 0,
+
+		FirewallDrift: a.fwDrift,
 	}
 }

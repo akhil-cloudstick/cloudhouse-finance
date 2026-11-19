@@ -134,7 +134,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
         <table className={`tbl tbl-center${inModal ? "" : " tbl-cards"}`}>
           <TableCols widths={inModal
             ? [18, ...(showBranch ? [14] : []), 16, 14, 14, 6]
-            : [16, ...(showBranch ? [13] : []), 15, 11, 14, 11, "150px"]} />
+            : [14, ...(showBranch ? [11] : []), 14, 11, 13, 17, "150px"]} />
           <thead>
             <tr><th>Bank</th>{showBranch && <th>Business branch</th>}<th>Bank branch</th>{!inModal && <th>IFSC</th>}{!inModal && <th>Account No.</th>}{inModal
               ? <><th className="num">Active pledges</th><th className="num">Pledged amount</th></>
@@ -155,7 +155,7 @@ export function BankTable({ reloadKey, afterChange, inModal, onTotalBalance, q =
                     <td className="num" data-label="Pledged amount">{fmt(b.activePledgeAmount ?? 0)}</td>
                   </>
                 ) : (
-                  <td className="num" data-label="Balance" style={{ color: balanceColor(b.balance ?? 0) }}>{fmtBalance(b.balance ?? 0)}</td>
+                  <td className="num" data-label="Balance" style={{ color: balanceColor(b.balance ?? 0), whiteSpace: "normal", overflowWrap: "anywhere" }}>{fmtBalance(b.balance ?? 0)}</td>
                 )}
                 <td className="tbl-acts">
                   {!inModal && canOpenRoute("ledger-bank") && <a href={routeHref("ledger-bank", b.id)}>Ledger</a>}

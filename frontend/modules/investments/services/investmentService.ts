@@ -289,7 +289,7 @@ function queueMature(path: string, investmentId: number, input: object): Promise
 	return queueWrite("POST", path, input, undefined as unknown as BackendInvestment, () => apiFetch<BackendInvestment>(path, { method: "POST", body: JSON.stringify(input) })).then((r) => r ?? getInvestment(investmentId));
 }
 
-export function listInvestmentsForCustomer(customerId: number): Promise<BackendInvestment[]> {
+export function listInvestmentsForCustomer(customerId: number | string): Promise<BackendInvestment[]> {
   return apiFetch<BackendInvestment[]>(`/investors/${customerId}/investments`);
 }
 
