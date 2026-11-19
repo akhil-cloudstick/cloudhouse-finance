@@ -49,6 +49,21 @@ export function sameIdentityMatches(e: unknown): SameIdentityMatch[] | null {
   return d?.status === 409 && d.data?.code === "same_identity_different_name" && Array.isArray(d.data.matches) ? d.data.matches : null;
 }
 
+/* Existing borrowers that share the phone number, PAN or Aadhaar being typed into the Add Investor form — asked while
+ * the form is filled in, so a known borrower is offered straight away rather than only when Create is pressed.
+ * Nothing is saved; the Aadhaar number goes in the body, not the URL. */
+export async function checkInvestorIdentity(input: { phone: string; pan: string; aadhaar: string }): Promise<SameIdentityMatch[]> {
+  const res = await apiFetch<{ matches: SameIdentityMatch[] | null }>("/investors/identity-check", { method: "POST", body: JSON.stringify(input) });
+  return res.matches ?? [];
+}
+
+/* The reverse, for the Register Customer form: existing investors that share the phone number, PAN or Aadhaar being
+ * typed. Same behaviour as checkInvestorIdentity; nothing is saved. */
+export async function checkBorrowerIdentity(input: { phone: string; pan: string; aadhaar: string }): Promise<SameIdentityMatch[]> {
+  const res = await apiFetch<{ matches: SameIdentityMatch[] | null }>("/customers/identity-check", { method: "POST", body: JSON.stringify(input) });
+  return res.matches ?? [];
+}
+
 /* confirmSamePerson: the user has confirmed this investor is the same person as the existing one(s) that share
  * a phone number, PAN or Aadhaar under another name. */
 export async function createInvestor(input: CustomerFormInput, fromCustomerId?: string, confirmSamePerson?: boolean): Promise<CustomerView> {

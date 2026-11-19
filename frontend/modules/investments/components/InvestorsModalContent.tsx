@@ -198,6 +198,31 @@ export function InvestorsModalContent() {
   );
 }
 
+/* The investor's own details, shown above their investments when the row is opened. */
+function InvestorDetails({ investor: i }: { investor: CustomerView }) {
+  const nominee = [i.nomineeName, i.nomineeRelation && `(${i.nomineeRelation})`, i.nomineePhone].filter(Boolean).join(" ");
+  const items: [string, string][] = [
+    ["Address", i.address],
+    ["Date of birth", i.dob ? fmtDate(i.dob) : ""],
+    ["PAN", i.pan],
+    ["Aadhaar", i.aadhaarLast4 ? `•••• •••• ${i.aadhaarLast4}` : ""],
+    ["Bank account holder", i.bankAccountName || ""],
+    ["Bank account number", i.bankAccountNumber || ""],
+    ["Bank IFSC", i.bankIfsc || ""],
+    ["Nominee", nominee],
+  ];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px 16px", padding: "10px 4px 6px", textAlign: "left" }}>
+      {items.map(([label, value]) => (
+        <div key={label} style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--muted)" }}>{label}</div>
+          <div style={{ fontSize: 13, overflowWrap: "anywhere" }}>{value || "—"}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type InvestorRowsProps = { investor: CustomerView; open: boolean; onToggle: () => void; onAddInvestment?: () => void; onEdit?: () => void; onDelete?: () => void };
 
 function InvestorRows({ investor, open, onToggle, onAddInvestment, onEdit, onDelete }: InvestorRowsProps) {
@@ -218,6 +243,7 @@ function InvestorRows({ investor, open, onToggle, onAddInvestment, onEdit, onDel
       </tr>
       {open && (
         <tr><td colSpan={4} style={{ background: "var(--brand-faint)" }}>
+          <InvestorDetails investor={investor} />
           <InvestorInvestments customerId={investor.id} />
         </td></tr>
       )}

@@ -16,6 +16,7 @@ func InvestorRoutes(e *echo.Echo) *echo.Echo {
 	perms := auth.CRUDPermissions("investments")
 	module := auth.RequireTenantModule(commonModels.ModuleInvestments)
 	e.POST(investorPath, common.CreateInvestor, auth.Staff(module, perms.Create)...)
+	e.POST(investorPath+"/identity-check", common.CheckInvestorIdentity, auth.Staff(module, perms.Create)...)
 	e.GET(investorPath, common.ListInvestors, auth.Staff(module, perms.Read)...)
 	e.GET(investorPath+"/by-code/:code", common.GetInvestorByCode, auth.Staff(module, perms.Read)...)
 	e.GET(investorPath+"/:id", common.GetInvestorById, auth.Staff(module, perms.Read)...)

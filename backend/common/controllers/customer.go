@@ -341,9 +341,7 @@ func partyValidate(in CustomerCreateInput, investor bool) error {
 		return NewBadRequest("bank account number must be digits only, up to 18 digits")
 	}
 	if investor {
-		if in.BankAccountName == "" || in.BankAccountNumber == "" || in.BankIFSC == "" {
-			return NewBadRequest("bank account name, number and IFSC are required for an investor")
-		}
+		// The bank details are optional for an investor; when given, the account number is checked above.
 		if in.PAN == "" || in.Aadhaar == "" {
 			return NewBadRequest("PAN and Aadhaar are required for an investor")
 		}
@@ -779,6 +777,36 @@ func checkAadhaarVerify(ctx context.Context, id uint, branchID *uint) (*commonMo
 		return nil, nil, nil, nil, err
 	}
 	return updated, status, aadhaar, reasons, nil
+}
+
+// CheckCustomerIdentity tells the Register Customer form, before anything is saved, which existing investors share
+// the phone number, PAN or Aadhaar being typed — the same comparison CreateCustomer makes, so the form can offer to
+// fill itself from that investor straight away instead of failing on Register. Nothing is written. The Aadhaar
+// number travels in the body (never the URL) and is only hashed here.
+func CheckCustomerIdentity(c echo.Context) error {
+	var req struct {
+		Phone   string `json:"phone"`
+		PAN     string `json:"pan"`
+		Aadhaar string `json:"aadhaar"`
+	}
+	if err := BindJSON(c, &req); err != nil {
+		return FailErr(c, NewBadRequest("Invalid input"))
+	}
+	in := CustomerCreateInput{Phone: strings.TrimSpace(req.Phone), PAN: req.PAN, Aadhaar: req.Aadhaar}
+	normalizeKYC(&in)
+	aadhaarHash := ""
+	if in.Aadhaar != "" {
+		aadhaarHash = config.AadhaarCipher.Fingerprint(in.Aadhaar)
+	}
+	matches := []DuplicateIdentityMatch{}
+	if err := checkBorrowerIdentity(auth.RequestContext(c), aadhaarHash, in, false); err != nil {
+		var dup *DuplicateIdentityError
+		if !errors.As(err, &dup) {
+			return FailErr(c, err)
+		}
+		matches = dup.Matches
+	}
+	return Success(c, http.StatusOK, echo.Map{"matches": matches})
 }
 
 func CreateCustomer(c echo.Context) error {

@@ -12,6 +12,7 @@ var customerPath = "/api/v1/users/:user_id/customers"
 func CustomerRoutes(e *echo.Echo) *echo.Echo {
 	perms := auth.CRUDPermissions("customers")
 	e.POST(customerPath, common.CreateCustomer, auth.Staff(perms.Create)...)
+	e.POST(customerPath+"/identity-check", common.CheckCustomerIdentity, auth.Staff(perms.Create)...)
 	e.GET(customerPath, common.ListCustomers, auth.Staff(perms.Read)...)
 	e.GET(customerPath+"/by-code/:code", common.GetCustomerByCode, auth.Staff(perms.Read)...)
 	e.GET(customerPath+"/:id",common.GetCustomerById, auth.Staff(perms.Read)...)

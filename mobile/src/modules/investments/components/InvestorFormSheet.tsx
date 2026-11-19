@@ -83,9 +83,6 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
   if (showBranch && !branch) errs.branch = "Select a branch.";
   if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) errs.pan = "Enter a valid PAN (e.g. ABCDE1234F).";
   if (!(editing && !aadhaar.trim()) && !/^\d{12}$/.test(aadhaar.trim())) errs.aadhaar = "Enter a valid 12-digit Aadhaar number.";
-  if (!bankName.trim()) errs.bankName = "Enter the bank account holder's name.";
-  if (!bankNo.trim()) errs.bankNo = "Enter the bank account number.";
-  if (!ifsc.trim()) errs.ifsc = "Enter the bank IFSC code.";
   const fe = (k: string) => (tried ? errs[k] : undefined);
 
   return (
@@ -112,12 +109,9 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
       <FieldErr m={fe("pan")} />
       <Field label="Aadhaar *"><Input value={aadhaar} onChangeText={(t) => setAadhaar(digits(t))} keyboardType="number-pad" maxLength={12} placeholder={editing ? "Leave blank to keep on file" : "12-digit Aadhaar"} /></Field>
       <FieldErr m={fe("aadhaar")} />
-      <Field label="Bank account holder *"><Input value={bankName} onChangeText={setBankName} /></Field>
-      <FieldErr m={fe("bankName")} />
-      <Field label="Bank account number *"><Input value={bankNo} onChangeText={setBankNo} keyboardType="number-pad" /></Field>
-      <FieldErr m={fe("bankNo")} />
-      <Field label="Bank IFSC *"><Input value={ifsc} onChangeText={(t) => setIfsc(t.toUpperCase())} autoCapitalize="characters" maxLength={11} placeholder="e.g. SBIN0001234" /></Field>
-      <FieldErr m={fe("ifsc")} />
+      <Field label="Bank account holder"><Input value={bankName} onChangeText={setBankName} /></Field>
+      <Field label="Bank account number"><Input value={bankNo} onChangeText={setBankNo} keyboardType="number-pad" /></Field>
+      <Field label="Bank IFSC"><Input value={ifsc} onChangeText={(t) => setIfsc(t.toUpperCase())} autoCapitalize="characters" maxLength={11} placeholder="e.g. SBIN0001234" /></Field>
       <PrimaryButton
         label={editing ? "Save Changes" : "Create Investor"}
         loading={save.isPending}

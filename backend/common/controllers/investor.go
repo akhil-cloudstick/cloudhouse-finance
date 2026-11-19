@@ -480,6 +480,36 @@ func bindInvestorInput(c echo.Context) (CustomerCreateInput, error) {
 	return in, nil
 }
 
+// CheckInvestorIdentity tells the Add Investor form, before anything is saved, which existing borrowers share the
+// phone number, PAN or Aadhaar being typed — the same comparison CreateInvestor makes, so the form can offer to fill
+// itself from that borrower straight away instead of failing on Create. Nothing is written. The Aadhaar number
+// travels in the body (never the URL) and is only hashed here.
+func CheckInvestorIdentity(c echo.Context) error {
+	var req struct {
+		Phone   string `json:"phone"`
+		PAN     string `json:"pan"`
+		Aadhaar string `json:"aadhaar"`
+	}
+	if err := BindJSON(c, &req); err != nil {
+		return FailErr(c, NewBadRequest("Invalid input"))
+	}
+	in := CustomerCreateInput{Phone: strings.TrimSpace(req.Phone), PAN: req.PAN, Aadhaar: req.Aadhaar}
+	normalizeKYC(&in)
+	aadhaarHash := ""
+	if in.Aadhaar != "" {
+		aadhaarHash = config.AadhaarCipher.Fingerprint(in.Aadhaar)
+	}
+	matches := []DuplicateIdentityMatch{}
+	if err := checkInvestorIdentity(auth.RequestContext(c), aadhaarHash, in, false); err != nil {
+		var dup *DuplicateIdentityError
+		if !errors.As(err, &dup) {
+			return FailErr(c, err)
+		}
+		matches = dup.Matches
+	}
+	return Success(c, http.StatusOK, echo.Map{"matches": matches})
+}
+
 func CreateInvestor(c echo.Context) error {
 	in, err := bindInvestorInput(c)
 	if err != nil {

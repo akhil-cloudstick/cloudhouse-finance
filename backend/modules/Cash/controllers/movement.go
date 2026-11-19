@@ -57,6 +57,10 @@ type movementRequest struct {
 type movementResponse struct {
 	*models.CashMovement
 	LoanSource *models.LoanCashSource `json:"loan_source,omitempty"`
+	// LoanPaymentID is the gold-loan payment a repayment ("Collection") line belongs to. The mode, party and bank
+	// ledgers show that payment as its own entry (ref "lp:<id>") instead of this cash line, so a click on the line
+	// has to name the payment to land on the matching entry there.
+	LoanPaymentID *uint `json:"loan_payment_id,omitempty"`
 }
 
 type MovementFilter struct {
