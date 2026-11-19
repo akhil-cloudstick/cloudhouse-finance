@@ -2,6 +2,7 @@ import { SELECTION_COLOR } from "@/common/theme/colors";
 import { useRef, useState } from "react";
 import { Pressable, TextInput, View, type StyleProp, type TextInputInstance, type ViewStyle } from "react-native";
 import { useHoldTip } from "./TipHost";
+import { useStableText } from "./useStableText";
 import { textStyle } from "@/common/theme/typography";
 import { C } from "./base";
 import { PIcon } from "./PIcon";
@@ -28,14 +29,16 @@ export function SearchInput({
   const input = useRef<TextInputInstance>(null);
   // Hold the box for its full hint (a long placeholder is cut off by the width), or the full text typed in it.
   const hold = useHoldTip(() => hint ?? (value ? value : placeholder));
+  // The box shows its own copy of the text so a late or reshaped value from the parent cannot duplicate it or move the cursor.
+  const stable = useStableText(value, onChangeText);
   return (
     <View style={[s.searchWrap, style]}>
       <View style={{ position: "relative", justifyContent: "center" }}>
       <TextInput
         ref={input}
         {...hold}
-        value={value}
-        onChangeText={onChangeText}
+        value={stable.value}
+        onChangeText={stable.onChangeText}
         placeholder={placeholder}
         placeholderTextColor={C.placeholder}
         cursorColor={C.brand}

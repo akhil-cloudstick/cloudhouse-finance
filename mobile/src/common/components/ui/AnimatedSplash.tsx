@@ -22,7 +22,7 @@ import { fonts } from "@/common/theme/typography";
 // All on the native driver, except the name's letter-spacing (layout), which
 // is approximated with a native scaleX instead.
 
-const TILE = 144; // matches app.json expo-splash-screen imageWidth — change both together
+const TILE = 230; // matches app.json expo-splash-screen imageWidth — change both together
 const SPLASH_TILE = require("../../../../assets/splash-tile.png");
 
 type AnimatedSplashProps = { onReady: () => void; onDone: () => void };
