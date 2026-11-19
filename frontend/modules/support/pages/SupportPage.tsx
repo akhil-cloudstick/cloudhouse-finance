@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { Icon } from "@/common/components/Icon";
+import { CONTACT_EMAIL, CONTACT_PHONE_DISPLAY } from "@/modules/legal/content/legalConfig";
 
-/* Edit these two to change what the Support page shows. An empty SUPPORT_PHONE shows a
- * "not added yet" placeholder and hides the Call button. */
-export const SUPPORT_EMAIL = "support@cloudhousetechnologies.com";
-export const SUPPORT_PHONE: string = "";
+/* The same contact details as the public legal pages: edit them in
+ * modules/legal/content/legalConfig.ts, not here. */
+export const SUPPORT_EMAIL = CONTACT_EMAIL;
+export const SUPPORT_PHONE: string = CONTACT_PHONE_DISPLAY;
 
 const MAIL_HREF = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Support request")}`;
 

@@ -18,6 +18,7 @@ type SameInvestorModalContentProps = {
 export function SameInvestorModalContent({ newName, matches, onConfirm }: SameInvestorModalContentProps) {
   const { closeModal } = useModal();
   const [busy, setBusy] = useState(false);
+  const existing = matches[0]?.source ?? "customer";
 
   async function yes() {
     setBusy(true);
@@ -51,10 +52,10 @@ export function SameInvestorModalContent({ newName, matches, onConfirm }: SameIn
       </div>
       <div className="bd bd-scroll">
         <p style={{ margin: "0 0 14px", fontSize: 13.5, lineHeight: 1.5 }}>
-          This phone number, PAN or Aadhaar is already on file for a borrower. Is <b>{newName}</b> the same person?
+          This phone number, PAN or Aadhaar is already on file for {existing === "investor" ? "an investor" : "a borrower"}. Is <b>{newName}</b> the same person?
         </p>
 
-        <label className="f">Existing borrower</label>
+        <label className="f">{existing === "investor" ? "Existing investor" : "Existing borrower"}</label>
         <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
           {matches.map((m) => (
             <div key={`${m.source}-${m.id}`} className="card" style={{ padding: "12px 14px", display: "grid", gap: 10 }}>
@@ -67,7 +68,7 @@ export function SameInvestorModalContent({ newName, matches, onConfirm }: SameIn
         </div>
 
         <label className="f">You are adding</label>
-        <div className="card" style={{ padding: "12px 14px" }}>{person(newName, "New investor", "new")}</div>
+        <div className="card" style={{ padding: "12px 14px" }}>{person(newName, existing === "investor" ? "New borrower" : "New investor", "new")}</div>
       </div>
       <div className="ft" style={{ display: "flex", gap: 8 }}>
         <div className="sp" />

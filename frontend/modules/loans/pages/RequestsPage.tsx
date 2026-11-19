@@ -277,7 +277,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                   <td style={{ whiteSpace: "nowrap" }}>
                     {/* View / Review always keeps the same size. No space is held back for Download: the buttons sit against the
                         right edge, so a Review row's button moves over into the spot Download would have taken. */}
-                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+                    <div className="req-acts" style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
                       <button
                         className="btn ghost sm"
                         style={{ minWidth: 74, textAlign: "center", justifyContent: "center" }}

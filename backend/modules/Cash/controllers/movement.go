@@ -57,6 +57,10 @@ type movementRequest struct {
 type movementResponse struct {
 	*models.CashMovement
 	LoanSource *models.LoanCashSource `json:"loan_source,omitempty"`
+	// LoanPaymentID is the gold-loan payment a repayment ("Collection") line belongs to. The mode, party and bank
+	// ledgers show that payment as its own entry (ref "lp:<id>") instead of this cash line, so a click on the line
+	// has to name the payment to land on the matching entry there.
+	LoanPaymentID *uint `json:"loan_payment_id,omitempty"`
 }
 
 type MovementFilter struct {
@@ -2259,4 +2263,27 @@ func DeleteCollectionByGroup(ctx context.Context, groupID string) error {
 		return nil
 	}
 	return cashDB(ctx).Where("transaction_group_id = ? AND source = ?", groupID, "Collection").Delete(&models.CashMovement{}).Error
+}
+
+// CollectedByDate is all the money received on a day: every Cash In record — loan repayments (gold and personal),
+// investment deposits, auction proceeds, gold sales, bank pledges and manually added cash alike, in every mode.
+// A self transfer only moves money between our own accounts, so it is not "collected". branchID nil = every branch.
+func CollectedByDate(ctx context.Context, branchID *uint, date time.Time) (total float64, count int64, err error) {
+	q := config.DB.
+		WithContext(ctx).Model(&models.CashMovement{}).
+		Where("type = ?", "in").
+		Where("expense_id IS NULL").
+		Where("source IS DISTINCT FROM ?", SelfTransferSource).
+		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	var row struct {
+		Total float64
+		Count int64
+	}
+	if err := q.Select("COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count").Scan(&row).Error; err != nil {
+		return 0, 0, err
+	}
+	return row.Total, row.Count, nil
 }

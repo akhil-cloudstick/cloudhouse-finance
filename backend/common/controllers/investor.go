@@ -110,7 +110,57 @@ func (e *DuplicateIdentityError) Error() string {
 	for _, m := range e.Matches {
 		names = append(names, m.Name)
 	}
-	return "This phone number, PAN or Aadhaar already belongs to the borrower " + strings.Join(names, ", ") + ". Are they the same person?"
+	kind := "borrower"
+	if len(e.Matches) > 0 && e.Matches[0].Source == "investor" {
+		kind = "investor"
+	}
+	return "This phone number, PAN or Aadhaar already belongs to the " + kind + " " + strings.Join(names, ", ") + ". Are they the same person?"
+}
+
+// checkBorrowerIdentity is the mirror of checkInvestorIdentity for a new borrower: a phone number, PAN or Aadhaar
+// already on an investor needs the user to say it is the same person (DuplicateIdentityError) unless `confirmed`.
+func checkBorrowerIdentity(ctx context.Context, aadhaarHash string, in CustomerCreateInput, confirmed bool) error {
+	if confirmed {
+		return nil
+	}
+	byID := map[uint]*DuplicateIdentityMatch{}
+	var order []uint
+	look := func(column, value, label string) error {
+		if value == "" {
+			return nil
+		}
+		var invs []commonModels.Investor
+		if err := config.DB.WithContext(ctx).Where(column+" = ?", value).Find(&invs).Error; err != nil {
+			return err
+		}
+		for _, r := range invs {
+			m, ok := byID[r.ID]
+			if !ok {
+				m = &DuplicateIdentityMatch{ID: r.ID, Source: "investor", Code: r.Code, Name: r.Name, Phone: r.Phone}
+				byID[r.ID] = m
+				order = append(order, r.ID)
+			}
+			m.Fields = append(m.Fields, label)
+		}
+		return nil
+	}
+	if err := look("phone", in.Phone, "Phone number"); err != nil {
+		return err
+	}
+	if err := look("pan", in.PAN, "PAN"); err != nil {
+		return err
+	}
+	if err := look("aadhaar_hash", aadhaarHash, "Aadhaar number"); err != nil {
+		return err
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	matches := make([]DuplicateIdentityMatch, 0, len(order))
+	for _, id := range order {
+		matches = append(matches, *byID[id])
+	}
+	return &DuplicateIdentityError{Matches: matches}
 }
 
 func (e *DuplicateIdentityError) Status() int { return http.StatusConflict }
@@ -428,6 +478,36 @@ func bindInvestorInput(c echo.Context) (CustomerCreateInput, error) {
 	}
 	in.BranchID = auth.EnforceBranchOnWrite(c, in.BranchID)
 	return in, nil
+}
+
+// CheckInvestorIdentity tells the Add Investor form, before anything is saved, which existing borrowers share the
+// phone number, PAN or Aadhaar being typed — the same comparison CreateInvestor makes, so the form can offer to fill
+// itself from that borrower straight away instead of failing on Create. Nothing is written. The Aadhaar number
+// travels in the body (never the URL) and is only hashed here.
+func CheckInvestorIdentity(c echo.Context) error {
+	var req struct {
+		Phone   string `json:"phone"`
+		PAN     string `json:"pan"`
+		Aadhaar string `json:"aadhaar"`
+	}
+	if err := BindJSON(c, &req); err != nil {
+		return FailErr(c, NewBadRequest("Invalid input"))
+	}
+	in := CustomerCreateInput{Phone: strings.TrimSpace(req.Phone), PAN: req.PAN, Aadhaar: req.Aadhaar}
+	normalizeKYC(&in)
+	aadhaarHash := ""
+	if in.Aadhaar != "" {
+		aadhaarHash = config.AadhaarCipher.Fingerprint(in.Aadhaar)
+	}
+	matches := []DuplicateIdentityMatch{}
+	if err := checkInvestorIdentity(auth.RequestContext(c), aadhaarHash, in, false); err != nil {
+		var dup *DuplicateIdentityError
+		if !errors.As(err, &dup) {
+			return FailErr(c, err)
+		}
+		matches = dup.Matches
+	}
+	return Success(c, http.StatusOK, echo.Map{"matches": matches})
 }
 
 func CreateInvestor(c echo.Context) error {

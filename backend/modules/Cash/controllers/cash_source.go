@@ -113,9 +113,42 @@ func withLoanSources(ctx context.Context, rows []models.CashMovement) []movement
 		}
 	}
 	sources := loanSourcesByMovementIDs(ctx, ids)
+	payments := loanPaymentIDsByGroup(ctx, rows)
 	out := make([]movementResponse, len(rows))
 	for i := range rows {
 		out[i] = movementResponse{CashMovement: &rows[i], LoanSource: sources[rows[i].ID]}
+		if id, ok := payments[rows[i].TransactionGroupID]; ok && rows[i].Source == "Collection" {
+			out[i].LoanPaymentID = &id
+		}
+	}
+	return out
+}
+
+// loanPaymentIDsByGroup maps the cash-book group of each gold-loan repayment line among rows to the loan payment that
+// booked it (loan_payments.cash_transaction_group_id), keyed by the group id.
+func loanPaymentIDsByGroup(ctx context.Context, rows []models.CashMovement) map[string]uint {
+	var groups []string
+	for _, m := range rows {
+		if m.Source == "Collection" && m.TransactionGroupID != "" {
+			groups = append(groups, m.TransactionGroupID)
+		}
+	}
+	out := map[string]uint{}
+	if len(groups) == 0 {
+		return out
+	}
+	var found []struct {
+		ID                     uint
+		CashTransactionGroupID string
+	}
+	if err := config.DB.WithContext(ctx).Table("loan_payments").
+		Select("id, cash_transaction_group_id").
+		Where("cash_transaction_group_id IN ?", groups).
+		Scan(&found).Error; err != nil {
+		return out
+	}
+	for _, p := range found {
+		out[p.CashTransactionGroupID] = p.ID
 	}
 	return out
 }

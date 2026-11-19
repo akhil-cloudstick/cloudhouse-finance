@@ -9,6 +9,9 @@ export type GoldRate = {
   // previous latest row when a publish only touches one karat.
   k22: number;
   k18: number;
+  /** The 22K / 18K fineness % last set in Auto mode (0 = never set) — kept with the rate, as on web. */
+  fineness22?: number;
+  fineness18?: number;
   setBy: string;
   /** The setter's role (designation), stamped by the server. */
   setByDesignation?: string;

@@ -5,6 +5,9 @@
  * public to apply for a loan (App Store guideline 3.2.1(viii)). */
 
 import Link from "next/link";
+// Imported, not linked from /public: bundled files are served from /_next/static on every host.
+import markImg from "@/modules/legal/assets/cloudhouse-app-logo.png";
+import heroImg from "@/modules/legal/assets/hero-phone.png";
 import { CONTACT_ADDRESS_LINES, CONTACT_EMAIL, CONTACT_LEGAL_NAME, CONTACT_PHONE_DISPLAY, CONTACT_PHONE_TEL } from "@/modules/legal/content/legalConfig";
 
 const SUPPORT_EMAIL = CONTACT_EMAIL;
@@ -97,7 +100,7 @@ export default function LandingPage() {
         <div className="lp-wrap lp-header-row">
           <Link className="lp-brand" href="/" aria-label="CloudHouse Finance home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/cloudhouse-mark.png" alt="" width={32} height={32} />
+            <img src={markImg.src} alt="" width={32} height={32} />
             <span>CloudHouse Finance</span>
           </Link>
           <nav className="lp-nav" aria-label="Main">
@@ -153,7 +156,7 @@ export default function LandingPage() {
               </div>
 
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="lp-hero-phone" src="/hero-phone.png" alt="" width={700} height={1050} />
+              <img className="lp-hero-phone" src={heroImg.src} alt="" width={926} height={1699} />
             </div>
           </div>
         </section>
@@ -261,9 +264,11 @@ export default function LandingPage() {
             <a href="/disclaimer">Disclaimer</a>
             <a href="/contact">Support</a>
           </nav>
-          <p>
-            CloudHouse Finance is a product of CloudHouse Technologies Pvt. Ltd. &copy; 2026 All
-            rights reserved.
+          <p className="lp-powered">
+            Powered by{" "}
+            <a href="https://cloudhousetechnologies.com" target="_blank" rel="noopener">
+              <span>CloudHouse</span>
+            </a>
           </p>
         </div>
       </footer>

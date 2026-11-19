@@ -21,7 +21,6 @@ import {
   SectionTitle,
   Sheet,
   Txt,
-  WarningBanner,
   openPage,
   toast,
 } from "@/common/components/ui";
@@ -121,7 +120,8 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
   const goldRate = useQuery({ queryKey: ["gold-rates", "latest"], queryFn: latestGoldRate, enabled: visible, refetchOnMount: "always" });
 
   useEffect(() => {
-    if (!visible) return;
+    // Closing the sheet — including navigating away to the new loan — leaves a blank form for next time.
+    if (!visible) { reset(); return; }
     setError(null);
     if (initialCustomer) setCustomer(initialCustomer);
   }, [visible, initialCustomer]);
@@ -329,10 +329,6 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
       {!canCreate ? (
         <NoticeBanner>No create permission.</NoticeBanner>
       ) : null}
-      {canCreate && goldRate.data !== undefined && !isTodaySet ? (
-        <WarningBanner>Gold rate missing.</WarningBanner>
-      ) : null}
-      <FieldErr m={fe("rate")} />
 
       <AsyncSelect<Customer>
         label="Customer"
@@ -498,7 +494,7 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
         <Input placeholder="Optional notes" value={info} onChangeText={setInfo} multiline maxLength={150} />
       </Field>
       {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      {canCreate && !error && tried && missingReason ? <ErrorText>{missingReason}</ErrorText> : null}
+      {canCreate && !error && tried && missingReason && isTodaySet ? <ErrorText>{missingReason}</ErrorText> : null}
       <BtnRow2>
         {canCreate ? (
           <PrimaryButton
@@ -509,7 +505,12 @@ export function CreateLoanSheet({ visible, onClose, initialCustomer, initialDraf
             disabled={!branch || !hasDraftContent}
           />
         ) : null}
-        <PrimaryButton label="Create Loan" onPress={() => (missingReason ? setTried(true) : submit.mutate())} loading={submit.isPending} disabled={!canCreate} />
+        <PrimaryButton label="Create Loan" onPress={() => {
+          if (!missingReason) return submit.mutate();
+          setTried(true);
+          // The missing gold rate is reported once, as a toast — not as a banner and inline text as well.
+          if (!isTodaySet) toast.error("Gold rate missing", "Set today's gold rate.");
+        }} loading={submit.isPending} disabled={!canCreate} />
       </BtnRow2>
     </Sheet>
   );

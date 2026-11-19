@@ -1,7 +1,7 @@
 "use client";
 
 import { panLiveError, PAN_RE, AADHAAR_RE, PAN_MESSAGE, AADHAAR_MESSAGE, stripDigits } from "@/common/utils/kyc";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ageFromDob } from "@/common/utils/format";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -11,6 +11,8 @@ import { DatePicker } from "@/common/components/ui/DatePicker";
 import { Icon } from "@/common/components/Icon";
 import { createCustomer, uploadFile } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
+import { getInvestor, getInvestorAadhaarFull, sameIdentityMatches, checkBorrowerIdentity } from "@/modules/investments/services/investorService";
+import { SameInvestorModalContent } from "@/modules/investments/components/SameInvestorModalContent";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
 import { useBranding } from "@/common/providers/BrandingProvider";
@@ -54,7 +56,7 @@ export function RegisterCustomerModalContent({
 	onSaved,
 	onCreated,
 }: RegisterCustomerModalContentProps) {
-	const { closeModal } = useModal();
+  const { closeModal, openChildModal } = useModal();
 	const canOpen = useCanOpenRoute();
 	const toast = useToast();
 
@@ -99,12 +101,73 @@ export function RegisterCustomerModalContent({
 	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
 	const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
 	const [saving, setSaving] = useState(false);
+  // Set once the user confirms the person is also an existing investor.
+  const [sameConfirmed, setSameConfirmed] = useState(false);
 
 	useEffect(() => {
 		listActiveBranches()
 			.then((list) => { setBranches(list); if (list.length) setBranchId((cur) => cur || list[0].id); })
 			.catch(() => setErr("Could not load branches — try again later."));
 	}, []);
+
+  // Fills the form with what the investor already has on file; the rest is left for staff to complete.
+  async function prefillFromInvestor(id: string) {
+    try {
+      const i = await getInvestor(id);
+      setName(i.name || "");
+      setPhone(i.phone || "");
+      if (i.address) setAddr(i.address);
+      if (i.pan) setPan(i.pan);
+      if (i.dob) setDob(i.dob);
+      if (i.nomineeName) setNomineeName(i.nomineeName);
+      if (i.nomineeRelation) setNomineeRelation(i.nomineeRelation);
+      if (i.nomineePhone) setNomineePhone(i.nomineePhone);
+      if (i.fatherName) setFatherName(i.fatherName);
+      if (i.district) setDistrict(i.district);
+      if (i.taluk) setTaluk(i.taluk);
+      if (i.village) setVillage(i.village);
+      if (i.place) setPlace(i.place);
+      if (i.pinCode) setPinCode(i.pinCode);
+      if (i.branchId && !lockedBranchId) setBranchId(i.branchId);
+      getInvestorAadhaarFull(id).then((a) => { if (a) setAadhaar(a); }).catch(() => {});
+      setErr(""); setFe({});
+      setSameConfirmed(true);
+      toast("Investor details filled in — please complete the remaining fields");
+    } catch {
+      setErr("Could not load the investor's details.");
+    }
+  }
+
+  // As soon as a complete phone number, PAN or Aadhaar is typed, ask whether it already belongs to an investor, so the
+  // "same person?" question comes up while filling the form and not only when Register is pressed. Each set of values
+  // is asked about once; answering "no" is remembered until they change.
+  const askedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (sameConfirmed) return;
+    const p = phone.trim();
+    const pn = pan.trim().toUpperCase();
+    const a = aadhaar.trim();
+    const phoneOk = /^\d{10}$/.test(p);
+    const panOk = PAN_RE.test(pn);
+    const aadhaarOk = AADHAAR_RE.test(a);
+    if (!phoneOk && !panOk && !aadhaarOk) return;
+    const key = `${phoneOk ? p : ""}|${panOk ? pn : ""}|${aadhaarOk ? a : ""}`;
+    if (askedRef.current.has(key)) return;
+    let live = true;
+    const t = setTimeout(() => {
+      checkBorrowerIdentity({ phone: phoneOk ? p : "", pan: panOk ? pn : "", aadhaar: aadhaarOk ? a : "" })
+        .then((matches) => {
+          if (!live) return;
+          askedRef.current.add(key);
+          const investor = matches.find((m) => m.source === "investor");
+          if (!investor) return;
+          openChildModal(<SameInvestorModalContent newName={name.trim() || "this person"} matches={matches} onConfirm={async () => { closeModal(); await prefillFromInvestor(String(investor.id)); }} />);
+        })
+        .catch(() => { /* the check is a convenience — Register still makes the same check on the server */ });
+    }, 500);
+    return () => { live = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- name / the modal helpers are read when the check answers
+  }, [phone, pan, aadhaar, sameConfirmed]);
 
 	async function save() { return singleFlight("modal:registercustomer:save", async () => {
 		const n = name.trim();
@@ -154,7 +217,7 @@ export function RegisterCustomerModalContent({
 				...(place.trim() ? { place: place.trim() } : {}),
 				...(pinCode.trim() ? { pinCode: pinCode.trim() } : {}),
 				...(ageFromDob(dob) != null ? { age: ageFromDob(dob)! } : {}),
-			}, { branchName: branches.find((b) => b.id === Number(branchId))?.name });
+			}, sameConfirmed, { branchName: branches.find((b) => b.id === Number(branchId))?.name });
 
 			if (onCreated) {
 				onCreated(c);
@@ -167,6 +230,14 @@ export function RegisterCustomerModalContent({
 			// create-only role stays put rather than hitting the refusal toast).
 			if (canOpen("customer")) navigate("customer/" + (c.code || c.id));
 		} catch (e) {
+      // The phone number, PAN or Aadhaar is already on an investor: nothing is added until the user confirms.
+      const matches = sameIdentityMatches(e);
+      const investor = matches?.find((m) => m.source === "investor");
+      if (matches && investor) {
+        toast("Possible duplicate — please confirm before adding");
+        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => { closeModal(); await prefillFromInvestor(String(investor.id)); }} />);
+        return;
+      }
 			const msg = e instanceof Error ? e.message : "Failed to register customer.";
 			const field = fieldForMessage(msg, SERVER_FIELDS);
 			if (field) fail(field, msg); else { setFe({}); setErr(msg); }

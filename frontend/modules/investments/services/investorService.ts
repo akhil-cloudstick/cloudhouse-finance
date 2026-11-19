@@ -78,7 +78,6 @@ function checkInvestorFields(input: CustomerFormInput): void {
   if (!input.branchId) bad("branch is required");
   if (!pan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(pan)) bad("PAN must look like ABCDE1234F");
   if (aadhaar && !/^\d{12}$/.test(aadhaar)) bad("Aadhaar must be exactly 12 digits");
-  if (!(input.bankAccountName ?? "").trim() || !acct || !(input.bankIfsc ?? "").trim()) bad("bank account name, number and IFSC are required");
   if (acct && (acct.length > 18 || /\D/.test(acct))) bad("bank account number must be digits only, up to 18 digits");
 }
 
@@ -104,6 +103,21 @@ function checkNotTaken(input: CustomerFormInput, others: BackendCustomer[]): voi
 }
 
 const notSynced = () => bad("This investor has not reached the server yet. Try again once it has synced.", 409);
+
+/* Existing borrowers that share the phone number, PAN or Aadhaar being typed into the Add Investor form — asked while
+ * the form is filled in, so a known borrower is offered straight away rather than only when Create is pressed.
+ * Nothing is saved; the Aadhaar number goes in the body, not the URL. */
+export async function checkInvestorIdentity(input: { phone: string; pan: string; aadhaar: string }): Promise<SameIdentityMatch[]> {
+  const res = await apiFetch<{ matches: SameIdentityMatch[] | null }>("/investors/identity-check", { method: "POST", body: JSON.stringify(input) });
+  return res.matches ?? [];
+}
+
+/* The reverse, for the Register Customer form: existing investors that share the phone number, PAN or Aadhaar being
+ * typed. Same behaviour as checkInvestorIdentity; nothing is saved. */
+export async function checkBorrowerIdentity(input: { phone: string; pan: string; aadhaar: string }): Promise<SameIdentityMatch[]> {
+  const res = await apiFetch<{ matches: SameIdentityMatch[] | null }>("/customers/identity-check", { method: "POST", body: JSON.stringify(input) });
+  return res.matches ?? [];
+}
 
 /* confirmSamePerson: the user has confirmed this investor is the same person as the existing one(s) that share
  * a phone number, PAN or Aadhaar under another name. */

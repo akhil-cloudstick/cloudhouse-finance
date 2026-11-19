@@ -47,8 +47,10 @@ export function finenessFromRate(k24: number, rate: number, karat: number): numb
 export function rateForKarat(k24: number, karat: number): number {
   return Math.round((k24 * karat) / 24);
 }
+/* Per-gram rate for a fineness: fineness ÷ 24K fineness (99.9) × K24 — the same formula as the web Set Gold Rate modal
+ * and the backend's loan valuation (loan/purity.go), and the exact inverse of finenessFromRate above. */
 export function rateForFineness(k24: number, finenessPercent: number): number {
-  return Math.round((k24 * finenessPercent) / 100);
+  return Math.round((k24 * finenessPercent) / FINENESS_24K);
 }
 
 /* Formats a purity into the canonical unit-suffixed string stored on

@@ -2,10 +2,12 @@ import React from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { C, Card, FlatHeader, PIcon, PScroll, PrimaryButton, Screen, Txt, toast } from "@/common/components/ui";
 
-// Edit these two to change what Support shows. An empty SUPPORT_PHONE shows a "not added yet"
-// placeholder and hides the Call button.
+// Keep these two identical to CONTACT_EMAIL / CONTACT_PHONE_DISPLAY in
+// frontend/modules/legal/content/legalConfig.ts (the public legal pages). This package cannot
+// import from the frontend, so it holds its own copy. An empty SUPPORT_PHONE shows a
+// "not added yet" placeholder and hides the Call button.
 export const SUPPORT_EMAIL = "support@cloudhousetechnologies.com";
-export const SUPPORT_PHONE: string = "";
+export const SUPPORT_PHONE: string = "+91 480 2737360";
 
 function open(url: string) {
   Linking.openURL(url).catch(() => toast.error("Couldn't open that on this device"));

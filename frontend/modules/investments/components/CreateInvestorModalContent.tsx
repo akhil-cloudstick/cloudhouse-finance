@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { stripDigits, panLiveError } from "@/common/utils/kyc";
 import { useModal } from "@/common/components/ModalProvider";
 import { Select } from "@/common/components/ui/Select";
-import { createInvestor, updateInvestor, getInvestorAadhaarFull, sameIdentityMatches } from "@/modules/investments/services/investorService";
+import { createInvestor, updateInvestor, getInvestorAadhaarFull, sameIdentityMatches, checkInvestorIdentity } from "@/modules/investments/services/investorService";
+import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
 import { SameInvestorModalContent } from "@/modules/investments/components/SameInvestorModalContent";
 import { useToast } from "@/common/components/ToastProvider";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
@@ -89,6 +90,65 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
     return () => { live = false; };
   }, [edit]);
 
+  // Set once the user confirms the person is an existing borrower: the form is then filled from that borrower.
+  const [linkedCustomerId, setLinkedCustomerId] = useState<string | undefined>();
+
+  // Fills the form with what the borrower already has on file; the rest is left for staff to complete.
+  async function prefillFromBorrower(id: string) {
+    try {
+      const c = await getCustomer(id);
+      setLinkedCustomerId(id);
+      setName(c.name || "");
+      setPhone(c.phone || "");
+      if (c.address) setAddress(c.address);
+      if (c.pan) setPan(c.pan);
+      if (c.bankAccountName) setBankAccountName(c.bankAccountName);
+      if (c.bankAccountNumber) setBankAccountNumber(c.bankAccountNumber);
+      if (c.bankIfsc) setBankIfsc(c.bankIfsc);
+      if (c.branchId && !lockedBranchId) setBranchId(c.branchId);
+      getCustomerAadhaarFull(id).then((a) => { if (a) setAadhaar(a); }).catch(() => {});
+      setErr("");
+      setFe({});
+      toast("Borrower details filled in — please complete the remaining fields");
+    } catch {
+      setErr("Could not load the borrower's details.");
+    }
+  }
+
+  // As soon as a complete phone number, PAN or Aadhaar is typed, ask whether it already belongs to a borrower, so the
+  // "same person?" question comes up while filling the form and not only when Create is pressed. Each set of values
+  // is asked about once; answering "no" is remembered until they change.
+  const askedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (edit || linkedCustomerId) return;
+    const p = phone.trim();
+    const pn = pan.trim().toUpperCase();
+    const a = aadhaar.trim();
+    const phoneOk = /^\d{10}$/.test(p);
+    const panOk = /^[A-Z]{5}\d{4}[A-Z]$/.test(pn);
+    const aadhaarOk = /^\d{12}$/.test(a);
+    if (!phoneOk && !panOk && !aadhaarOk) return;
+    const key = `${phoneOk ? p : ""}|${panOk ? pn : ""}|${aadhaarOk ? a : ""}`;
+    if (askedRef.current.has(key)) return;
+    let live = true;
+    const t = setTimeout(() => {
+      checkInvestorIdentity({ phone: phoneOk ? p : "", pan: panOk ? pn : "", aadhaar: aadhaarOk ? a : "" })
+        .then((matches) => {
+          if (!live) return;
+          askedRef.current.add(key);
+          if (!matches.length) return;
+          openChildModal(<SameInvestorModalContent newName={name.trim() || "this person"} matches={matches} onConfirm={async () => {
+            closeModal();
+            const borrower = matches.find((m) => m.source === "customer");
+            if (borrower) await prefillFromBorrower(String(borrower.id));
+          }} />);
+        })
+        .catch(() => { /* the check is a convenience — Create still makes the same check on the server */ });
+    }, 500);
+    return () => { live = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- name / the modal helpers are read when the check answers
+  }, [phone, pan, aadhaar, edit, linkedCustomerId]);
+
   // confirmSamePerson: the user has said the number already on file belongs to this same person.
   async function save(confirmSamePerson = false) {
     const n = name.trim();
@@ -100,9 +160,6 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
     if (!branchId) errors["branch"] ??= "Please select a branch.";
     if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) errors["pan"] ??= "Please enter a valid PAN (e.g. ABCDE1234F).";
     if (!(edit && !aadhaar.trim()) && !/^\d{12}$/.test(aadhaar.trim())) errors["aadhaar"] ??= "Please enter a valid 12-digit Aadhaar number.";
-    if (!bankAccountName.trim()) errors["bankAccountName"] ??= "Please enter the bank account holder's name.";
-    if (!bankAccountNumber.trim()) errors["bankAccountNumber"] ??= "Please enter the bank account number.";
-    if (!bankIfsc.trim()) errors["bankIfsc"] ??= "Please enter the bank IFSC code.";
     if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     setSaving(true);
@@ -129,7 +186,7 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         bankIfsc: bankIfsc.trim().toUpperCase(),
       };
       const hint = { branchName: branches.find((b) => b.id === Number(branchId))?.name };
-      const c = edit ? await updateInvestor(edit.id, input, hint) : await createInvestor(input, undefined, confirmSamePerson, hint);
+      const c = edit ? await updateInvestor(edit.id, input, hint) : await createInvestor(input, linkedCustomerId, confirmSamePerson || !!linkedCustomerId, hint);
       onCreated(c);
     } catch (e) {
       // The phone number, PAN or Aadhaar is on another investor under a different name: nothing is added until
@@ -137,7 +194,13 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
       const matches = edit ? null : sameIdentityMatches(e);
       if (matches) {
         toast("Possible duplicate — please confirm before adding");
-        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => { closeModal(); await save(true); }} />);
+        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => {
+          closeModal();
+          // An existing borrower: fill the form from them and let staff complete the rest before adding.
+          const borrower = matches.find((m) => m.source === "customer");
+          if (borrower) await prefillFromBorrower(String(borrower.id));
+          else await save(true);
+        }} />);
         return;
       }
       const msg = e instanceof Error ? e.message : "Failed to create investor.";
@@ -174,10 +237,10 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
           <div className={fe.pan || panLiveError(pan) ? "has-err" : undefined}><label className="f">PAN *</label><input className="inp" placeholder="e.g. ABCDE1234F" maxLength={10} value={pan} onChange={(e) => { setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setFe((cur) => ({ ...cur, pan: "" })); }} /><FieldError msg={fe.pan || panLiveError(pan)} /></div>
           <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number *</label><input className="inp" inputMode="numeric" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
         </div>
-        <div className="frow"><div className={fe.bankAccountName ? "has-err" : undefined}><label className="f">Bank Account Holder Name *</label><input className="inp" placeholder="As per bank records" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} /><FieldError msg={fe.bankAccountName} /></div></div>
+        <div className="frow"><div className={fe.bankAccountName ? "has-err" : undefined}><label className="f">Bank Account Holder Name</label><input className="inp" placeholder="As per bank records" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} /><FieldError msg={fe.bankAccountName} /></div></div>
         <div className="frow c2">
-          <div className={fe.bankAccountNumber ? "has-err" : undefined}><label className="f">Bank Account Number *</label><input className="inp" placeholder="Account number" inputMode="numeric" maxLength={18} value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.bankAccountNumber} /></div>
-          <div className={fe.bankIfsc ? "has-err" : undefined}><label className="f">Bank IFSC *</label><input className="inp" placeholder="e.g. SBIN0001234" maxLength={11} value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} /><FieldError msg={fe.bankIfsc} /></div>
+          <div className={fe.bankAccountNumber ? "has-err" : undefined}><label className="f">Bank Account Number</label><input className="inp" placeholder="Account number" inputMode="numeric" maxLength={18} value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.bankAccountNumber} /></div>
+          <div className={fe.bankIfsc ? "has-err" : undefined}><label className="f">Bank IFSC</label><input className="inp" placeholder="e.g. SBIN0001234" maxLength={11} value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} /><FieldError msg={fe.bankIfsc} /></div>
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>

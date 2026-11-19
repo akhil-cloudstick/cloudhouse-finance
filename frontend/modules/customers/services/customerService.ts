@@ -313,14 +313,15 @@ function checkCustomerFields(input: CustomerFormInput): void {
   if (acct && (acct.length > 18 || /\D/.test(acct))) bad("bank account number must be digits only, up to 18 digits");
   if (input.customerType && input.customerType !== "Borrower" && input.customerType !== "Investor") bad("customer type must be Borrower or Investor");
   if (input.customerType === "Investor") {
-    if (!input.bankAccountName || !acct || !input.bankIfsc) bad("bank account name, number and IFSC are required");
     if (!panIn || !aadhaarIn) bad("PAN and Aadhaar are required for an investor");
   }
 }
 
-export async function createCustomer(input: CustomerFormInput, hint?: { branchName?: string }): Promise<CustomerView> {
+/* confirmSamePerson: the user has confirmed this borrower is the same person as the investor(s) that share a phone
+ * number, PAN or Aadhaar (the server answers 409 "same_identity_different_name" until then). */
+export async function createCustomer(input: CustomerFormInput, confirmSamePerson?: boolean, hint?: { branchName?: string }): Promise<CustomerView> {
   if (!offlineReady()) {
-    const rec = await apiFetch<BackendCustomer>("/customers", {
+    const rec = await apiFetch<BackendCustomer>(`/customers${confirmSamePerson ? "?confirm_same_person=true" : ""}`, {
       method: "POST",
       body: JSON.stringify(toRequestBody(input)),
     });

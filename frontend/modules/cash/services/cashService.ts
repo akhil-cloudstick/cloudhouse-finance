@@ -39,6 +39,7 @@ function movementToView(m: BackendCashMovement): CashMovementView {
 		counterBankName: m.counterBankRef?.name,
 		partyCustomerId: m.partyCustomerId,
 		loanSource: m.loanSource,
+    loanPaymentId: m.loanPaymentId,
 		remarks: m.remarks,
 		editable: m.editable,
 	};

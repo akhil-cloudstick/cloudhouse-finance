@@ -9880,7 +9880,11 @@ table.tbl.lockers-tbl th {
  * instead of the table, so the pagination footer is always reachable. ── */
 .tbl-cards-more { display: none; }
 
+/* Row action buttons: centered in the table, flush right once the table becomes cards. */
+.req-acts { justify-content: center; }
+
 @media (max-width: 1100px) {
+  .req-acts { justify-content: flex-end; }
   table.tbl.tbl-cards {
     display: block;
     width: 100%;

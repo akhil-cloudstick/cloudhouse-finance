@@ -422,6 +422,8 @@ export type LoanLedgerEntry = {
   amount: number;
   balance: number | null;
   note?: string;
+  /** The auction behind an auction-sale / auction-surplus row (its settlement remarks live here). */
+  auction?: { surplusDisposition?: string; surplusRemarks?: string };
 };
 
 // --- Saved loan drafts (backend /loans/drafts) — a half-entered New Loan kept per employee. ---
