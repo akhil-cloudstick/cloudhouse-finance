@@ -10,7 +10,9 @@ type MovementRowProps = { m: CashMovementView; balance: number; categoryIds: Rec
 
 export function MovementRow({ m, balance, categoryIds, onChanged }: MovementRowProps) {
   return (
-    <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount} data-ledger-ref={`m:${m.id}`}>
+    // A gold-loan repayment line is listed in the mode / party / bank ledgers as its loan payment (ref lp:<id>), not as
+    // this cash line (m:<id>), so the drill-down names the payment to land on that entry.
+    <tr data-ledger-key={`m-${m.id}`} data-ledger-date={m.d} data-ledger-amount={m.amount} data-ledger-ref={m.loanPaymentId ? `lp:${m.loanPaymentId}` : `m:${m.id}`}>
       <td data-label="Date">{fmtDate(m.d)}</td>
       <td className="ledger-ref" data-label="Ref No" title={refTitleFor(m)}>{refCellFor(m, categoryIds)}</td>
       <td data-label="Particulars">{particularsFor(m, categoryIds)}</td>

@@ -1,7 +1,7 @@
 "use client";
 
 import { panLiveError, PAN_RE, AADHAAR_RE, PAN_MESSAGE, AADHAAR_MESSAGE, stripDigits } from "@/common/utils/kyc";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ageFromDob } from "@/common/utils/format";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -11,7 +11,7 @@ import { DatePicker } from "@/common/components/ui/DatePicker";
 import { Icon } from "@/common/components/Icon";
 import { createCustomer, uploadFile } from "@/modules/customers/services/customerService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
-import { getInvestor, getInvestorAadhaarFull, sameIdentityMatches } from "@/modules/investments/services/investorService";
+import { getInvestor, getInvestorAadhaarFull, sameIdentityMatches, checkBorrowerIdentity } from "@/modules/investments/services/investorService";
 import { SameInvestorModalContent } from "@/modules/investments/components/SameInvestorModalContent";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
@@ -137,6 +137,37 @@ export function RegisterCustomerModalContent({
       setErr("Could not load the investor's details.");
     }
   }
+
+  // As soon as a complete phone number, PAN or Aadhaar is typed, ask whether it already belongs to an investor, so the
+  // "same person?" question comes up while filling the form and not only when Register is pressed. Each set of values
+  // is asked about once; answering "no" is remembered until they change.
+  const askedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (sameConfirmed) return;
+    const p = phone.trim();
+    const pn = pan.trim().toUpperCase();
+    const a = aadhaar.trim();
+    const phoneOk = /^\d{10}$/.test(p);
+    const panOk = PAN_RE.test(pn);
+    const aadhaarOk = AADHAAR_RE.test(a);
+    if (!phoneOk && !panOk && !aadhaarOk) return;
+    const key = `${phoneOk ? p : ""}|${panOk ? pn : ""}|${aadhaarOk ? a : ""}`;
+    if (askedRef.current.has(key)) return;
+    let live = true;
+    const t = setTimeout(() => {
+      checkBorrowerIdentity({ phone: phoneOk ? p : "", pan: panOk ? pn : "", aadhaar: aadhaarOk ? a : "" })
+        .then((matches) => {
+          if (!live) return;
+          askedRef.current.add(key);
+          const investor = matches.find((m) => m.source === "investor");
+          if (!investor) return;
+          openChildModal(<SameInvestorModalContent newName={name.trim() || "this person"} matches={matches} onConfirm={async () => { closeModal(); await prefillFromInvestor(String(investor.id)); }} />);
+        })
+        .catch(() => { /* the check is a convenience — Register still makes the same check on the server */ });
+    }, 500);
+    return () => { live = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- name / the modal helpers are read when the check answers
+  }, [phone, pan, aadhaar, sameConfirmed]);
 
   async function save() { return singleFlight("modal:registercustomer:save", async () => {
     const n = name.trim();

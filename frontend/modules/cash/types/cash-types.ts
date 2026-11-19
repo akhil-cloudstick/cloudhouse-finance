@@ -39,6 +39,8 @@ export type BackendCashMovement = {
   // loanSource is only present when source is "Loan" — see
   // backend/internal/cash/model.go's LoanCashSource.
   loanSource?: BackendLoanCashSource;
+  // The gold-loan payment a repayment ("Collection") line belongs to — what the other ledgers list it as (ref lp:<id>).
+  loanPaymentId?: number;
   remarks?: string;
   // True for a cash-in / debit / self transfer a person keyed in — the ledger
   // shows the info icon and Edit on it.
@@ -82,6 +84,7 @@ export type CashMovementView = {
   counterBankName?: string;
   partyCustomerId?: number | null;
   loanSource?: BackendLoanCashSource;
+  loanPaymentId?: number;
   remarks?: string;
   editable?: boolean;
 };
