@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmtDate } from "@/common/utils/format";
 import { verificationLabel } from "@/modules/customers/services/customerService";
 import { getInvestor } from "@/modules/investments/services/investorService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
@@ -42,14 +41,11 @@ export function InvestorProfileModalContent({ customerId }: InvestorProfileModal
             {field("Customer Code", investor.code)}
             {field("Phone", investor.phone)}
             {field("Father's Name", investor.fatherName)}
-            {field("Date of Birth", investor.dob ? fmtDate(investor.dob) : "")}
             {field("Address", investor.address)}
             {field("Branch", investor.branchName)}
             {field("PAN", investor.pan)}
             {field("Aadhaar", investor.aadhaarLast4 ? `XXXX XXXX ${investor.aadhaarLast4}` : "")}
             {field("Verification", verificationLabel(investor))}
-            {field("Nominee", investor.nomineeName ? `${investor.nomineeName}${investor.nomineeRelation ? ` (${investor.nomineeRelation})` : ""}` : "")}
-            {field("Nominee Phone", investor.nomineePhone)}
             {field("Bank Account Name", investor.bankAccountName)}
             {field("Bank Account No.", investor.bankAccountNumber)}
             {field("IFSC", investor.bankIfsc)}

@@ -192,6 +192,7 @@ function expenseToView(e: BackendExpense): ExpenseView {
     branchId: e.branchId,
     status: e.status,
     approvalStage: e.approvalStage,
+    approvedBy: e.approvedBy,
     remarks: e.remarks,
     img: e.receiptImage,
     editable: e.editable,

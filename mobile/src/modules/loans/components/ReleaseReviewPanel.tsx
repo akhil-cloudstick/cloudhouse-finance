@@ -32,16 +32,21 @@ import {
   toast,
   openPage,
 } from "@/common/components/ui";
-import { inr, todayISO } from "@/common/utils/format";
+import { inr, roundRupee, todayISO } from "@/common/utils/format";
+import { approverItems } from "@/modules/loans/utils/approverItems";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useCanOpen } from "@/common/config/routePermissions";
 import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, editReleaseRecord, deleteReleaseRecord } from "@/modules/loans/services/loanService";
-import { isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import { isFinalStage, stageByPending, stageTag, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { listPackets, movePacket } from "@/modules/packets/services/packetService";
 import { printReleaseAgreementPdf, printPartialReleaseReceiptPdf, RELEASE_AGREEMENT_LANGS, DOC_LANG_LABELS, type DocLang } from "@/modules/loans/utils/loanPrint";
 import { LoanRequest, Loan } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 
+// What a discount is given against — same options and labels as web's DISCOUNT_KIND_LABELS.
+type DiscountKind = "customer" | "interest" | "penal_interest";
+const DISCOUNT_KINDS: DiscountKind[] = ["customer", "interest", "penal_interest"];
+const DISCOUNT_KIND_LABELS: Record<DiscountKind, string> = { customer: "Custom discount", interest: "Interest", penal_interest: "Penal interest" };
 
 // Mirrors backend partialReleaseDrift: what the remaining collateral can't
 // cover at the scheme LTV. ApproveReleaseRequest refuses a partial release
@@ -89,19 +94,18 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const canRecordPayment = request.approvalStage === "" || request.approvalStage === "PendingManager";
   const isPending = request.status === "Pending";
 
-  const [charges, setCharges] = useState(String(request.charges || 0));
   const [notes, setNotes] = useState(request.verificationNotes || "");
-  const [discount, setDiscount] = useState("0");
-  // A discount is its own ledger entry: it needs a reason and the mode it is shown under, and the right to give one.
-  const [discountReason, setDiscountReason] = useState("");
-  const [discountMode, setDiscountMode] = useState("Cash");
+  const [discount, setDiscount] = useState("");
+  // What the discount is given against, as on web: a custom discount, or the interest / penal interest owed.
+  const [discountKind, setDiscountKind] = useState<DiscountKind>("customer");
   const canDiscount = can("Loan_Management", "can_give_discount");
   // The day of the release payment — staff can backdate it to the day the customer saw the gold.
   const [releaseDate, setReleaseDate] = useState(todayISO());
-  const [amount, setAmount] = useState("");
+  // The amount follows what is owed after the discount until staff type their own figure — then it is left alone
+  // (web's amountTyped rule). amountInput only holds what was typed.
+  const [amountInput, setAmountInput] = useState("");
+  const [amountTyped, setAmountTyped] = useState(false);
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [reference, setReference] = useState("");
-  const [dueDate, setDueDate] = useState(request.paymentDueDate || "");
   // Language being fetched ("partial" for the partial-release receipt).
   // One document row; the language options only open once it is tapped, like the bond.
   const [pickingLang, setPickingLang] = useState(false);
@@ -111,9 +115,11 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const [seenId, setSeenId] = useState(request.id);
   useEffect(() => {
     if (request.id !== seenId) {
-      setCharges(String(request.charges || 0));
       setNotes(request.verificationNotes || "");
-      setDueDate(request.paymentDueDate || "");
+      setDiscount("");
+      setDiscountKind("customer");
+      setAmountInput("");
+      setAmountTyped(false);
       setSeenId(request.id);
     }
   }, [request, seenId]);
@@ -150,30 +156,26 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const remainingGoldValue = request.isPartial ? pledged.filter((o) => !selectedIds.has(o.id)).reduce((s, o) => s + o.goldValue, 0) : 0;
   const drift = request.isPartial ? partialReleaseDrift(outstanding, remainingGoldValue, ltv) : 0;
 
-  const unappliedCharges = Math.max(0, (+charges || 0) - request.chargesApplied);
   // What still has to come in for the release condition: the whole balance
   // for a full release, only the drift for a partial one.
-  const required = (request.isPartial ? Math.max(0, drift) : outstanding) + unappliedCharges;
+  // Whole rupees, like web — the amount to collect is never a paise figure.
+  const required = roundRupee(request.isPartial ? Math.max(0, drift) : outstanding);
+  // Nothing to collect → no discount to give (web disables the field the same way).
+  const discountBlocked = required <= 0;
+  const discountAmt = canDiscount && !discountBlocked && +discount > 0 ? +discount : 0;
+  // Choosing what the discount is for fills it with what is still owed of it; a custom discount is typed.
+  function chooseDiscountKind(k: DiscountKind) {
+    setDiscountKind(k);
+    const v = k === "interest" ? roundRupee(loan.outstandingInterest ?? 0) : k === "penal_interest" ? roundRupee(loan.outstandingPenalInterest ?? 0) : 0;
+    setDiscount(v > 0 ? String(v) : "");
+  }
+  // What the customer pays after the discount; the Amount shows this until they type their own figure.
+  const modeTotal = Math.max(0, roundRupee(required - discountAmt));
+  const amount = amountTyped ? amountInput : modeTotal > 0 ? String(modeTotal) : "";
   const paymentConditionMet = !!request.paymentRecorded || (request.isPartial ? drift <= 0.01 : outstanding <= 0.01);
-  const shortAfter = required - (+discount || 0) - (+amount || 0);
-  const needsDueDate = !request.isPartial && shortAfter > 0.01;
   // Blocked outright while the gold is at a bank or in a locker — it has to
   // come back (bank pledge released / packet checked out) first.
   const canApprove = !goldStillHeld && !!request.customerSawGold && paymentConditionMet;
-
-  // Prefill the amount (and an all-cash split) with what's required, once per request.
-  const [prefilledFor, setPrefilledFor] = useState<number | null>(null);
-  useEffect(() => {
-    if (prefilledFor !== request.id && canRecordPayment && isPending) {
-      const amt = Math.max(0, +required.toFixed(2));
-      setAmount(String(amt));
-      setPrefilledFor(request.id);
-    }
-  }, [prefilledFor, request.id, canRecordPayment, isPending, required]);
-
-  function setAmountAndSplit(v: string) {
-    setAmount(v);
-  }
 
   function reportError(err: unknown) {
     onError(err instanceof ApiError ? err.message : "Something went wrong — try again.");
@@ -211,21 +213,20 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     mutationFn: () =>
       recordReleasePayment(request.id, {
         amount: amt,
-        discount: canDiscount ? +discount || 0 : 0,
-        ...(canDiscount && +discount > 0 ? { discountReason: discountReason.trim(), discountMode } : {}),
+        discount: discountAmt,
+        // Same as web: the reason is fixed, a discount moves no money so it is shown as Cash, and the type says what it is against.
+        ...(discountAmt > 0 ? { discountReason: "Discount", discountMode: "Cash", discountKind } : {}),
         paidOn: releaseDate,
         ...(amt > 0 ? split : ZERO_SPLIT),
         bankId: amt > 0 ? pay?.bankId : undefined,
-        reference: reference.trim() || undefined,
-        dueDate: needsDueDate ? dueDate : undefined,
       }),
     onSuccess: () => {
-      setDiscount("0");
-      setDiscountReason("");
-      setReference("");
-      // Clear the amount and keep the request marked as prefilled: re-prefilling from the
-      // pre-refetch (stale) balance could let a second tap collect the same money again.
-      setAmount("");
+      setDiscount("");
+      setDiscountKind("customer");
+      // Clear the amount and keep it "typed" so it does not re-prefill from the
+      // pre-refetch (stale) balance — a second tap could collect the same money again.
+      setAmountInput("");
+      setAmountTyped(true);
       onSaved();
     },
     onError: reportError,
@@ -274,7 +275,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     onError: reportError,
   });
 
-  const sawGoldDisabled = saveVerification.isPending || releasePacket.isPending || !canDecide || !canVerifyChecklist || !isPending || !!request.locked || (goldStillHeld && !packetAutoReleasable);
+  const sawGoldDisabled = saveVerification.isPending || releasePacket.isPending || !canDecide || !canVerifyChecklist || !isPending || !!request.locked || !canRecordPayment || (goldStillHeld && !packetAutoReleasable);
 
   return (
     <View>
@@ -304,9 +305,9 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
       <FieldGrid
         style={{ marginBottom: 14 }}
         items={[
-          { k: "Outstanding principal", v: inr(loan.outstandingAmount) },
-          { k: "Outstanding interest", v: inr(loan.outstandingInterest ?? 0) },
-          { k: "Penal interest", v: inr(loan.outstandingPenalInterest ?? 0) },
+          { k: "Outstanding principal", v: inr(roundRupee(loan.outstandingAmount)) },
+          { k: "Outstanding interest", v: inr(roundRupee(loan.outstandingInterest ?? 0)) },
+          { k: "Penal interest", v: inr(roundRupee(loan.outstandingPenalInterest ?? 0)) },
           {
             k: request.isPartial ? "Required to release" : "Final settlement",
             v: inr(required),
@@ -314,6 +315,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
           },
         ]}
       />
+
+      {approverItems(request.approvals, (s) => stageTag(wf, "loan_release", s)).length ? <FieldGrid style={{ marginBottom: 14 }} items={approverItems(request.approvals, (s) => stageTag(wf, "loan_release", s))} /> : null}
 
       <SectionTitle flush style={{ marginTop: 0 }}>
         {request.isPartial ? `Ornaments in this request · ${selectedOrnaments.length} of ${pledged.length || selectedIds.size}` : "Ornaments in this request"}
@@ -336,16 +339,6 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
       )}
 
       <TextField
-        label="Charges (₹)"
-        keyboardType="numeric"
-        value={charges}
-        onChangeText={setCharges}
-        onBlur={() => {
-          if ((+charges || 0) !== (request.charges || 0)) saveVerification.mutate({ charges: +charges || 0 });
-        }}
-        editable={canDecide && canVerifyChecklist && isPending && canRecordPayment && !request.locked}
-      />
-      <TextField
         label="Verification notes"
         maxLength={150}
         placeholder="Notes from physical verification"
@@ -354,7 +347,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
         onBlur={() => {
           if (notes !== (request.verificationNotes || "")) saveVerification.mutate({ verificationNotes: notes });
         }}
-        editable={canDecide && canVerifyChecklist && isPending && !request.locked}
+        // Fixed once the request is decided or has moved past the Manager stage — same lock as web's fieldsLocked.
+        editable={canDecide && canVerifyChecklist && isPending && canRecordPayment && !request.locked}
       />
 
       <View style={sawGoldDisabled ? { opacity: 0.6 } : null}>
@@ -419,40 +413,54 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
         <View style={{ marginBottom: 6 }}>
           <FieldRow>
             {canDiscount ? (
+              <Field label="Discount Type">
+                <ThemeDropdown value={discountKind} options={DISCOUNT_KINDS} labelOf={(k) => DISCOUNT_KIND_LABELS[k]} onChange={chooseDiscountKind} />
+              </Field>
+            ) : null}
+            {canDiscount ? (
               <Field label="Discount (₹)">
                 <Input
                   keyboardType="numeric"
-                  value={discount}
-                  onChangeText={(v) => {
-                    setDiscount(v);
-                    setAmountAndSplit(String(Math.max(0, +(required - (+v || 0)).toFixed(2))));
-                  }}
+                  placeholder={discountKind === "penal_interest" ? "Penal Interest" : discountKind === "interest" ? "Interest" : "Discount"}
+                  editable={!discountBlocked}
+                  value={discountBlocked ? "" : discount}
+                  onChangeText={setDiscount}
                 />
               </Field>
             ) : null}
+          </FieldRow>
+          <FieldRow>
             <Field label="Amount (₹)">
-              <Input keyboardType="numeric" value={amount} onChangeText={setAmountAndSplit} />
+              <Input
+                keyboardType="numeric"
+                value={amount}
+                onChangeText={(v) => { setAmountTyped(true); setAmountInput(v); }}
+                onBlur={() => {
+                  // Rupees only, like web: a typed amount with paise is rounded to the nearest rupee.
+                  const n = +amount;
+                  if (amount.trim() && Number.isFinite(n) && n > 0 && n !== roundRupee(n)) {
+                    setAmountTyped(true);
+                    setAmountInput(String(roundRupee(n)));
+                    toast.success(`Amount rounded off to ${inr(roundRupee(n))}`);
+                  }
+                }}
+              />
             </Field>
           </FieldRow>
-          {canDiscount && +discount > 0 ? (
-            <FieldRow>
-              <Field label="Discount reason *">
-                <Input value={discountReason} onChangeText={setDiscountReason} placeholder="e.g. loyal customer, hardship" maxLength={200} />
-              </Field>
-              <Field label="Discount mode">
-                <ThemeDropdown value={discountMode} options={["Cash", "UPI", "Bank Transfer", "Cheque"]} labelOf={(m) => m} onChange={setDiscountMode} />
-              </Field>
-            </FieldRow>
-          ) : null}
           <DateField label="Release / payment date" value={releaseDate} onChange={setReleaseDate} max={todayISO()} />
           {amt > 0 ? <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it was received in)" /> : null}
-          {split.cashAmount !== amt ? <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} /> : null}
-          {needsDueDate ? <DateField label="Due date for remaining balance" value={dueDate} onChange={setDueDate} min={todayISO()} /> : null}
           <AccBtn
             label={savePayment.isPending ? "Recording…" : request.paymentRecorded ? "Record Additional Payment" : "Record Payment"}
             primary
-            onPress={() => savePayment.mutate()}
-            disabled={savePayment.isPending || amt + (canDiscount ? +discount || 0 : 0) <= 0 || !splitOk || (needsDueDate && !dueDate) || (canDiscount && +discount > 0 && !discountReason.trim())}
+            onPress={() => {
+              // The same checks, in the same order and wording, as web's payment form.
+              if (!(amt > 0)) { onError("Please enter a valid payment amount."); return; }
+              if (amt + discountAmt < required - 0.005) { onError(`${inr(Math.max(0, required - discountAmt))} amount needed to release gold`); return; }
+              if (canDiscount && !discountBlocked && +discount < 0) { onError("Discount cannot be negative."); return; }
+              if (discountAmt > required + 0.005) { onError(`Discount cannot exceed ${inr(required)}, the amount needed to release the gold.`); return; }
+              savePayment.mutate();
+            }}
+            disabled={savePayment.isPending || !splitOk}
             style={{ marginBottom: 14 }}
           />
         </View>

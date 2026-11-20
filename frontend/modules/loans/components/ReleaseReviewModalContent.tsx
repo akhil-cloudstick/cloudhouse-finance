@@ -14,8 +14,9 @@ import { PaymentModalContent } from "@/common/components/modals/PaymentModalCont
 import { ReleasePledgeModalContent } from "@/modules/loans/components/ReleasePledgeModalContent";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
-import { canActAtStage, chainFor, flowOf, isFlowOff, stageByPending, trackerLabels } from "@/common/services/approvalWorkflowService";
+import { canActAtStage, chainFor, flowOf, isFlowOff, stageByPending, stageTag, trackerLabels } from "@/common/services/approvalWorkflowService";
 import { StageTracker } from "@/common/components/StageTracker";
+import { ApprovalActors } from "@/common/components/ui/ApprovalActors";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -75,6 +76,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   const [notes, setNotes] = useState(request.verificationNotes || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [sawErr, setSawErr] = useState("");
   const [notesErr, setNotesErr] = useState("");
   // Reveals the Top-Up Payment prompt only after ApproveReleaseRequest
   // actually refuses with the drift error — hidden otherwise, per the plan.
@@ -204,7 +206,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
   // The customer can only be shown gold that is out of the locker and out of the bank, so the box waits for
   // the Gold Release box beside it. A recorded payment locks the request (ErrRequestLocked), and the box with it.
-  const gaveGoldCheckboxDisabled = saving || releasingPacket || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || goldStillHeld;
+  const gaveGoldCheckboxDisabled = saving || releasingPacket || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || goldStillHeld || (!!req.approvalStage && req.approvalStage !== "PendingManager");
 
   // Live pre-check for the Top-Up Payment reveal — only meaningful for a
   // partial release (a full release keeps today's plain
@@ -232,12 +234,13 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
   async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
     setSaving(true);
-    setErr("");
+    setErr(""); setSawErr("");
     try {
       const updated = await verifyReleaseChecklist(req.id, { customerSawGold: value, ...(pendingDateChanged ? { requestedAt: releaseDate } : {}) });
       setReq(updated);
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Could not update the checklist — try again.");
+      // The error belongs under the checkbox that triggered it, not in the generic line at the bottom.
+      setSawErr(e instanceof ApiError ? e.message : "Could not update the checklist — try again.");
     } finally {
       setSaving(false);
     }
@@ -252,7 +255,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
   async function saveNotes() { return singleFlight("modal:releasereview:saveNotes", async () => {
     setSaving(true);
-    setErr(""); setNotesErr("");
+    setErr(""); setSawErr(""); setNotesErr("");
     try {
       const updated = await verifyReleaseChecklist(req.id, { verificationNotes: notes });
       setReq(updated);
@@ -267,7 +270,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
 
   async function decide(action: "Approved" | "Rejected") { return singleFlight("modal:releasereview:decide", async () => {
     setSaving(true);
-    setErr("");
+    setErr(""); setSawErr(""); setNotesErr("");
     try {
       // The acting employee is derived server-side from the logged-in
       // user's JWT — no employeeId sent from here.
@@ -391,6 +394,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
                 <span><b>Customer has seen the gold</b></span>
               </label>
             </div>
+            <FieldError msg={sawErr} />
           </div>
 
           <div>
@@ -489,6 +493,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         {req.status === "Pending" && !activeStage && (
           <p className="notice" style={{ marginTop: 12 }}><Icon name="clock" /> No release approval is configured — {flowOf(workflow, "loan_release")?.offBehavior}</p>
         )}
+        <ApprovalActors approvals={req.approvals} stageLabel={(s) => stageTag(workflow, "loan_release", s)} />
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
       {/* The × in the header closes the popup; the footer holds only the decision, on the same two columns as

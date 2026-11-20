@@ -195,6 +195,7 @@ export type ExpenseView = {
   branchId: number;
   status: "Pending" | "Approved" | "Rejected";
   approvalStage?: string;
+  approvedBy?: string;
   remarks?: string;
   img?: string;
   // A "Bank Pledge Release" entry: edited through its bank pledge (loan id + pledge id), not as a plain expense.

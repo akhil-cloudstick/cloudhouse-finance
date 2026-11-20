@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Buffering, C, FieldGrid, Sheet, Txt } from "@/common/components/ui";
 import { getInvestor } from "@/modules/investments/services/investorService";
 import { loadErrorText } from "@/common/services/apiErrors";
-import { dmy } from "@/common/utils/format";
 
 type InvestorProfileSheetProps = { customerId: number | null; visible: boolean; onClose: () => void };
 
@@ -22,13 +21,10 @@ export function InvestorProfileSheet({ customerId, visible, onClose }: InvestorP
             { k: "Name", v: v(i.name) },
             { k: "Customer code", v: v(i.code) },
             { k: "Phone", v: v(i.phone) },
-            { k: "Date of birth", v: i.dob ? dmy(i.dob) : "—" },
             { k: "Address", v: v(i.address) },
             { k: "Branch", v: v(i.branch?.name) },
             { k: "PAN", v: v(i.pan) },
             { k: "Aadhaar", v: i.aadhaarLast4 ? `XXXX XXXX ${i.aadhaarLast4}` : "—" },
-            { k: "Nominee", v: i.nomineeName ? `${i.nomineeName}${i.nomineeRelation ? ` (${i.nomineeRelation})` : ""}` : "—" },
-            { k: "Nominee phone", v: v(i.nomineePhone) },
             { k: "Bank account name", v: v(i.bankAccountName) },
             { k: "Bank account no.", v: v(i.bankAccountNumber) },
             { k: "IFSC", v: v(i.bankIfsc) },

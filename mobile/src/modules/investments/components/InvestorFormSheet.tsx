@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AsyncSelect, ConfirmSheet, Field, Input, PrimaryButton, Sheet, toast } from "@/common/components/ui";
 import { FieldErr } from "@/common/components/ErrorText";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
-import { createInvestor, getInvestorAadhaarFull, sameIdentityMatches, updateInvestor, type Investor, type SameIdentityMatch } from "@/modules/investments/services/investorService";
+import { checkInvestorIdentity, createInvestor, getInvestorAadhaarFull, sameIdentityMatches, updateInvestor, type Investor, type SameIdentityMatch } from "@/modules/investments/services/investorService";
+import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
 import { ApiError } from "@/common/services/httpClient";
 
 const digits = (t: string) => t.replace(/\D/g, "");
@@ -28,6 +29,9 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
   const [bankNo, setBankNo] = useState("");
   const [ifsc, setIfsc] = useState("");
   const [tried, setTried] = useState(false);
+  // Set once the user confirms the person is an existing borrower: the form is then filled from that borrower.
+  const [linkedCustomerId, setLinkedCustomerId] = useState<number | undefined>();
+  const askedRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!visible) return;
@@ -42,6 +46,8 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
     setIfsc(investor?.bankIfsc ?? "");
     setBranch(null);
     setTried(false);
+    setLinkedCustomerId(undefined);
+    askedRef.current.clear();
     if (investor) getInvestorAadhaarFull(investor.id).then((a) => { if (!cancelled) setAadhaar(a); }).catch(() => {});
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -49,6 +55,55 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
 
   // Matches of a "same person?" answer: the save is held until the user confirms or backs out.
   const [dup, setDup] = useState<SameIdentityMatch[] | null>(null);
+  // True when `dup` came back from a rejected Create (so "Yes" saves), false when it came from typing (so "Yes" only fills the form).
+  const dupFromSave = useRef(false);
+  // Fills the form with what the borrower already has on file; the rest is left for staff to complete.
+  async function prefillFromBorrower(id: number) {
+    try {
+      const c = (await getCustomer(id)) as Investor;
+      setLinkedCustomerId(id);
+      setName(c.name || "");
+      setPhone(c.phone || "");
+      if (c.address) setAddress(c.address);
+      if (c.pan) setPan(c.pan);
+      if (c.bankAccountName) setBankName(c.bankAccountName);
+      if (c.bankAccountNumber) setBankNo(c.bankAccountNumber);
+      if (c.bankIfsc) setIfsc(c.bankIfsc);
+      if (c.branchId && showBranch) setBranch({ id: c.branchId, name: c.branch?.name ?? `Branch ${c.branchId}` });
+      getCustomerAadhaarFull(id).then((r) => { if (r.aadhaar) setAadhaar(r.aadhaar); }).catch(() => {});
+      toast.success("Borrower details filled in", "Please complete the remaining fields.");
+    } catch {
+      toast.error("Could not load the borrower's details", "Try again.");
+    }
+  }
+
+  // As soon as a complete phone number, PAN or Aadhaar is typed, ask whether it already belongs to a borrower,
+  // so the "same person?" question comes up while filling the form and not only when Create is pressed.
+  useEffect(() => {
+    if (!visible || editing || linkedCustomerId) return;
+    const p = phone.trim();
+    const pn = pan.trim().toUpperCase();
+    const a = aadhaar.trim();
+    const phoneOk = /^\d{10}$/.test(p);
+    const panOk = /^[A-Z]{5}\d{4}[A-Z]$/.test(pn);
+    const aadhaarOk = /^\d{12}$/.test(a);
+    if (!phoneOk && !panOk && !aadhaarOk) return;
+    const key = `${phoneOk ? p : ""}|${panOk ? pn : ""}|${aadhaarOk ? a : ""}`;
+    if (askedRef.current.has(key)) return;
+    let live = true;
+    const t = setTimeout(() => {
+      checkInvestorIdentity({ phone: phoneOk ? p : "", pan: panOk ? pn : "", aadhaar: aadhaarOk ? a : "" })
+        .then((matches) => {
+          if (!live) return;
+          askedRef.current.add(key);
+          if (!matches.length) return;
+          dupFromSave.current = false;
+          setDup(matches);
+        })
+        .catch(() => { /* a convenience only — Create makes the same check on the server */ });
+    }, 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [visible, editing, linkedCustomerId, phone, pan, aadhaar]);
   const save = useMutation({
     mutationFn: (confirmSamePerson?: boolean) => {
       const body = {
@@ -62,7 +117,7 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
         bankAccountNumber: bankNo.trim(),
         bankIfsc: ifsc.trim().toUpperCase(),
       };
-      return investor ? updateInvestor(investor.id, body) : createInvestor(body, confirmSamePerson);
+      return investor ? updateInvestor(investor.id, body) : createInvestor(body, confirmSamePerson || !!linkedCustomerId, linkedCustomerId);
     },
     onSuccess: (i) => {
       qc.invalidateQueries({ queryKey: ["investors"] });
@@ -72,7 +127,7 @@ export function InvestorFormSheet({ visible, onClose, investor, onSaved }: Inves
     },
     onError: (e) => {
       const matches = investor ? null : sameIdentityMatches(e);
-      if (matches) return setDup(matches);
+      if (matches) { dupFromSave.current = true; return setDup(matches); }
       toast.error("Could not save investor", e instanceof ApiError ? e.message : "Try again.");
     },
   });
@@ -132,11 +187,15 @@ Is ${name.trim()} the same person?`
             : ""
         }
         confirmLabel="Yes"
-        cancelLabel="No"
+        hideCancel
         loading={save.isPending}
         onConfirm={() => {
+          const matches = dup;
           setDup(null);
-          save.mutate(true);
+          // An existing borrower: fill the form from them and let staff complete the rest before adding.
+          const borrower = matches?.find((m) => m.source === "customer");
+          if (borrower) void prefillFromBorrower(borrower.id);
+          else if (dupFromSave.current) save.mutate(true);
         }}
       />
     </Sheet>

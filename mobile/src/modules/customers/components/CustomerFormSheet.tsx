@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pressable, View } from "react-native";
-import { AsyncSelect, C, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt, toast } from "@/common/components/ui";
+import { AsyncSelect, C, ConfirmSheet, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt, toast } from "@/common/components/ui";
+import { checkBorrowerIdentity, getInvestor, getInvestorAadhaarFull, sameIdentityMatches, type SameIdentityMatch } from "@/modules/investments/services/investorService";
 import { FieldErr } from "@/common/components/ErrorText";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
 import { listBranchesPage } from "@/modules/branches/services/branchService";
@@ -111,6 +112,9 @@ export function CustomerFormSheet({
   const [pinCode, setPinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
+  // Set once the user confirms the person is also an existing investor: the form is then filled from that investor.
+  const [sameConfirmed, setSameConfirmed] = useState(false);
+  const askedRef = useRef(new Set<string>());
 
   // Seed (edit) or clear (register) every time the sheet opens.
   useEffect(() => {
@@ -141,6 +145,8 @@ export function CustomerFormSheet({
     setShowMore(!!(x.age || x.fatherName || x.district || x.taluk || x.village || x.place || x.pinCode));
     setError(null);
     setTried(false);
+    setSameConfirmed(false);
+    askedRef.current.clear();
     // Seed only when the sheet opens or the record changes — not on every new object identity (would wipe typing).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, customer?.id]);
@@ -158,6 +164,63 @@ export function CustomerFormSheet({
   // Server messages that are not about a field are raised as a toast.
   useEffect(() => { if (bottomError) toast.error(bottomError); }, [bottomError]);
   const canSave = nameOk && phoneOk && aadhaarOk && panOk && (!showBranch || !!branch);
+
+  // Matches of a "same person?" question; only an existing investor counts. "Yes" fills the form from that investor.
+  const [dup, setDup] = useState<SameIdentityMatch[] | null>(null);
+
+  // Fills the form with what the investor already has on file; the rest is left for staff to complete.
+  async function prefillFromInvestor(id: number) {
+    try {
+      const i = (await getInvestor(id)) as Customer & CustomerExtras;
+      setName(i.name || "");
+      setPhone(i.phone || "");
+      if (i.address) setAddress(i.address);
+      if (i.pan) setPan(i.pan);
+      if (isoDate(i.dob)) { setDob(isoDate(i.dob)); setAge(ageOf(isoDate(i.dob))); }
+      if (i.nomineeName) setNomineeName(i.nomineeName);
+      if (i.nomineeRelation) setNomineeRelation(i.nomineeRelation);
+      if (i.nomineePhone) setNomineePhone(i.nomineePhone);
+      if (i.fatherName) setFatherName(i.fatherName);
+      if (i.district) setDistrict(i.district);
+      if (i.taluk) setTaluk(i.taluk);
+      if (i.village) setVillage(i.village);
+      if (i.place) setPlace(i.place);
+      if (i.pinCode) setPinCode(i.pinCode);
+      if (i.branchId && showBranch) setBranch({ id: i.branchId, name: i.branch?.name ?? `Branch ${i.branchId}` });
+      getInvestorAadhaarFull(id).then((a) => { if (a) setAadhaar(a); }).catch(() => {});
+      setError(null);
+      setSameConfirmed(true);
+      toast.success("Investor details filled in", "Please complete the remaining fields.");
+    } catch {
+      toast.error("Could not load the investor's details", "Try again.");
+    }
+  }
+
+  // As soon as a complete phone number, PAN or Aadhaar is typed, ask whether it already belongs to an investor,
+  // so the "same person?" question comes up while filling the form and not only when Register is pressed.
+  useEffect(() => {
+    if (!visible || editing || sameConfirmed) return;
+    const p = phone.trim();
+    const pn = pan.trim().toUpperCase();
+    const a = aadhaar.trim();
+    const phoneFull = /^\d{10}$/.test(p);
+    const panFull = PAN_RE.test(pn);
+    const aadhaarFull = /^\d{12}$/.test(a);
+    if (!phoneFull && !panFull && !aadhaarFull) return;
+    const key = `${phoneFull ? p : ""}|${panFull ? pn : ""}|${aadhaarFull ? a : ""}`;
+    if (askedRef.current.has(key)) return;
+    let live = true;
+    const t = setTimeout(() => {
+      checkBorrowerIdentity({ phone: phoneFull ? p : "", pan: panFull ? pn : "", aadhaar: aadhaarFull ? a : "" })
+        .then((matches) => {
+          if (!live) return;
+          askedRef.current.add(key);
+          if (matches.some((m) => m.source === "investor")) setDup(matches);
+        })
+        .catch(() => { /* a convenience only — Register makes the same check on the server */ });
+    }, 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [visible, editing, sameConfirmed, phone, pan, aadhaar]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -194,7 +257,7 @@ export function CustomerFormSheet({
           bankIfsc: x.bankIfsc || undefined,
         });
       }
-      return createCustomer(body);
+      return createCustomer(body, sameConfirmed);
     },
     onSuccess: (c) => {
       qc.invalidateQueries({ queryKey: ["customers"] });
@@ -202,7 +265,12 @@ export function CustomerFormSheet({
       onSaved?.(c);
       onClose();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : editing ? "Could not update customer." : "Could not register customer."),
+    onError: (err) => {
+      // The phone, PAN or Aadhaar is already on an investor: nothing is added until the user confirms.
+      const matches = editing ? null : sameIdentityMatches(err);
+      if (matches?.some((m) => m.source === "investor")) return setDup(matches);
+      setError(err instanceof ApiError ? err.message : editing ? "Could not update customer." : "Could not register customer.");
+    },
   });
 
   return (
@@ -312,6 +380,25 @@ export function CustomerFormSheet({
       ) : null}
 
       <PrimaryButton label={editing ? "Save Changes" : "Register Customer"} onPress={() => (canSave ? save.mutate() : setTried(true))} loading={save.isPending} />
+      <ConfirmSheet
+        visible={!!dup}
+        onClose={() => setDup(null)}
+        title="Same person?"
+        message={
+          dup
+            ? `This ${[...new Set(dup.flatMap((m) => m.fields))].join(" / ").toLowerCase()} is already on file for the investor ${dup.filter((m) => m.source === "investor").map((m) => `${m.name} (${m.code})`).join(", ")}.
+
+Is ${name.trim() || "this person"} the same person?`
+            : ""
+        }
+        confirmLabel="Yes"
+        hideCancel
+        onConfirm={() => {
+          const investor = dup?.find((m) => m.source === "investor");
+          setDup(null);
+          if (investor) void prefillFromInvestor(investor.id);
+        }}
+      />
     </Sheet>
   );
 }

@@ -362,7 +362,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   }, [stages.length, loans]);
   const stageFilterCategories: FilterCategory[] = [{
     key: "stage", label: "Auction Status", kind: "static",
-    options: [{ value: "Defaulted", label: "Defaulted (not yet eligible)" }, ...(["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned", "Settled", "Withdrawn"] as const).map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] }))],
+    options: [{ value: "Defaulted", label: "Defaulted (not yet eligible)" }, ...(["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"] as const).map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] }))],
   }];
 
   /* The two History sub-tables ("Auctions Conducted" / "Closed Without

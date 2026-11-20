@@ -66,8 +66,9 @@ export function listCustomerAuctionHistoryPage(customerId: number, limit: number
   return customerSubTable<CustomerAuctionRow>("auction-history", customerId, limit, offset, q, range);
 }
 
-export function createCustomer(input: CustomerInput) {
-  return apiRequest<Customer>("/customers", { method: "POST", body: input });
+/** confirmSamePerson: the user confirmed this is also an existing investor sharing a phone / PAN / Aadhaar. */
+export function createCustomer(input: CustomerInput, confirmSamePerson?: boolean) {
+  return apiRequest<Customer>("/customers", { method: "POST", body: input, params: confirmSamePerson ? { confirm_same_person: "true" } : undefined });
 }
 
 // Same shape as createCustomer's body — backend/internal/customer/handler.go's

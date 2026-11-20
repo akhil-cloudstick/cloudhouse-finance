@@ -104,7 +104,11 @@ export function RequestReleaseModalContent({ loan: initialLoan, onSaved }: Reque
           r.ornamentIds.forEach((id) => ids.add(id));
         }
       }
-      setPendingOrnamentIds(ids);
+      // Only ornaments still with the loan can be locked: an earlier completed release names ornaments already
+      // handed back, which must not read as a release still pending.
+      const open = new Set<number>();
+      pledged.forEach((o) => { if (ids.has(o.id)) open.add(o.id); });
+      setPendingOrnamentIds(open);
     }).catch(() => setPendingOrnamentIds(new Set()));
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

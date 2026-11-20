@@ -5,6 +5,14 @@
 export const fmt = (n?: number | null) =>
   `₹${(n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Whole rupees, halves away from zero — same rule as web roundRupee / backend RoundMoney.
+export const roundRupee = (n?: number | null): number => {
+  const v = n ?? 0;
+  if (!Number.isFinite(v)) return 0;
+  const r = Math.round(Math.round(Math.abs(v) * 1e6) / 1e6);
+  return v < 0 ? -r : r;
+};
+
 // Date only ("24-09-2026", DD-MM-YYYY like dmy) from a
 // backend timestamp. Reads the YYYY-MM-DD prefix directly so a midnight-UTC
 // date never shifts a day with the device timezone. "—" when empty.
