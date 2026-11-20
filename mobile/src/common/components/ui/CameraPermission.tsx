@@ -84,6 +84,11 @@ const store = {
 export async function ensureCameraPermission(reason = "Allow camera access to take a photo of the document."): Promise<boolean> {
   const now = await ImagePicker.getCameraPermissionsAsync();
   if (now.granted) return true;
+  // Straight to the OS dialog — no app card first, or the user is asked twice.
+  if (now.canAskAgain) {
+    const p = await ImagePicker.requestCameraPermissionsAsync().catch(() => null);
+    return !!p?.granted;
+  }
   current?.resolve(false);
   return new Promise((resolve) => setAsk({ reason, blocked: !now.canAskAgain, resolve }));
 }

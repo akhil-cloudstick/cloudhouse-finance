@@ -224,7 +224,7 @@ export default function DashboardScreen() {
                 stats={[
                   { n: String(s?.today.loansIssued ?? 0), l: "Loans issued" },
                   { n: inrShort(s?.today.collections ?? 0), l: "Cash collected" },
-                  { n: String(s?.today.newCustomers ?? 0), l: "New customers" },
+                  { n: String(s?.today.newCustomers ?? 0), l: s?.today.newCustomers === 1 ? "New customer" : "New customers" },
                 ]}
               />
             )}

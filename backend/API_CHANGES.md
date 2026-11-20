@@ -894,6 +894,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `PUT /api/v1/lockers/:id` | `PATCH /api/v1/users/:user_id/lockers/:id/update` |
 | `GET /api/v1/ornament-types` | `GET /api/v1/users/:user_id/ornament-types` |
 | `POST /api/v1/ornament-types` | `POST /api/v1/users/:user_id/ornament-types` |
+| `DELETE /api/v1/ornament-types/:id` | `DELETE /api/v1/users/:user_id/ornament-types/:id` |
 | `GET /api/v1/packets` | `GET /api/v1/users/:user_id/packets` |
 | `GET /api/v1/packets/:id` | `GET /api/v1/users/:user_id/packets/:id` |
 | `GET /api/v1/packets/:id/movements` | `GET /api/v1/users/:user_id/packets/:id/movements` |

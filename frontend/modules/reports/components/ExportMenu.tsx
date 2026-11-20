@@ -18,7 +18,6 @@ export function ExportFormatModal({ onPick }: { onPick: (kind: ExportKind) => vo
         <p style={{ marginTop: 0 }}>Choose the format to export or print this report.</p>
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn" onClick={() => pick("xlsx")}><Icon name="download" /> Excel</button>
         <button className="btn" onClick={() => pick("pdf")}><Icon name="download" /> PDF</button>
       </div>

@@ -312,6 +312,12 @@ const ROUTES: [string, string, string, string][] = [
   "/customers/:customer_id/notifications/:id/read"
  ],
  [
+  "DELETE",
+  "/ornament-types/:id",
+  "DELETE",
+  "/users/:user_id/ornament-types/:id"
+ ],
+ [
   "POST",
   "/ornament-types",
   "POST",
