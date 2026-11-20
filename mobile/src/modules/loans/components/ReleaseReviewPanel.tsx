@@ -347,7 +347,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
         onBlur={() => {
           if (notes !== (request.verificationNotes || "")) saveVerification.mutate({ verificationNotes: notes });
         }}
-        editable={canDecide && canVerifyChecklist && isPending && !request.locked}
+        // Fixed once the request is decided or has moved past the Manager stage — same lock as web's fieldsLocked.
+        editable={canDecide && canVerifyChecklist && isPending && canRecordPayment && !request.locked}
       />
 
       <View style={sawGoldDisabled ? { opacity: 0.6 } : null}>

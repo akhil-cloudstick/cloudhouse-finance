@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { View } from "react-native";
 import { useRouter } from "expo-router";
-import { AccRow, FabMenu, FlatHeader, Screen, SearchInput, ServerFlatList } from "@/common/components/ui";
+import { AccRow, FabCorner, FlatHeader, Screen, SearchInput, ServerFlatList } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { InvestorFormSheet } from "@/modules/investments/components/InvestorFormSheet";
@@ -18,7 +18,7 @@ export default function InvestorsScreen() {
   return (
     <Screen
       header={<FlatHeader back title="Investors" subtitle="People who invest with you" />}
-      floating={canCreate ? <FabMenu label="Investor actions" actions={[{ label: "New Investor", icon: "plus", onPress: () => setCreateOpen(true) }]} /> : null}
+      floating={canCreate ? <FabCorner onPress={() => setCreateOpen(true)} label="New Investor" /> : null}
     >
       <ServerFlatList
         list={list}
