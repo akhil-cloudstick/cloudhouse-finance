@@ -31,7 +31,7 @@ export function LoanLedgerInfoModalContent({ title, kind, rows, description, act
         <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--brand-deep, #423591)", margin: "0 0 12px" }}>{kind.toUpperCase()}</p>
         <div className="kv">
           {rows.map(([k, v]) => (
-            <div className="i" key={k} style={{ minWidth: 0 }}><div className="k">{k}</div><div className="v" style={{ minWidth: 0, overflow: "hidden" }}>{v}</div></div>
+            <div className="i" key={k} style={{ minWidth: 0 }}><div className="k">{k}</div><div className="v" title={typeof v === "string" ? v : undefined} style={{ minWidth: 0, overflow: "hidden", whiteSpace: "normal", overflowWrap: "anywhere", wordBreak: "break-word" }}>{v}</div></div>
           ))}
         </div>
         <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Description</h4>

@@ -1,22 +1,23 @@
 import { useContext, useRef } from "react";
-import { Pressable } from "react-native";
+import { Pressable, View } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { s } from "./formHelpers";
 import { ListDragContext } from "./Popover";
 
-type MenuItemProps = { title: string; sub?: string; selected?: boolean; accent?: boolean; onPress: () => void };
+type MenuItemProps = { title: string; sub?: string; selected?: boolean; accent?: boolean; onPress: () => void; onDelete?: () => void };
 
 // How far the finger may move between touch-down and lift-off and still count as a tap.
 const TAP_SLOP = 10;
 
-/** One row inside a dropdown list. */
-export function MenuItem({ title, sub, selected, accent, onPress }: MenuItemProps) {
+/** One row inside a dropdown list. With `onDelete` it shows an × beside the row — a sibling of the
+ *  row's own Pressable, not nested in it, so tapping × never also picks the row. */
+export function MenuItem({ title, sub, selected, accent, onPress, onDelete }: MenuItemProps) {
   const list = useContext(ListDragContext);
   const down = useRef({ at: 0, x: 0, y: 0 });
-  return (
+  const row = (
     <Pressable
-      style={({ pressed }) => [s.ddItem, selected && s.ddItemSel, pressed && !selected && { backgroundColor: C.brandFaint }]}
+      style={({ pressed }) => [s.ddItem, onDelete ? { flex: 1, minWidth: 0 } : null, selected && s.ddItemSel, pressed && !selected && { backgroundColor: C.brandFaint }]}
       onPressIn={(e) => {
         down.current = { at: Date.now(), x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
       }}
@@ -39,5 +40,18 @@ export function MenuItem({ title, sub, selected, accent, onPress }: MenuItemProp
         </Txt>
       ) : null}
     </Pressable>
+  );
+  if (!onDelete) return row;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "stretch" }}>
+      {row}
+      <Pressable
+        onPress={onDelete}
+        accessibilityLabel={`Delete ${title}`}
+        style={({ pressed }) => [{ paddingHorizontal: 12, justifyContent: "center", borderRadius: 8 }, pressed && { backgroundColor: C.brandFaint }]}
+      >
+        <Txt style={{ fontSize: 18, fontWeight: "700", color: C.muted }}>×</Txt>
+      </Pressable>
+    </View>
   );
 }

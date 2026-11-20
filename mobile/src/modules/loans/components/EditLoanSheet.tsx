@@ -15,7 +15,7 @@ import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { FieldErr } from "@/common/components/ErrorText";
 import { UploadField } from "@/common/components/UploadField";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { listBranchesPage } from "@/modules/branches/services/branchService";
+import { getBranch, listBranchesPage } from "@/modules/branches/services/branchService";
 import { listLockersPage } from "@/modules/lockers/services/lockerService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import type { Locker } from "@/modules/lockers/types/locker-types";
@@ -62,6 +62,9 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
   const canMove = can("Branch_Management", "can_view_all_branches");
   const [branch, setBranch] = useState<{ id: number; name: string } | null>(null);
   const [locker, setLocker] = useState<Locker | null>(null);
+  // The loan's current branch name: from the loan if it carries it, else looked up by id.
+  const currentBranch = useQuery({ queryKey: ["branches", "one", l.branchId], queryFn: () => getBranch(l.branchId), enabled: visible && canMove && !l.branch?.name });
+  const currentBranchName = l.branch?.name ?? currentBranch.data?.name;
   const packets = useQuery({ queryKey: ["packets", "loan", l.id], queryFn: () => listPackets({ loanId: l.id }), enabled: visible && canMove });
   const packetLockerId = packets.data?.[0]?.currentLockerId ?? null;
   const hasPacket = (packets.data?.length ?? 0) > 0;
@@ -271,7 +274,7 @@ export function EditLoanSheet({ loan: l, visible, onClose }: EditLoanSheetProps)
             placeholder="Search branch"
             queryKey={["branches", "edit-loan"]}
             fetcher={async (q) => (await listBranchesPage({ q: q || undefined, active: true, limit: 20, offset: 0 })).items ?? []}
-            selectedLabel={branch?.name ?? `Branch #${l.branchId}`}
+            selectedLabel={branch?.name ?? currentBranchName ?? ""}
             onSelect={(b) => {
               setBranch({ id: b.id, name: b.name });
               setLocker(null);

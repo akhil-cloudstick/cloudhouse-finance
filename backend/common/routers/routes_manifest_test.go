@@ -266,6 +266,7 @@ var routeManifest = map[string]routeSpec{
 	"GET /uploads/:key":                                                                   probe("key=uploaded_files:storage_key"),
 	"GET /api/v1/users/:user_id/ornament-types":                                           list(),
 	"POST /api/v1/users/:user_id/ornament-types":                                          list(),
+	"DELETE /api/v1/users/:user_id/ornament-types/:id":                                    probe("id=ornament_types"),
 	"GET /api/v1/users/:user_id/banks":                                                    list(),
 	"POST /api/v1/users/:user_id/banks":                                                   list(),
 	"GET /api/v1/users/:user_id/lockers":                                                  list(),

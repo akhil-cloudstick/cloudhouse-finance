@@ -484,8 +484,11 @@ export default function ReportsScreen() {
 
   return (
     <Screen header={<FlatHeader title="Reports" subtitle="Branch reports & summaries" />}>
+      {/* Outside the scroll view so it stays pinned while the report list scrolls. */}
+      <View style={{ backgroundColor: C.bg }}>
+        <SearchInput value={search} onChangeText={setSearch} placeholder="Search reports" style={{ paddingTop: 12, paddingBottom: 8 }} />
+      </View>
       <PScroll>
-        <SearchInput value={search} onChangeText={setSearch} placeholder="Search reports" style={{ paddingTop: 12, paddingBottom: 0 }} />
         {GROUPS.map((g) => {
           const rows = shown.filter((r) => r.group === g);
           if (!rows.length) return null;
