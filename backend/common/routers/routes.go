@@ -1,6 +1,12 @@
 package routers
 
 import (
+	"log"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+
 	"cloudhouse/backend/auth"
 	common "cloudhouse/backend/common/controllers"
 	"cloudhouse/backend/config"
@@ -19,11 +25,6 @@ import (
 	superAdminRouters "cloudhouse/backend/modules/SuperAdmin/routers"
 	webApp "cloudhouse/backend/modules/WebApp/controllers"
 	whatsappRouters "cloudhouse/backend/modules/WhatsApp/routers"
-	"log"
-	"time"
-
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 )
 
 func InitRoutes(e *echo.Echo) *echo.Echo {

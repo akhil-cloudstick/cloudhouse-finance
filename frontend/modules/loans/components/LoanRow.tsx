@@ -27,18 +27,18 @@ const displayStatus = loanDisplayStatus;
 type LoanRowProps = { loan: LoanView };
 
 export function LoanRow({ loan: l }: LoanRowProps) {
-  // Not clickable for a role that can't open the loan (Customer Detail
-  // shows these rows without needing loan view).
-  const canOpen = useCanOpenRoute()("loan");
-  return (
-    <tr className={canOpen ? "click" : undefined} onClick={canOpen ? () => navigate("loan/" + l.id) : undefined}>
-      <td data-label="Loan / Customer"><span className="id">{l.id}</span><span className="sub">{l.customerName}</span></td>
-      <td data-label="Scheme">{l.schemeName}</td>
-      <td className="td-date" data-label="Opened / Due">{fmtDate(l.opened)}<span className="sub">due {fmtDate(l.due)}</span></td>
-      <td className="num" data-label="Principal">{fmt(l.principal)}</td>
-      <td className="num" data-label="Outstanding">{fmt(l.outstanding)}</td>
-      <td data-label="Pledge"><StatusChip status={l.bankPledgeStatus} /></td>
-      <td data-label="Status"><StatusChip status={displayStatus(l)} /></td>
-    </tr>
-  );
+	// Not clickable for a role that can't open the loan (Customer Detail
+	// shows these rows without needing loan view).
+	const canOpen = useCanOpenRoute()("loan");
+	return (
+		<tr className={canOpen ? "click" : undefined} onClick={canOpen ? () => navigate("loan/" + l.id) : undefined}>
+			<td data-label="Loan / Customer"><span className="id">{l.loanNumber || "Pending"}</span><span className="sub">{l.customerName}</span></td>
+			<td data-label="Scheme">{l.schemeName}</td>
+			<td className="td-date" data-label="Opened / Due">{fmtDate(l.opened)}<span className="sub">due {fmtDate(l.due)}</span></td>
+			<td className="num" data-label="Principal">{fmt(l.principal)}</td>
+			<td className="num" data-label="Outstanding">{fmt(l.outstanding)}</td>
+			<td data-label="Pledge"><StatusChip status={l.bankPledgeStatus} /></td>
+			<td data-label="Status"><StatusChip status={displayStatus(l)} /></td>
+		</tr>
+	);
 }

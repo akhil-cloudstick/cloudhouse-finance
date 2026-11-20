@@ -185,7 +185,8 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
         bankAccountNumber: bankAccountNumber.trim(),
         bankIfsc: bankIfsc.trim().toUpperCase(),
       };
-      const c = edit ? await updateInvestor(edit.id, input) : await createInvestor(input, linkedCustomerId, confirmSamePerson || !!linkedCustomerId);
+      const hint = { branchName: branches.find((b) => b.id === Number(branchId))?.name };
+      const c = edit ? await updateInvestor(edit.id, input, hint) : await createInvestor(input, linkedCustomerId, confirmSamePerson || !!linkedCustomerId, hint);
       onCreated(c);
     } catch (e) {
       // The phone number, PAN or Aadhaar is on another investor under a different name: nothing is added until

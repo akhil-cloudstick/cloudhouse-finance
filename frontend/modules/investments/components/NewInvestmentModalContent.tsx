@@ -19,7 +19,7 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = {
-  split: /payment|breakdown|bank|cheque|upi/i, investor: /investor|customer/i, plan: /plan/i, principal: /principal|amount/i,
+	split: /payment|breakdown|bank|cheque|upi/i, investor: /investor|customer/i, plan: /plan/i, principal: /principal|amount/i,
 };
 
 type NewInvestmentModalContentProps = {
@@ -38,146 +38,154 @@ type NewInvestmentModalContentProps = {
  * schedule in one step (see backend/internal/investment/service.go's
  * CreateInvestment). */
 export function NewInvestmentModalContent({ onSaved, investment, presetInvestor }: NewInvestmentModalContentProps) {
-  const editing = !!investment;
+	const editing = !!investment;
   const locked = editing || !!presetInvestor;
   const canCreateCustomer = useAuth().can("Investment_Management", "can_create_investment");
-  const { closeModal } = useModal();
-  const toast = useToast();
+	const { closeModal } = useModal();
+	const toast = useToast();
 
-  const [customerId, setCustomerId] = useState<number | undefined>(investment?.customerId ?? (presetInvestor ? +presetInvestor.id : undefined));
-  const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(investment?.branchId ?? presetInvestor?.branchId);
-  const [customerLabel, setCustomerLabel] = useState(investment ? `${investment.customer.name} (${investment.customer.code})` : presetInvestor ? `${presetInvestor.name} (${presetInvestor.code})` : "");
-  const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
-  const [planId, setPlanId] = useState<number | "">(investment?.planId ?? "");
-  const [principal, setPrincipal] = useState(investment ? String(investment.principalAmount) : "");
-  const [startDate, setStartDate] = useState(investment ? investment.startDate.slice(0, 10) : "");
-  // How the investor pays the opening deposit (Cash / UPI / Bank Transfer /
-  // Cheque), and the branch bank account a non-cash share lands in.
-  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
-  const [remaining, setRemaining] = useState(0);
-  const [bankId, setBankId] = useState<number | undefined>(undefined);
-  const [err, setErr] = useState("");
-  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
-  const [fe, setFe] = useState<Record<string, string>>({});
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
-  const [saving, setSaving] = useState(false);
-  // Same "swap this same mounted component to an inline create form instead
-  // of stacking a new modal" trick as NewPersonalLoanModal.tsx's
-  // creatingCustomer, so the customer/plan/principal fields already typed
-  // aren't lost.
-  const [creatingInvestor, setCreatingInvestor] = useState(false);
+	// The picker's own id: a number, or "uuid:..." for an investor this PC registered that the server has not numbered yet
+	// (the investment points at them by that, and the server resolves it when the investment is sent, after the investor).
+	const [customerRef, setCustomerRef] = useState<number | string | undefined>(investment?.customerId ?? (presetInvestor ? (/^\d+$/.test(presetInvestor.id) ? Number(presetInvestor.id) : presetInvestor.id) : undefined));
+	const [customerBranchId, setCustomerBranchId] = useState<number | undefined>(investment?.branchId ?? presetInvestor?.branchId);
+	const [customerLabel, setCustomerLabel] = useState(investment ? `${investment.customer.name} (${investment.customer.code})` : presetInvestor ? `${presetInvestor.name} (${presetInvestor.code})` : "");
+	const pickInvestor = (id: string | number, branchId: number | undefined, label: string) => {
+		const s = String(id);
+		setCustomerRef(/^\d+$/.test(s) ? Number(s) : s.startsWith("uuid:") ? s : undefined);
+		setCustomerBranchId(branchId);
+		setCustomerLabel(label);
+	};
+	const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
+	const [planId, setPlanId] = useState<number | "">(investment?.planId ?? "");
+	const [principal, setPrincipal] = useState(investment ? String(investment.principalAmount) : "");
+	const [startDate, setStartDate] = useState(investment ? investment.startDate.slice(0, 10) : "");
+	// How the investor pays the opening deposit (Cash / UPI / Bank Transfer /
+	// Cheque), and the branch bank account a non-cash share lands in.
+	const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+	const [remaining, setRemaining] = useState(0);
+	const [bankId, setBankId] = useState<number | undefined>(undefined);
+	const [err, setErr] = useState("");
+	// Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+	const [fe, setFe] = useState<Record<string, string>>({});
+	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+	const [saving, setSaving] = useState(false);
+	// Same "swap this same mounted component to an inline create form instead
+	// of stacking a new modal" trick as NewPersonalLoanModal.tsx's
+	// creatingCustomer, so the customer/plan/principal fields already typed
+	// aren't lost.
+	const [creatingInvestor, setCreatingInvestor] = useState(false);
 
-  useEffect(() => {
-    listInvestmentPlans(true)
-      .then((list) => {
-        // The investment's own plan stays choosable even if it has since been switched off.
-        const all = investment && !list.some((p) => p.id === investment.planId) ? [investment.plan, ...list] : list;
-        setPlans(all);
-        if (all.length) setPlanId((cur) => cur || all[0].id);
-      })
-      .catch(() => setErr("Could not load investment plans — try again later."));
-  }, []);
+	useEffect(() => {
+		listInvestmentPlans(true)
+			.then((list) => {
+				// The investment's own plan stays choosable even if it has since been switched off.
+				const all = investment && !list.some((p) => p.id === investment.planId) ? [investment.plan, ...list] : list;
+				setPlans(all);
+				if (all.length) setPlanId((cur) => cur || all[0].id);
+			})
+			.catch(() => setErr("Could not load investment plans — try again later."));
+	}, []);
 
-  const plan = plans.find((p) => p.id === planId);
-  const principalNum = +principal || 0;
-  // Editing keeps how the deposit was paid unless the amount changes (then a new breakdown is needed).
-  const amountChanged = !!investment && Math.abs(principalNum - investment.principalAmount) >= 0.005;
+	const plan = plans.find((p) => p.id === planId);
+	const principalNum = +principal || 0;
+	// Editing keeps how the deposit was paid unless the amount changes (then a new breakdown is needed).
+	const amountChanged = !!investment && Math.abs(principalNum - investment.principalAmount) >= 0.005;
 
-  async function save() {
-    // Every problem is shown at once, each beside its own field.
-    const errors: Record<string, string> = {};
-    if (!customerId || !customerBranchId) errors["investor"] ??= "Please select an investor.";
-    if (!planId) errors["plan"] ??= "Please select an investment plan.";
-    if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the principal amount.";
-    if (plan && principalNum < plan.minPrincipal) errors["principal"] ??= `Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`;
-    if ((!editing || amountChanged) && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the principal amount.";
-    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
-    if (!customerId || !customerBranchId) return; // narrows both; the check above already reported it
+	async function save() {
+		// Every problem is shown at once, each beside its own field.
+		const errors: Record<string, string> = {};
+		if (!customerRef || !customerBranchId) errors["investor"] ??= "Please select an investor.";
+		if (!planId) errors["plan"] ??= "Please select an investment plan.";
+		if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the principal amount.";
+		if (plan && principalNum < plan.minPrincipal) errors["principal"] ??= `Principal amount is below this plan's minimum of ${fmt(plan.minPrincipal)}.`;
+		if ((!editing || amountChanged) && Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the principal amount.";
+		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+		if (!customerRef || !customerBranchId) return; // narrows both; the check above already reported it
 
-    setSaving(true);
-    setErr("");
-    setFe({});
-    try {
-      if (investment) {
-        await editInvestment(investment.id, {
-          planId: Number(planId),
-          principalAmount: principalNum,
-          startDate: startDate || undefined,
-          ...(amountChanged ? { ...split, bankId } : {}),
-        });
-        toast(`${investment.investmentNumber} updated`);
-        onSaved();
-        return;
-      }
-      await createInvestment({
-        branchId: customerBranchId,
-        customerId,
-        planId: Number(planId),
-        principalAmount: principalNum,
-        ...split,
-        bankId,
-      });
-      toast(`Investment created — ${fmt(principalNum)} deposited`);
-      onSaved();
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not create the investment — try again.";
-      const field = fieldForMessage(msg, SERVER_FIELDS);
-      if (field) fail(field, msg); else setErr(msg);
-    } finally {
-      setSaving(false);
-    }
-  }
+		setSaving(true);
+		setErr("");
+		setFe({});
+		try {
+			if (investment) {
+				await editInvestment(investment.id, {
+					planId: Number(planId),
+					principalAmount: principalNum,
+					startDate: startDate || undefined,
+					...(amountChanged ? { ...split, bankId } : {}),
+				});
+				toast(`${investment.investmentNumber} updated`);
+				onSaved();
+				return;
+			}
+			const created = await createInvestment({
+				branchId: customerBranchId,
+				customerId: customerRef,
+				planId: Number(planId),
+				principalAmount: principalNum,
+				...split,
+				bankId,
+			}, plan ? { customerName: customerLabel.replace(/\s*\([^)]*\)\s*$/, ""), customerCode: /\(([^)]*)\)\s*$/.exec(customerLabel)?.[1] ?? "", plan } : undefined);
+			toast(created.investmentNumber === "Pending"
+				? `Investment saved on this PC — ${fmt(principalNum)} deposit; it is sent once the connection is back`
+				: `Investment created — ${fmt(principalNum)} deposited`);
+			onSaved();
+		} catch (e) {
+			const msg = e instanceof ApiError ? e.message : "Could not create the investment — try again.";
+			const field = fieldForMessage(msg, SERVER_FIELDS);
+			if (field) fail(field, msg); else setErr(msg);
+		} finally {
+			setSaving(false);
+		}
+	}
 
-  if (creatingInvestor && !editing) {
-    return (
-      <CreateInvestorModalContent
-        onCreated={(c) => {
-          setCustomerId(+c.id);
-          setCustomerBranchId(c.branchId);
-          setCustomerLabel(`${c.name} (${c.code})`);
-          setCreatingInvestor(false);
-        }}
-      />
-    );
-  }
+	if (creatingInvestor && !editing) {
+		return (
+			<CreateInvestorModalContent
+				onCreated={(c) => {
+					pickInvestor(c.id, c.branchId, `${c.name} (${c.code})`);
+					setCreatingInvestor(false);
+				}}
+			/>
+		);
+	}
 
-  return (
-    <>
-      <div className="hd"><h3>{investment ? `Edit ${investment.investmentNumber}` : "New Investment"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
-        <div className="frow"><div className={fe.investor ? "has-err" : undefined}><label className="f">Investor *</label>
+	return (
+		<>
+			<div className="hd"><h3>{investment ? `Edit ${investment.investmentNumber}` : "New Investment"}</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll">
+				<div className="frow"><div className={fe.investor ? "has-err" : undefined}><label className="f">Investor *</label>
           {locked ? <input className="inp" value={customerLabel} disabled readOnly /> : <SearchableSelect<CustomerView>
-            value={customerLabel}
-            onChange={(id, item) => { setCustomerId(+id); setCustomerBranchId(item.branchId); setCustomerLabel(`${item.name} (${item.code})`); }}
-            fetchFn={searchInvestorsPage}
-            searchHint="Searches: investor name, investor code, phone"
-            getLabel={(c) => `${c.name} (${c.code})`}
-            getId={(c) => c.id}
-            placeholder="Search for an investor…"
-            onCreateNew={canCreateCustomer ? () => setCreatingInvestor(true) : undefined}
-            createNewLabel="+ Add new investor"
-          />}<FieldError msg={fe.investor} /></div></div>
-        <div className="frow c2">
-          <div className={fe.plan ? "has-err" : undefined}><label className="f">Investment Plan *</label>
-            <Select
-              value={planId === "" ? "" : String(planId)}
-              onChange={(v) => setPlanId(v ? Number(v) : "")}
-              options={plans.map((p) => ({ value: String(p.id), label: `${p.name} — ${p.interestRatePercent}% ${p.payoutFrequency}, ${p.tenureMonths}mo` }))}
-              placeholder={plans.length ? "Select plan…" : "No active plans"}
-            /><FieldError msg={fe.plan} />
-          </div>
-          <div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 100000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /><FieldError msg={fe.principal} /></div>
-        </div>
+						value={customerLabel}
+						onChange={(id, item) => pickInvestor(id, item.branchId, `${item.name} (${item.code})`)}
+						fetchFn={searchInvestorsPage}
+						searchHint="Searches: investor name, investor code, phone"
+						getLabel={(c) => `${c.name} (${c.code})`}
+						getId={(c) => c.id}
+						placeholder="Search for an investor…"
+						onCreateNew={canCreateCustomer ? () => setCreatingInvestor(true) : undefined}
+						createNewLabel="+ Add new investor"
+					/>}<FieldError msg={fe.investor} /></div></div>
+				<div className="frow c2">
+					<div className={fe.plan ? "has-err" : undefined}><label className="f">Investment Plan *</label>
+						<Select
+							value={planId === "" ? "" : String(planId)}
+							onChange={(v) => setPlanId(v ? Number(v) : "")}
+							options={plans.map((p) => ({ value: String(p.id), label: `${p.name} — ${p.interestRatePercent}% ${p.payoutFrequency}, ${p.tenureMonths}mo` }))}
+							placeholder={plans.length ? "Select plan…" : "No active plans"}
+						/><FieldError msg={fe.plan} />
+					</div>
+					<div className={fe.principal ? "has-err" : undefined}><label className="f">Principal Amount (₹) *</label><input className="inp" type="number" min={1} placeholder="e.g. 100000" value={principal} onChange={(e) => setPrincipal(e.target.value)} /><FieldError msg={fe.principal} /></div>
+				</div>
 
-        {editing && <div className="frow"><div><label className="f">Start Date</label><DatePicker value={startDate} max={new Date().toISOString().slice(0, 10)} onChange={setStartDate} /></div></div>}
-        {(!editing || amountChanged) && <div className="frow">
-          <div className={fe.split ? "has-err" : undefined}>
-            <SplitPaymentInput totalAmount={principalNum} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
-            <FieldError msg={fe.split} />
-          </div>
-        </div>}
+				{editing && <div className="frow"><div><label className="f">Start Date</label><DatePicker value={startDate} max={new Date().toISOString().slice(0, 10)} onChange={setStartDate} /></div></div>}
+				{(!editing || amountChanged) && <div className="frow">
+					<div className={fe.split ? "has-err" : undefined}>
+						<SplitPaymentInput totalAmount={principalNum} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
+						<FieldError msg={fe.split} />
+					</div>
+				</div>}
 
-        {plan && principalNum > 0 && (
+				{plan && principalNum > 0 && (
           <div style={{ marginTop: 6, border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "12px 16px" }}>
             {[
               { k: "Interest", v: `${plan.interestRatePercent}% p.a. · ${plan.interestRateType}` },
@@ -190,14 +198,14 @@ export function NewInvestmentModalContent({ onSaved, investment, presetInvestor 
                 <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2, color: x.strong ? "var(--brand-deep)" : "var(--ink)" }}>{x.v}</div>
               </div>
             ))}
-          </div>
-        )}
+					</div>
+				)}
 
-        {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
-      </div>
-      <div className="ft">
-        <button className="btn" disabled={saving} onClick={save}>{editing ? (saving ? "Saving…" : "Save Changes") : saving ? "Creating…" : "Create Investment"}</button>
-      </div>
-    </>
-  );
+				{err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
+			</div>
+			<div className="ft">
+				<button className="btn" disabled={saving} onClick={save}>{editing ? (saving ? "Saving…" : "Save Changes") : saving ? "Creating…" : "Create Investment"}</button>
+			</div>
+		</>
+	);
 }

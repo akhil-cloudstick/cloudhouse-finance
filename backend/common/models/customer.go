@@ -10,6 +10,7 @@ import (
 type Customer struct {
 	config.TenantScoped
 	ID                  uint           `json:"id" gorm:"primaryKey"`
+	UUID                string         `json:"uuid" gorm:"type:uuid;default:gen_random_uuid()"`
 	Code                string         `json:"code" gorm:"index;size:20"`
 	Name                string         `json:"name" gorm:"not null;size:120"`
 	Phone               string         `json:"phone" gorm:"size:20"`

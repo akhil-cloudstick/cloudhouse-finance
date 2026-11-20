@@ -22,14 +22,14 @@ const FREQS: ("All" | Frequency)[] = ["All", "Daily", "Weekly", "Monthly"];
 // Status filter — "Pending Approval"/"Rejected" only occur while the
 // business has the personal_loan approval flow switched on.
 const STATUS_OPTIONS = [
-  { value: "Active", label: "Active" },
-  { value: "Closed", label: "Closed" },
-  { value: "Renewed", label: "Renewed" },
-  { value: "Defaulted", label: "Defaulted" },
+	{ value: "Active", label: "Active" },
+	{ value: "Closed", label: "Closed" },
+	{ value: "Renewed", label: "Renewed" },
+	{ value: "Defaulted", label: "Defaulted" },
 ];
 const APPROVAL_STATUS_OPTIONS = [
-  { value: "Pending Approval", label: "Pending Approval" },
-  { value: "Rejected", label: "Rejected" },
+	{ value: "Pending Approval", label: "Pending Approval" },
+	{ value: "Rejected", label: "Rejected" },
 ];
 
 /* Personal Loans list — an unsecured, no-KYC loan product separate from the
@@ -41,123 +41,123 @@ const APPROVAL_STATUS_OPTIONS = [
  * real `total` row count for "Page N of M" rather than only ever knowing
  * whether one more page exists. */
 export function PersonalLoansPage() {
-  const { can } = useAuth();
-  const { openModal, closeModal } = useModal();
-  // Loans are disbursed directly unless the business turned the personal_loan approval chain on.
-  const { config: workflow } = useApprovalWorkflow();
-  const approvalOn = chainFor(workflow, "personal_loan").length > 0;
-  const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
-  const smallScreen = useIsSmallScreen();
-  const basePageSize = useResponsivePageSize(15, 15);
-  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
+	const { can } = useAuth();
+	const { openModal, closeModal } = useModal();
+	// Loans are disbursed directly unless the business turned the personal_loan approval chain on.
+	const { config: workflow } = useApprovalWorkflow();
+	const approvalOn = chainFor(workflow, "personal_loan").length > 0;
+	const canCreate = can("Personal_Loan_Management", "can_create_personal_loan");
+	const smallScreen = useIsSmallScreen();
+	const basePageSize = useResponsivePageSize(15, 15);
+	const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
 
-  // Both filters are multi-select, stored (and sent to the API) as
-  // comma-separated lists; "" means no filter.
-  const [freq, setFreq] = usePersistedState<string>("personalloans:freq:multi", "");
-  const [q, setQ] = usePersistedState("personalloans:q", "");
-  const [status, setStatus] = usePersistedState("personalloans:status", "");
-  const [fromDate, setFromDate] = usePersistedState("personalloans:from", "");
-  const [toDate, setToDate] = usePersistedState("personalloans:to", "");
-  const [page, setPage] = usePersistedPage("personalloans");
-  // One grouped filter: Frequency and Status. Selections show as a count in
-  // the panel, not as chips.
-  const filterCategories: FilterCategory[] = [
-    { key: "freq", label: "Frequency", kind: "static", options: FREQS.filter((f) => f !== "All").map((f) => ({ value: f, label: f })) },
-    { key: "status", label: "Status", kind: "static", options: approvalOn ? [STATUS_OPTIONS[0], ...APPROVAL_STATUS_OPTIONS, ...STATUS_OPTIONS.slice(1)] : STATUS_OPTIONS },
-    { key: "__date", label: "Date", kind: "date" as const },
-  ];
-  const filterValue: FilterValue = { freq: freq ? freq.split(",") : [], status: status ? status.split(",") : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
-  const [loans, setLoans] = useState<BackendPersonalLoan[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+	// Both filters are multi-select, stored (and sent to the API) as
+	// comma-separated lists; "" means no filter.
+	const [freq, setFreq] = usePersistedState<string>("personalloans:freq:multi", "");
+	const [q, setQ] = usePersistedState("personalloans:q", "");
+	const [status, setStatus] = usePersistedState("personalloans:status", "");
+	const [fromDate, setFromDate] = usePersistedState("personalloans:from", "");
+	const [toDate, setToDate] = usePersistedState("personalloans:to", "");
+	const [page, setPage] = usePersistedPage("personalloans");
+	// One grouped filter: Frequency and Status. Selections show as a count in
+	// the panel, not as chips.
+	const filterCategories: FilterCategory[] = [
+		{ key: "freq", label: "Frequency", kind: "static", options: FREQS.filter((f) => f !== "All").map((f) => ({ value: f, label: f })) },
+		{ key: "status", label: "Status", kind: "static", options: approvalOn ? [STATUS_OPTIONS[0], ...APPROVAL_STATUS_OPTIONS, ...STATUS_OPTIONS.slice(1)] : STATUS_OPTIONS },
+		{ key: "__date", label: "Date", kind: "date" as const },
+	];
+	const filterValue: FilterValue = { freq: freq ? freq.split(",") : [], status: status ? status.split(",") : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
+	const [loans, setLoans] = useState<BackendPersonalLoan[]>([]);
+	const [hasMore, setHasMore] = useState(false);
+	const [total, setTotal] = useState(0);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState("");
 
-  // Any filter change resets back to page 1 rather than leaving the user
-  // stranded on a page number the new filter may not have.
-  useResetPageOnChange(setPage, [freq, q, status, fromDate, toDate, pageSize]);
+	// Any filter change resets back to page 1 rather than leaving the user
+	// stranded on a page number the new filter may not have.
+	useResetPageOnChange(setPage, [freq, q, status, fromDate, toDate, pageSize]);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq || undefined, status: status || undefined, from: fromDate || undefined, to: toDate || undefined, pageSize });
-      setLoans(res?.items || []);
-      setHasMore(!!res?.hasMore);
-      setTotal(res?.total || 0);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not load personal loans.");
-    } finally {
-      setLoading(false);
-    }
-  }, [page, q, freq, status, fromDate, toDate, pageSize]);
+	const refresh = useCallback(async () => {
+		setLoading(true);
+		setError("");
+		try {
+			const res = await listPersonalLoansPage({ page, q: q.trim() || undefined, frequency: freq || undefined, status: status || undefined, from: fromDate || undefined, to: toDate || undefined, pageSize });
+			setLoans(res?.items || []);
+			setHasMore(!!res?.hasMore);
+			setTotal(res?.total || 0);
+		} catch (e) {
+			setError(e instanceof ApiError ? e.message : "Could not load personal loans.");
+		} finally {
+			setLoading(false);
+		}
+	}, [page, q, freq, status, fromDate, toDate, pageSize]);
 
-  useEffect(() => {
-    const handle = setTimeout(() => void refresh(), q ? 300 : 0);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, freq, q, status, fromDate, toDate, pageSize]);
+	useEffect(() => {
+		const handle = setTimeout(() => void refresh(), q ? 300 : 0);
+		return () => clearTimeout(handle);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [page, freq, q, status, fromDate, toDate, pageSize]);
 
-  const knownTotal = total > 0;
-  const totalPages = knownTotal ? Math.max(1, Math.ceil(total / pageSize)) : (hasMore ? page + 1 : page);
-  const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
+	const knownTotal = total > 0;
+	const totalPages = knownTotal ? Math.max(1, Math.ceil(total / pageSize)) : (hasMore ? page + 1 : page);
+	const nextDisabled = knownTotal ? page >= totalPages : !hasMore;
 
-  function openNewLoan() {
-    // Wide: this modal can swap in the full RegisterCustomerModalContent
-    // ("+ Add new customer" flow) inline, whose 3-column field rows need a
-    // wide modal's width — see NewPersonalLoanModal.tsx's creatingCustomer
-    // branch.
-    openModal(<NewPersonalLoanModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />, true);
-  }
+	function openNewLoan() {
+		// Wide: this modal can swap in the full RegisterCustomerModalContent
+		// ("+ Add new customer" flow) inline, whose 3-column field rows need a
+		// wide modal's width — see NewPersonalLoanModal.tsx's creatingCustomer
+		// branch.
+		openModal(<NewPersonalLoanModalContent onSaved={() => { closeModal(); setPage(1); void refresh(); }} />, true);
+	}
 
-  return (
-    <>
-      {/* Header/rule/tab spacing deliberately mirrors Loans.tsx — the two
-        * pages sit next to each other in the sidebar and are the same
-        * shape (title + search + filter chips + paginated table), so they
-        * should not drift apart vertically. Keep them in step. */}
-      <div className="page-h">
-        <div><h1>Personal Loans</h1></div>
-        <div className="sp" />
-        <TableSearch placeholder="Search loan # or customer…" searches="loan number, customer name, customer code" value={q} onChange={setQ} />
-        {canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
-      </div>
-      <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
-      {error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
-      <div className="filter-row-right" style={{ marginBottom: 12 }}>
-        <FilterPanel
-          categories={filterCategories}
-          value={filterValue}
-          onChange={(next) => {
-            setFreq(Array.isArray(next.freq) ? next.freq.join(",") : "");
-            setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
-            setFromDate(next.__dateFrom || "");
-            setToDate(next.__dateTo || "");
-          }}
-          hideChips
-          hideClearAll
-        />
-      </div>
-      <div className="card tbl-card tbl-card-fill tbl-rounded">
-      <div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center tbl-cards">
-        <TableCols widths={[36, 16, 16, 16, 16]} />
-        <thead><tr><th>Loan / Customer</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Frequency</th><th>Status</th></tr></thead>
-        <tbody>
-          {loading && !(cards && loans.length > 0) ? (
-            <tr><td colSpan={5} className="empty">Loading personal loans…</td></tr>
-          ) : loans.length === 0 ? (
-            <tr><td colSpan={5} className="empty">No personal loans</td></tr>
-          ) : loans.map((l) => <PersonalLoanRow loan={l} key={l.id} />)}
-        </tbody>
-      </table></div>
-      <ScrollSentinel enabled={cards && (!nextDisabled)} onVisible={more} watch={loans.length} />
-      <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
-        <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
-        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
-        <button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
-      </div>
-      </div>
-    </>
-  );
+	return (
+		<>
+			{/* Header/rule/tab spacing deliberately mirrors Loans.tsx — the two
+				* pages sit next to each other in the sidebar and are the same
+				* shape (title + search + filter chips + paginated table), so they
+				* should not drift apart vertically. Keep them in step. */}
+			<div className="page-h">
+				<div><h1>Personal Loans</h1></div>
+				<div className="sp" />
+				<TableSearch placeholder="Search loan # or customer…" searches="loan number, customer name, customer code" value={q} onChange={setQ} />
+				{canCreate && <button className="btn" onClick={openNewLoan}><Icon name="plus" /> New Personal Loan</button>}
+			</div>
+			<hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
+			{error && <div className="notice" style={{ marginBottom: 14 }}>{error}</div>}
+			<div className="filter-row-right" style={{ marginBottom: 12 }}>
+				<FilterPanel
+					categories={filterCategories}
+					value={filterValue}
+					onChange={(next) => {
+						setFreq(Array.isArray(next.freq) ? next.freq.join(",") : "");
+						setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
+						setFromDate(next.__dateFrom || "");
+						setToDate(next.__dateTo || "");
+					}}
+					hideChips
+					hideClearAll
+				/>
+			</div>
+			<div className="card tbl-card tbl-card-fill tbl-rounded">
+			<div className="tbl-wrap tbl-scroll"><table className="tbl tbl-center tbl-cards">
+				<TableCols widths={[36, 16, 16, 16, 16]} />
+				<thead><tr><th>Loan / Customer</th><th className="num">Principal</th><th className="num">Outstanding</th><th>Frequency</th><th>Status</th></tr></thead>
+				<tbody>
+					{loading && !(cards && loans.length > 0) ? (
+						<tr><td colSpan={5} className="empty">Loading personal loans…</td></tr>
+					) : loans.length === 0 ? (
+						<tr><td colSpan={5} className="empty">No personal loans</td></tr>
+					) : loans.map((l) => <PersonalLoanRow loan={l} key={l.id} />)}
+				</tbody>
+			</table></div>
+			<ScrollSentinel enabled={cards && (!nextDisabled)} onVisible={more} watch={loans.length} />
+			<div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+				<button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
+				<span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+				<span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
+				<button className="btn plain sm" disabled={nextDisabled} onClick={() => setPage((p) => (knownTotal ? Math.min(totalPages, p + 1) : p + 1))}>Next ›</button>
+			</div>
+			</div>
+		</>
+	);
 }

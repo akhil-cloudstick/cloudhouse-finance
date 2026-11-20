@@ -22,27 +22,27 @@ export type AppRouteState = { route: string; arg?: string };
  * in one direction or the other.
  */
 export function useAppRoute(): AppRouteState {
-  const [state, setState] = useState<ParsedPath>(() => parsePath());
+	const [state, setState] = useState<ParsedPath>(() => parsePath());
 
-  useEffect(() => {
-    // Read once on mount as well as on every event: the server-rendered
-    // markup of a static export is built with no URL at all, so the first
-    // client read is what establishes the real route.
-    const update = () => {
-      const next = parsePath();
-      // An old route name (/<slug>/cash) — show the current one (/<slug>/ledger)
-      // in the address bar without adding a history entry.
-      if (next.aliased) window.history.replaceState(window.history.state, "", routeHref(next.route, next.arg) + window.location.search);
-      setState(next);
-    };
-    update();
-    window.addEventListener("popstate", update);
-    window.addEventListener(ROUTE_CHANGE_EVENT, update);
-    return () => {
-      window.removeEventListener("popstate", update);
-      window.removeEventListener(ROUTE_CHANGE_EVENT, update);
-    };
-  }, []);
+	useEffect(() => {
+		// Read once on mount as well as on every event: the server-rendered
+		// markup of a static export is built with no URL at all, so the first
+		// client read is what establishes the real route.
+		const update = () => {
+			const next = parsePath();
+			// An old route name (/<slug>/cash) — show the current one (/<slug>/ledger)
+			// in the address bar without adding a history entry.
+			if (next.aliased) window.history.replaceState(window.history.state, "", routeHref(next.route, next.arg) + window.location.search);
+			setState(next);
+		};
+		update();
+		window.addEventListener("popstate", update);
+		window.addEventListener(ROUTE_CHANGE_EVENT, update);
+		return () => {
+			window.removeEventListener("popstate", update);
+			window.removeEventListener(ROUTE_CHANGE_EVENT, update);
+		};
+	}, []);
 
-  return { route: state.route, arg: state.arg };
+	return { route: state.route, arg: state.arg };
 }

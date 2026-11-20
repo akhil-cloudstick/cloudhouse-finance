@@ -13,13 +13,13 @@ import { baseRoute, routeAllowed } from "@/common/config/routePermissions";
  * and then refused by navigate()'s guard.
  */
 export function useCanOpenRoute(): (route: string) => boolean {
-  const { can } = useAuth();
-  const { hasModule, singleBranch } = useBranding();
-  return useCallback(
-    (route: string) => {
-      const r = baseRoute(route);
-      return routeAllowed(ROUTE_ALIASES[r] ?? r, can, hasModule, singleBranch);
-    },
-    [can, hasModule, singleBranch]
-  );
+	const { can } = useAuth();
+	const { hasModule, singleBranch } = useBranding();
+	return useCallback(
+		(route: string) => {
+			const r = baseRoute(route);
+			return routeAllowed(ROUTE_ALIASES[r] ?? r, can, hasModule, singleBranch);
+		},
+		[can, hasModule, singleBranch]
+	);
 }

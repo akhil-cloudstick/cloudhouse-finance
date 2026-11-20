@@ -6,5 +6,6 @@ func LoanModuleRoutes(e *echo.Echo) *echo.Echo {
 	CustomerLoanRoutes(e)
 	CustomerProfileRoutes(e)
 	LoanRoutes(e)
+	SyncRoutes(e)
 	return e
 }
