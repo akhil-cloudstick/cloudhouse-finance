@@ -179,3 +179,11 @@ export function canActAtStage(actor: { role: string | null; isSystem: boolean },
   if (!s) return false;
   return actor.isSystem || (!!actor.role && actor.role === s.role);
 }
+
+/* A stored stage key as its place in the chain plus its name — "S1 · Loan Operator" — for the approver lines.
+ * Undefined when the stage is no longer part of the flow. */
+export function stageTag(config: ApprovalWorkflowConfig, flow: string, key: string | null | undefined): string | undefined {
+  const chain = enabledStages(config, flow);
+  const i = chain.findIndex((s) => s.key === key);
+  return i < 0 ? undefined : chain[i].label;
+}

@@ -47,6 +47,7 @@ export type LoanApproval = {
   action: string; // "Approved" | "Rejected" | "Verified"
   actorEmployeeId: number;
   actorRole: string;
+  actorName?: string;
   remarks?: string;
   createdAt: string;
 };
@@ -164,6 +165,8 @@ export type LoanRequest = {
   requestedAt: string;
   decidedAt?: string | null;
   decidedByEmployeeId?: number | null;
+  decidedByName?: string;
+  approvals?: { stage: string; action: string; actorName?: string; createdAt?: string }[];
   createdAt: string;
 };
 

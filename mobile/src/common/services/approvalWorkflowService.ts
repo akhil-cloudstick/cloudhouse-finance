@@ -206,3 +206,11 @@ export function stepperSteps(config: WorkflowConfig, flow: string, currentPendin
 export function stageIndex(config: WorkflowConfig, flow: string, pending?: string | null): number {
   return resolveIndex(config, flow, pending);
 }
+
+/* A stored stage key as its place in the chain plus its name — "S1 · Loan Operator" — for the approver lines.
+ * Undefined when the stage is no longer part of the flow. */
+export function stageTag(config: WorkflowConfig, flow: string, key: string | null | undefined): string | undefined {
+  const chain = enabledStages(config, flow);
+  const i = chain.findIndex((s) => s.key === key);
+  return i < 0 ? undefined : chain[i].label;
+}

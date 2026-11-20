@@ -7,7 +7,7 @@ import { safeDownload } from "@/common/utils/safeDownload";
 import { presentFile } from "@/common/utils/presentFile";
 import { AccRow, Buffering, C, Card, ConfirmSheet, EmptyText, FabMenu, FieldGrid, FlatHeader, PillTabs, Screen, ServerFlatList, Sheet, SheetListItem, StatusChip, Txt, WarningBanner, toast, type FabMenuAction } from "@/common/components/ui";
 import { ApprovalChainPanel } from "@/common/components/ApprovalChainPanel";
-import { isFinalStage, stageByKey, stageByPending, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import { isFinalStage, stageByPending, stageTag, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
@@ -73,7 +73,7 @@ export default function PersonalLoanDetailScreen() {
   const approvals = useQuery({
     queryKey: ["personalLoanApprovals", String(id)],
     queryFn: () => listPersonalLoanApprovals(id),
-    enabled: visible && inChain,
+    enabled: visible,
   });
   const schedule = useServerList<PersonalLoanInstallment>({
     key: ["personalLoanSchedule", id],
@@ -163,6 +163,7 @@ export default function PersonalLoanDetailScreen() {
       ? `Balance in hand ${inr(balanceInHand)} is lower than the ${inr(l.disbursedAmount)} to disburse — add cash first.`
       : undefined;
 
+
   const detailsCard = l ? (
     <Card style={{ marginBottom: 14 }}>
       <FieldGrid
@@ -176,6 +177,7 @@ export default function PersonalLoanDetailScreen() {
           { k: "Due date", v: finalDueDate(l) },
           { k: "Grace period", v: l.gracePeriodDays > 0 ? `${l.gracePeriodDays} days` : "None" },
           { k: "Penal interest rate", v: `${l.penalInterestRate}%${l.penalFlatAmount > 0 ? ` + ${inr(l.penalFlatAmount)} flat` : ""}` },
+          ...(approvals.data ?? []).filter((a) => a.actorName && a.action === "Approved").map((a) => ({ k: `Approved by · ${stageTag(wf, "personal_loan", a.stage) ?? a.stage}`, v: a.actorName as string })),
         ]}
       />
       {inChain ? (
@@ -201,8 +203,8 @@ export default function PersonalLoanDetailScreen() {
           />
           {(approvals.data ?? []).map((a) => (
             <Txt key={a.id} style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
-              {dmy(a.createdAt)} · {a.action} at {stageByKey(wf, "personal_loan", a.stage)?.label ?? a.stage}
-              {a.actorRole ? ` by ${a.actorRole}` : ""}
+              {dmy(a.createdAt)} · {a.action} at {stageTag(wf, "personal_loan", a.stage) ?? a.stage}
+              {a.actorName || a.actorRole ? ` by ${a.actorName || a.actorRole}` : ""}
               {a.remarks ? ` — ${a.remarks}` : ""}
             </Txt>
           ))}

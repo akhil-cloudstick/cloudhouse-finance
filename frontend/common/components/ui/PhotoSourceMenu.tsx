@@ -7,6 +7,8 @@ import { WebcamCapture } from "@/common/components/ui/WebcamCapture";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 
 const MENU_H = 92;
+// Wide enough for "Take photo (webcam)" even when the trigger is a small icon button.
+const MENU_MIN_W = 210;
 
 type PhotoSourceMenuProps = {
   onFile: (f: File) => void;
@@ -46,11 +48,12 @@ export function PhotoSourceMenu({
     if (open) { setOpen(false); return; }
     const r = triggerRef.current?.getBoundingClientRect();
     if (r) {
+      const width = Math.min(Math.max(r.width, MENU_MIN_W), window.innerWidth - 16);
       const below = r.bottom + 6 + MENU_H <= window.innerHeight;
       setPos({
         top: below ? r.bottom + 6 : r.top - 6 - MENU_H,
-        left: Math.min(Math.max(8, r.left), window.innerWidth - r.width - 8),
-        width: r.width,
+        left: Math.min(Math.max(8, r.left), window.innerWidth - width - 8),
+        width,
       });
     }
     setOpen(true);

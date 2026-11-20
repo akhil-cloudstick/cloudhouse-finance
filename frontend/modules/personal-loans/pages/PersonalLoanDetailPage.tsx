@@ -8,7 +8,7 @@ import { useToast } from "@/common/components/ToastProvider";
 import { StageTracker } from "@/common/components/StageTracker";
 import { RejectRemarksModalContent } from "@/common/components/modals/RejectRemarksModalContent";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
-import { canActAtStage, chainFor, isFinalStage, nextStage, stageByPending, trackerLabels } from "@/common/services/approvalWorkflowService";
+import { canActAtStage, chainFor, isFinalStage, nextStage, stageByPending, stageTag, trackerLabels } from "@/common/services/approvalWorkflowService";
 import { useModal } from "@/common/components/ModalProvider";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { Icon } from "@/common/components/Icon";
@@ -184,7 +184,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
   useEffect(() => { void refreshLoan(); }, [refreshLoan]);
 
   useEffect(() => {
-    if (!loan || (loan.status !== "Pending Approval" && loan.status !== "Rejected")) return;
+    if (!loan) return;
     listPersonalLoanApprovals(loan.id).then(setApprovals).catch(() => setApprovals([]));
   }, [loan?.id, loan?.status, loan?.approvalStage]);
 
@@ -257,6 +257,7 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
   const approvalIsFinal = !!approvalStageView && isFinalStage(workflow, "personal_loan", approvalStageView.key);
   // Same check the backend applies (EnsureCashInHand on the disbursed amount).
   const disburseBlocked = approvalIsFinal && balanceInHand !== null && loan.disbursedAmount > balanceInHand + 0.005;
+  const approvedActions = approvals.filter((a) => a.actorName && (a.action === "Approved" || a.action === "Verified"));
   const lastRejection = loan.status === "Rejected" ? [...approvals].reverse().find((a) => a.action === "Rejected") : undefined;
 
   async function decide(action: "Approved" | "Rejected", remarks = "") {
@@ -416,28 +417,44 @@ export function PersonalLoanDetailPage({ id }: PersonalLoanDetailPageProps) {
         </div>
       )}
 
-      <div className="kpis-strip" style={{ marginBottom: 16 }}>
-        <div className="kpis-strip-item"><span className="l">Created</span><span className="v">{fmtDate(loan.openedDate)}</span></div>
-        <div className="kpis-strip-item"><span className="l">Principal</span><span className="v">{fmt(loan.principalAmount)}</span></div>
-        <div className="kpis-strip-item"><span className="l">Interest</span><span className="v">{fmt(loan.interestAmount)}</span><span className="s">({loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`})</span></div>
-        <div className="kpis-strip-item"><span className="l">Disbursed</span><span className="v">{fmt(loan.disbursedAmount)}</span></div>
-        <div className="kpis-strip-item"><span className="l">Outstanding</span><span className="v">{fmt(loan.outstandingAmount)}</span></div>
-        <div className="kpis-strip-item"><span className="l">Status</span><StatusChip status={loan.status} /></div>
-        <div className="kpis-strip-item"><span className="l">Frequency</span><span className="v">{loan.frequency}</span></div>
-        <div className="kpis-strip-item"><span className="l">Installment</span><span className="v">{fmt(loan.installmentAmount)}</span><span className="s">× {loan.tenureCount}</span></div>
-        <div className="kpis-strip-item"><span className="l">Due Date</span><span className="v">{finalDueDate(loan)}</span></div>
-        <div className="kpis-strip-item"><span className="l">Grace Period</span><span className="v">{loan.gracePeriodDays > 0 ? `${loan.gracePeriodDays} days` : "None"}</span></div>
-        <div className="kpis-strip-item"><span className="l">Penal Interest Rate</span><span className="v">{loan.penalInterestRate}%</span>{loan.penalFlatAmount > 0 && <span className="s">+ {fmt(loan.penalFlatAmount)} flat</span>}</div>
-        <div className="kpis-strip-item"><span className="l">Total Paid</span><span className="v">{fmt(loan.totalPaid)}</span></div>
-        {loan.renewedFromLoanId && (
-          <div className="kpis-strip-item"><span className="l">Renewed From</span><a href={routeHref(`personalloan/${linkedNumbers[loan.renewedFromLoanId] || loan.renewedFromLoanId}`)}>{linkedNumbers[loan.renewedFromLoanId] || "…"}</a></div>
-        )}
-        {loan.renewedToLoanId && (
-          <div className="kpis-strip-item"><span className="l">Renewed To</span><a href={routeHref(`personalloan/${linkedNumbers[loan.renewedToLoanId] || loan.renewedToLoanId}`)}>{linkedNumbers[loan.renewedToLoanId] || "…"}</a></div>
-        )}
-        {loan.penalCycleCount > 0 && (
-          <div className="kpis-strip-item"><span className="l">Penal Interest</span><span className="v">{fmt(loan.totalPenalInterestCharged)}</span><span className="s">(cycle {loan.penalCycleCount})</span></div>
-        )}
+      <div className="grid loan-detail-c3" style={{ marginBottom: 16 }}>
+        <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
+          <div className="bd"><div className="kv">
+            <div className="i"><div className="k">Principal</div><div className="v">{fmt(loan.principalAmount)}</div></div>
+            <div className="i"><div className="k">Interest</div><div className="v">{fmt(loan.interestAmount)} <span style={{ color: "var(--muted)", fontWeight: 400 }}>({loan.interestType === "Flat" ? "Flat" : `${loan.interestValue}%`})</span></div></div>
+            <div className="i"><div className="k">Disbursed</div><div className="v">{fmt(loan.disbursedAmount)}</div></div>
+            <div className="i"><div className="k">Outstanding</div><div className="v">{fmt(loan.outstandingAmount)}</div></div>
+            <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(loan.totalPaid)}</div></div>
+            <div className="i"><div className="k">Penal Interest Rate</div><div className="v">{loan.penalInterestRate}%{loan.penalFlatAmount > 0 && <span style={{ color: "var(--muted)", fontWeight: 400 }}> + {fmt(loan.penalFlatAmount)} flat</span>}</div></div>
+            {loan.penalCycleCount > 0 && (
+              <div className="i"><div className="k">Penal Interest</div><div className="v">{fmt(loan.totalPenalInterestCharged)} <span style={{ color: "var(--muted)", fontWeight: 400 }}>(cycle {loan.penalCycleCount})</span></div></div>
+            )}
+          </div></div></div>
+
+        <div className="card gtop"><div className="hd"><h3>Loan Details</h3></div>
+          <div className="bd"><div className="kv">
+            <div className="i"><div className="k">Created</div><div className="v">{fmtDate(loan.openedDate)}</div></div>
+            <div className="i"><div className="k">Status</div><div className="v"><StatusChip status={loan.status} /></div></div>
+            <div className="i"><div className="k">Frequency</div><div className="v">{loan.frequency}</div></div>
+            <div className="i"><div className="k">Installment</div><div className="v">{fmt(loan.installmentAmount)} <span style={{ color: "var(--muted)", fontWeight: 400 }}>× {loan.tenureCount}</span></div></div>
+            <div className="i"><div className="k">Due Date</div><div className="v">{finalDueDate(loan)}</div></div>
+            <div className="i"><div className="k">Grace Period</div><div className="v">{loan.gracePeriodDays > 0 ? `${loan.gracePeriodDays} days` : "None"}</div></div>
+            {loan.renewedFromLoanId && (
+              <div className="i"><div className="k">Renewed From</div><div className="v"><a href={routeHref(`personalloan/${linkedNumbers[loan.renewedFromLoanId] || loan.renewedFromLoanId}`)}>{linkedNumbers[loan.renewedFromLoanId] || "…"}</a></div></div>
+            )}
+            {loan.renewedToLoanId && (
+              <div className="i"><div className="k">Renewed To</div><div className="v"><a href={routeHref(`personalloan/${linkedNumbers[loan.renewedToLoanId] || loan.renewedToLoanId}`)}>{linkedNumbers[loan.renewedToLoanId] || "…"}</a></div></div>
+            )}
+          </div></div></div>
+
+        <div className="card gtop"><div className="hd"><h3>Approval</h3></div>
+          <div className="bd"><div className="kv">
+            {approvedActions.length === 0
+              ? <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Approved By</div><div className="v">—</div></div>
+              : approvedActions.map((a, i) => (
+                <div className="i" key={i}><div className="k">{a.action === "Verified" ? "Verified By" : "Approved By"} · {stageTag(workflow, "personal_loan", a.stage) ?? a.stage}</div><div className="v">{a.actorName}</div></div>
+              ))}
+          </div></div></div>
       </div>
 
       <div className="pl-detail-grid">

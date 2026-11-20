@@ -241,7 +241,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                 <tr><td colSpan={7} className="empty">No extension or release requests yet.</td></tr>
               ) : reqs.map((r) => (
                 <tr key={r.id}>
-                  <td data-label="Type">
+                  <td data-label="Type" style={{ whiteSpace: "nowrap" }}>
                     <span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type}</span>
                     {/* Only meaningful for Release — flags at a glance which
                         rows hand back every ornament vs. only some, since
@@ -249,7 +249,7 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
                         differently for each (see backend/internal/loan/
                         model_request.go's LoanRequest.IsPartial). */}
                     {r.type === "Release" && r.isPartial && (
-                      <span className="chip" style={{ marginLeft: 4 }}>Partial</span>
+                      <span className="chip" style={{ marginLeft: 4, whiteSpace: "nowrap", verticalAlign: "middle" }}>Partial</span>
                     )}
                   </td>
                   <td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>

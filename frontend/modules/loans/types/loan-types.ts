@@ -71,6 +71,7 @@ export type BackendLoanApproval = {
   stage: string;
   action: string;
   actorEmployeeId: number;
+  actorName?: string;
   remarks: string;
   createdAt: string;
 };
@@ -369,6 +370,10 @@ export type LoanView = {
   daysOverdue: number;
   approvalWarning: string;
   rejectedByName: string;
+  /** Names of the people who approved the loan (sanction stages), "" until approved. */
+  approvedBy: string;
+  /** Each sanction stage that was acted on, with who did it. */
+  approvals: { stage: string; action: string; actorName: string }[];
   rejectedAt: string | null;
   rejectionRemarks: string;
   auctionDate: string | null;
@@ -508,6 +513,7 @@ export type ApprovalStageRecord = {
   action: string;
   actorEmployeeId: number;
   actorRole: string;
+  actorName?: string;
   remarks: string;
   createdAt: string;
 };
@@ -946,6 +952,8 @@ export type BackendLoanRequest = {
   requestedAt: string;
   decidedAt?: string | null;
   decidedByEmployeeId?: number | null;
+  decidedByName?: string;
+  approvals?: { stage: string; action: string; actorName?: string; createdAt?: string }[];
   createdAt: string;
 };
 export type LoanRequestType = "Extension" | "Release";
@@ -962,6 +970,8 @@ export type RequestView = {
   remarks: string;
   requestedExtensionMonths: number | null;
   approvalStage: string; // "" for Extension requests
+  decidedByName: string;
+  approvals: { stage: string; action: string; actorName: string; date: string }[];
   isPartial: boolean;
   customerSawGold: boolean;
   paymentRecorded: boolean;

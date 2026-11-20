@@ -254,6 +254,9 @@ func findApprovalByLoanID(ctx context.Context, loanID uint) ([]models.LoanApprov
 	var approvals []models.LoanApproval
 	err := config.DB.
 		WithContext(ctx).Where("loan_id = ?", loanID).Order("id asc").Find(&approvals).Error
+	if err == nil {
+		nameLoanApprovals(ctx, approvals)
+	}
 	return approvals, err
 }
 
@@ -350,4 +353,36 @@ func ApproveRequest(c echo.Context) error {
 		common.FailErr(c, common.NewBadRequest("type must be Extension or Release"))
 	}
 	return nil
+}
+
+// employeeNames reads the names of the given employees in one query.
+func employeeNames(ctx context.Context, ids []uint) map[uint]string {
+	out := map[uint]string{}
+	if len(ids) == 0 {
+		return out
+	}
+	var rows []struct {
+		ID   uint
+		Name string
+	}
+	if err := config.DB.WithContext(ctx).Table("employees").Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		log.Printf("employee names lookup failed: %v", err)
+		return out
+	}
+	for _, r := range rows {
+		out[r.ID] = r.Name
+	}
+	return out
+}
+
+// nameLoanApprovals fills ActorName on each approval.
+func nameLoanApprovals(ctx context.Context, approvals []models.LoanApproval) {
+	ids := make([]uint, 0, len(approvals))
+	for _, a := range approvals {
+		ids = append(ids, a.ActorEmployeeID)
+	}
+	names := employeeNames(ctx, ids)
+	for i := range approvals {
+		approvals[i].ActorName = names[approvals[i].ActorEmployeeID]
+	}
 }
