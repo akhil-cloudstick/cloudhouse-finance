@@ -185,9 +185,12 @@ export function toView(l: BackendLoan): LoanView {
     isDueSoon: l.isDueSoon,
     isOverdue: l.isOverdue,
     isDefaulted: l.isDefaulted,
+    auctionStage: l.auctionStage || "",
     daysOverdue: l.daysOverdue,
     approvalWarning: l.approvalWarning || "",
     rejectedByName: l.rejectedByName || "",
+    approvedBy: [...new Set((l.approvals || []).filter((a) => a.action === "Approved" && a.actorName).map((a) => a.actorName as string))].join(", "),
+    approvals: (l.approvals || []).filter((a) => a.actorName && (a.action === "Approved" || a.action === "Verified")).map((a) => ({ stage: a.stage, action: a.action, actorName: a.actorName as string })),
     rejectedAt: l.rejectedAt || null,
     rejectionRemarks: l.rejectionRemarks || "",
     auctionDate: l.auctionDate ? l.auctionDate.slice(0, 10) : null,
@@ -1277,7 +1280,12 @@ export function loanDisplayStatus(l: LoanView): string {
     default: return l.status;
   }
   if (l.totalOutstandingBalance <= 0.01) return "Closure Requested";
-  if (l.status === "Auction Eligible") return l.status;
+  if (l.status === "Auction Eligible") {
+    // the status follows the live case: Auction Eligible -> Notice Issued -> Auction Scheduled
+    if (l.auctionStage === "NoticeIssued") return "Notice Issued";
+    if (l.auctionStage === "AuctionScheduled") return "Auction Scheduled";
+    return l.status;
+  }
   if (l.isDefaulted) return "Defaulted";
   if (l.isOverdue) return l.outstandingInterest > 0.01 || l.outstandingPenalInterest > 0.01 ? "Overdue" : "Active";
   if (l.isDueSoon) return "Due Soon";
@@ -1677,6 +1685,8 @@ function toRequestView(r: BackendLoanRequest): RequestView {
     remarks: r.remarks,
     requestedExtensionMonths: r.requestedExtensionMonths ?? null,
     approvalStage: r.approvalStage || "",
+    decidedByName: r.decidedByName || "",
+    approvals: (r.approvals || []).map((a) => ({ stage: a.stage, action: a.action, actorName: a.actorName || "", date: a.createdAt ? a.createdAt.slice(0, 10) : "" })),
     isPartial: r.isPartial,
     customerSawGold: r.customerSawGold,
     paymentRecorded: r.paymentRecorded,
@@ -1729,7 +1739,7 @@ async function queueRequestAction(
     id: requestId, loanId: "", loanNumericId: 0, loanNumber: "", customerName: "—", type: "Extension", status: "Pending", detail: "",
     requestedAt: "", remarks: "", requestedExtensionMonths: null, approvalStage: "", isPartial: false, customerSawGold: false,
     paymentRecorded: false, locked: false, verificationNotes: "", charges: 0, chargesApplied: 0, settlementAmount: 0,
-    recordedDiscount: 0, recordedPayment: 0, paymentDueDate: null, ornamentIds: [],
+    recordedDiscount: 0, recordedPayment: 0, paymentDueDate: null, ornamentIds: [], decidedByName: "", approvals: [],
   };
   return { ...base, ...patch, syncPending: true };
 }

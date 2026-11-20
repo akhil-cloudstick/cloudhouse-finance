@@ -14,7 +14,7 @@ import { rateForPurityFull } from "@/common/utils/purity";
 import { useGoldRates } from "@/modules/gold-rates/store/GoldRatesProvider";
 import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
 import { type SchemeView } from "@/modules/schemes/types/scheme-types";
-import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
+import { searchOrnamentTypesPage, createOrnamentType, deleteOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
 import { customerRef } from "@/modules/customers/services/customerOffline";
 import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
@@ -533,6 +533,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                     placeholder="Ornament type…"
                     allowCreate
                     onCreate={createOrnamentType}
+                    onDeleteItem={(t) => deleteOrnamentType(t.id).then(() => { if (t.name === r.name) updRow(i, { name: "" }); toast(`Ornament type "${t.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this ornament type."); throw e; })}
                   /></div>
                 <div><label className="f">Purity</label>
                   <PurityPicker value={r.purity} onChange={(v) => updRow(i, { purity: v })} /></div>

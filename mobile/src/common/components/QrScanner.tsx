@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Linking, Modal, View, Pressable, StyleSheet } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -44,6 +44,16 @@ export function QrScanner({
     getPermission();
   }, [getPermission]);
   useRecheckOnReturn(!!permission && !permission.granted, recheck);
+  // Raise the OS dialog directly when the scanner opens — our card is only for the blocked case,
+  // otherwise the user is asked twice.
+  const [asked, setAsked] = useState(false);
+  const mustAsk = !!permission && !permission.granted && permission.canAskAgain && !asked;
+  useEffect(() => {
+    if (visible && mustAsk) {
+      setAsked(true);
+      requestPermission();
+    }
+  }, [visible, mustAsk, requestPermission]);
   // A CameraView keeps firing onBarcodeScanned for every frame that still
   // contains the code — without this lock, a single scan re-fires dozens of
   // times before the caller has a chance to close the sheet or navigate
@@ -73,8 +83,8 @@ export function QrScanner({
       />
       <View style={styles.frame} pointerEvents="none" />
     </>
-  ) : permission ? (
-    // Our own card instead of going straight to Android's dialog (see CameraPermission.tsx).
+  ) : permission && !mustAsk ? (
+    // Blocked or declined: our card explains and opens Settings (see CameraPermission.tsx).
     <View style={styles.permissionWrap}>
       <CameraPermissionCard
         reason={permissionText}

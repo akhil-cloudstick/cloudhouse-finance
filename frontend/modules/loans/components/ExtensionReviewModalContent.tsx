@@ -5,8 +5,9 @@ import { TruncText } from "@/common/components/ui/TruncText";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
-import { canActAtStage, chainFor, isFinalStage, stageByPending } from "@/common/services/approvalWorkflowService";
+import { canActAtStage, chainFor, isFinalStage, stageByPending, stageTag } from "@/common/services/approvalWorkflowService";
 import { StageTracker } from "@/common/components/StageTracker";
+import { ApprovalActors } from "@/common/components/ui/ApprovalActors";
 import { Icon } from "@/common/components/Icon";
 import { fmt, fmtW, fmtDate, addMonthsISO } from "@/common/utils/format";
 import { approveExtensionRequest, getLoan } from "@/modules/loans/services/loanService";
@@ -194,6 +195,7 @@ export function ExtensionReviewModalContent({ request, onSaved }: ExtensionRevie
 								)}
 							</div>
 						)}
+            <ApprovalActors approvals={req.approvals} stageLabel={(s) => stageTag(workflow, "loan_extension", s)} />
 					</div>
 
 					<aside className="pay-receipt">

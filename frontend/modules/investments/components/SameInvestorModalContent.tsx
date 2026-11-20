@@ -11,12 +11,17 @@ type SameInvestorModalContentProps = {
   matches: SameIdentityMatch[];
   /* "Yes, same person" — the investor is added although the number is already on file. */
   onConfirm: () => Promise<void> | void;
+  /* Closes the dialog instead of popping the modal stack — for when it is shown inside another form (see CreateInvestorModalContent). */
+  onClose?: () => void;
+  /* Only "Yes" is offered; the dialog is left with × . */
+  hideNo?: boolean;
 };
 
 /* Shown when a new investor's phone number, PAN or Aadhaar is already on another investor under a different name.
  * Adding is held until the user says whether it is the same person. */
-export function SameInvestorModalContent({ newName, matches, onConfirm }: SameInvestorModalContentProps) {
-  const { closeModal } = useModal();
+export function SameInvestorModalContent({ newName, matches, onConfirm, onClose, hideNo }: SameInvestorModalContentProps) {
+  const { closeModal: popModal } = useModal();
+  const closeModal = onClose ?? popModal;
   const [busy, setBusy] = useState(false);
   const existing = matches[0]?.source ?? "customer";
 
@@ -72,7 +77,7 @@ export function SameInvestorModalContent({ newName, matches, onConfirm }: SameIn
       </div>
       <div className="ft" style={{ display: "flex", gap: 8 }}>
         <div className="sp" />
-        <button className="btn ghost" onClick={closeModal} disabled={busy}>No</button>
+        {!hideNo && <button className="btn ghost" onClick={closeModal} disabled={busy}>No</button>}
         <button className="btn" onClick={yes} disabled={busy}><Icon name="check" /> {busy ? "Please wait…" : "Yes"}</button>
       </div>
     </>

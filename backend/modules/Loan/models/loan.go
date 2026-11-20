@@ -95,17 +95,20 @@ type Loan struct {
 	LastAccrualDate          time.Time  `json:"last_accrual_date"`
 	// PriorAccruals are the interest rows already saved since the unpaid-days count began, loaded while a
 	// Multiple-interest loan is being charged so a rate step can restate them; never sent or stored.
-	PriorAccruals              []LoanAccrual      `json:"-" gorm:"-"`
+	PriorAccruals []LoanAccrual `json:"-" gorm:"-"`
 	// The scheme's LTV as it is now (the loan keeps its own frozen one); Edit Loan checks the amount against this.
-	CurrentSchemeLTVPercent    *float64           `json:"current_scheme_ltv_percent,omitempty" gorm:"-"`
-	OutstandingInterest        float64            `json:"outstanding_interest" gorm:"-"`
-	OutstandingPenalInterest   float64            `json:"outstanding_penal_interest" gorm:"-"`
-	TotalOutstandingBalance    float64            `json:"total_outstanding_balance" gorm:"-"`
-	SettlementAmount           float64            `json:"settlement_amount" gorm:"-"`
-	TotalPaid                  float64            `json:"total_paid" gorm:"-"`
-	IsDueSoon                  bool               `json:"is_due_soon" gorm:"-"`
-	IsOverdue                  bool               `json:"is_overdue" gorm:"-"`
-	IsDefaulted                bool               `json:"is_defaulted" gorm:"-"`
+	CurrentSchemeLTVPercent  *float64 `json:"current_scheme_ltv_percent,omitempty" gorm:"-"`
+	OutstandingInterest      float64  `json:"outstanding_interest" gorm:"-"`
+	OutstandingPenalInterest float64  `json:"outstanding_penal_interest" gorm:"-"`
+	TotalOutstandingBalance  float64  `json:"total_outstanding_balance" gorm:"-"`
+	SettlementAmount         float64  `json:"settlement_amount" gorm:"-"`
+	TotalPaid                float64  `json:"total_paid" gorm:"-"`
+	IsDueSoon                bool     `json:"is_due_soon" gorm:"-"`
+	IsOverdue                bool     `json:"is_overdue" gorm:"-"`
+	IsDefaulted              bool     `json:"is_defaulted" gorm:"-"`
+	// AuctionStage is the live auction case's stage while the loan is Auction Eligible (pre-sale), so the
+	// status shown follows Eligible -> Notice Issued -> Auction Scheduled.
+	AuctionStage               string             `json:"auction_stage,omitempty" gorm:"-"`
 	DaysOverdue                int                `json:"days_overdue" gorm:"-"`
 	DueSoonNotifiedAt          *time.Time         `json:"-"`
 	OverdueNotifiedAt          *time.Time         `json:"-"`

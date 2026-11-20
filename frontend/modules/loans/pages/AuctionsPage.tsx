@@ -3,7 +3,7 @@
 import { TableCols } from "@/common/components/ui/TableCols";
 import { TableSearch } from "@/common/components/ui/TableSearch";
 import { TruncText } from "@/common/components/ui/TruncText";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePersistedPage, usePersistedState, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -362,7 +362,7 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
   }, [stages.length, loans]);
   const stageFilterCategories: FilterCategory[] = [{
     key: "stage", label: "Auction Status", kind: "static",
-    options: [{ value: "Defaulted", label: "Defaulted (not yet eligible)" }, ...(["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned", "Settled", "Withdrawn"] as const).map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] }))],
+    options: [{ value: "Defaulted", label: "Defaulted (not yet eligible)" }, ...(["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"] as const).map((s) => ({ value: s, label: AUCTION_STAGE_LABELS[s] }))],
   }];
 
   /* The two History sub-tables ("Auctions Conducted" / "Closed Without
@@ -494,8 +494,8 @@ export function AuctionsPage({ focusLoanNumber }: { focusLoanNumber?: string } =
         ...r.decisionRequests.filter((d) => d.decisionRemarks).map((d, i, all) => [all.length > 1 ? `Decision remarks ${i + 1}` : "Decision remarks", d.decisionRemarks] as [string, string]),
         ...(r.surplusDisposition === "RecordedAsIncome" ? [["Surplus settlement", "Kept as company income"] as [string, string]] : []),
         ...(r.surplusDisposition === "RecordedAsIncome"
-          ? [["Reason for keeping surplus", r.surplusRemarks || "—"] as [string, string]]
-          : r.surplusRemarks ? [["Settlement remarks", r.surplusRemarks] as [string, string]] : []),
+          ? [["Reason for keeping surplus", <TruncText key="reason" text={r.surplusRemarks} maxWidth="100%" />] as [string, ReactNode]]
+          : r.surplusRemarks ? [["Settlement remarks", <TruncText key="remarks" text={r.surplusRemarks} maxWidth="100%" />] as [string, ReactNode]] : []),
       ]}
       description={<>Auction sale of {fmt(r.saleAmount)} less {fmt(r.auctionExpenses)} expenses.{r.surplusDisposition ? <><br />Surplus {r.surplusDisposition === "RefundedToCustomer" ? "refunded to the customer" : "kept as income"}.</> : null}</>}
       actions={actions}

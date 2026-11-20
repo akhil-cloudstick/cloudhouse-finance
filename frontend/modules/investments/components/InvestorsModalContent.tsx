@@ -200,16 +200,13 @@ export function InvestorsModalContent() {
 
 /* The investor's own details, shown above their investments when the row is opened. */
 function InvestorDetails({ investor: i }: { investor: CustomerView }) {
-  const nominee = [i.nomineeName, i.nomineeRelation && `(${i.nomineeRelation})`, i.nomineePhone].filter(Boolean).join(" ");
   const items: [string, string][] = [
     ["Address", i.address],
-    ["Date of birth", i.dob ? fmtDate(i.dob) : ""],
     ["PAN", i.pan],
     ["Aadhaar", i.aadhaarLast4 ? `•••• •••• ${i.aadhaarLast4}` : ""],
     ["Bank account holder", i.bankAccountName || ""],
     ["Bank account number", i.bankAccountNumber || ""],
     ["Bank IFSC", i.bankIfsc || ""],
-    ["Nominee", nominee],
   ];
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "10px 16px", padding: "10px 4px 6px", textAlign: "left" }}>

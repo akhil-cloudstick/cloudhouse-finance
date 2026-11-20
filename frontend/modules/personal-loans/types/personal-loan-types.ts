@@ -134,6 +134,7 @@ export type PersonalLoanApprovalRecord = {
 	action: string;
 	actorEmployeeId: number;
 	actorRole: string;
+  actorName?: string;
 	remarks: string;
 	createdAt: string;
 };

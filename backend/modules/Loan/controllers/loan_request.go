@@ -183,6 +183,9 @@ func findLoanRequestByID(ctx context.Context, id uint) (*models.LoanRequest, err
 		WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").First(&req, id).Error; err != nil {
 		return nil, err
 	}
+	one := []models.LoanRequest{req}
+	attachRequestApprovals(ctx, one)
+	req.Approvals = one[0].Approvals
 	return &req, nil
 }
 
@@ -229,7 +232,46 @@ func FindLoanRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRe
 	}
 	var reqs []models.LoanRequest
 	err := q.Find(&reqs).Error
+	if err == nil {
+		attachRequestApprovals(ctx, reqs)
+	}
 	return reqs, total, err
+}
+
+// attachRequestApprovals fills each request's per-stage approvals (with the approver's name) in one query.
+func attachRequestApprovals(ctx context.Context, reqs []models.LoanRequest) {
+	if len(reqs) == 0 {
+		return
+	}
+	ids := make([]uint, 0, len(reqs))
+	for i := range reqs {
+		ids = append(ids, reqs[i].ID)
+	}
+	var rows []models.RequestApproval
+	if err := config.DB.WithContext(ctx).Where("request_id IN ?", ids).Order("id asc").Find(&rows).Error; err != nil {
+		return
+	}
+	nameIDs := make([]uint, 0, len(rows)+len(reqs))
+	for _, a := range rows {
+		nameIDs = append(nameIDs, a.ActorEmployeeID)
+	}
+	for i := range reqs {
+		if reqs[i].DecidedByEmployeeID != nil {
+			nameIDs = append(nameIDs, *reqs[i].DecidedByEmployeeID)
+		}
+	}
+	names := employeeNames(ctx, nameIDs)
+	byReq := make(map[uint][]models.RequestApproval, len(reqs))
+	for _, a := range rows {
+		a.ActorName = names[a.ActorEmployeeID]
+		byReq[a.RequestID] = append(byReq[a.RequestID], a)
+	}
+	for i := range reqs {
+		reqs[i].Approvals = byReq[reqs[i].ID]
+		if reqs[i].DecidedByEmployeeID != nil {
+			reqs[i].DecidedByName = names[*reqs[i].DecidedByEmployeeID]
+		}
+	}
 }
 
 func ListRequests(c echo.Context) error {

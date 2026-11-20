@@ -195,6 +195,7 @@ export function AuctionSheet({
               { k: "Eligible since", v: dmy(rec.auctionEligibleDate) },
               { k: "Auction date", v: dmy(rec.auctionDate) },
               { k: "Reference", v: rec.auctionReferenceNumber || "—" },
+              ...(rec.surplusRemarks ? [{ k: rec.surplusDisposition === "RecordedAsIncome" ? "Reason for keeping surplus" : "Settlement remarks", v: rec.surplusRemarks }] : []),
             ]}
           />
 

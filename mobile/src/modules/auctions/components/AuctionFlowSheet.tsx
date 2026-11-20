@@ -382,6 +382,8 @@ export function AuctionFlowSheet({ loan: loanProp, visible, onClose }: AuctionFl
               <FieldGrid
                 style={{ marginBottom: 14 }}
                 items={[
+                  { k: "Auction date", v: dmy(rec.auctionDate) },
+                  { k: "Reference number", v: rec.auctionReferenceNumber || "—" },
                   { k: "Sale amount", v: inr(rec.saleAmount) },
                   { k: "Auction expenses", v: inr(rec.auctionExpenses ?? 0) },
                 ]}
@@ -425,7 +427,8 @@ export function AuctionFlowSheet({ loan: loanProp, visible, onClose }: AuctionFl
 
     // Step 5 — settle surplus / shortfall.
     const ss = rec.surplusShortfall ?? 0;
-    const outstanding = (rec.saleAmount ?? 0) - (rec.auctionExpenses ?? 0) - ss;
+    // What the loan owed when the sale was recorded; older cases carry none, so derive it.
+    const outstanding = rec.dueTotal ?? (rec.saleAmount ?? 0) - (rec.auctionExpenses ?? 0) - ss;
     return (
       <>
         <SectionTitle flush style={{ marginTop: 16 }}>
@@ -439,6 +442,12 @@ export function AuctionFlowSheet({ loan: loanProp, visible, onClose }: AuctionFl
             <NoticeBanner>
               {rec.stage === "Settled" ? AUCTION_OUTCOME_LABELS[rec.finalSettlementStatus ?? "Pending"] : "Withdrawn — removed from auction"}
             </NoticeBanner>
+            {rec.surplusRemarks ? (
+              <FieldGrid
+                style={{ marginBottom: 14 }}
+                items={[{ k: rec.surplusDisposition === "RecordedAsIncome" ? "Reason for keeping surplus" : "Settlement remarks", v: rec.surplusRemarks }]}
+              />
+            ) : null}
             <BtnRow2>{backBtn}</BtnRow2>
           </>
         ) : balanceDue ? (

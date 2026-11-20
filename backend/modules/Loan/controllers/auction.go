@@ -559,7 +559,9 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 				UpiAmount:            appliedUpi,
 				BankTransferAmount:   appliedBank,
 				BankID:               appliedBankID,
-				Reference:            rec.AuctionReferenceNumber,
+				// loan_payments.reference is varchar(80) while the auction reference allows 150 — cap it here
+				// (the full reference stays on the auction record).
+				Reference:            truncateRunes(rec.AuctionReferenceNumber, 80),
 				Description:          fmt.Sprintf("Auction proceeds applied (sale ₹%.2f less expenses ₹%.2f)", saleAmount, expenses),
 				ProcessingFeeApplied: fee,
 				PenalInterestApplied: penal,
@@ -1453,4 +1455,13 @@ func (p AuctionSalePayment) proRata(part, whole float64) (cash, upi, bank float6
 		cash = common.RoundMoney(cash + diff)
 	}
 	return cash, upi, bank
+}
+
+// truncateRunes caps s at n characters (not bytes) so multi-byte text is never cut mid-rune.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }

@@ -89,3 +89,21 @@ func CreateOrnamentType(c echo.Context) error {
 	}
 	return Success(c, http.StatusOK, rec)
 }
+
+// DeleteOrnamentType removes a type from the master list. Loan ornaments store the type's name
+// as text (not a foreign key), so loans already pledged with it keep their ornament untouched.
+func DeleteOrnamentType(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := IDParam(c, "id")
+	if err != nil {
+		return FailErr(c, err)
+	}
+	res := config.DB.WithContext(ctx).Delete(&commonModels.OrnamentType{}, id)
+	if res.Error != nil {
+		return FailErr(c, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return FailErr(c, NewNotFound("ornament type not found"))
+	}
+	return Success(c, http.StatusOK, echo.Map{"deleted": true})
+}

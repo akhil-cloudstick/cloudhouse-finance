@@ -40,3 +40,8 @@ export async function createOrnamentType(name: string): Promise<BackendOrnamentT
 		body: JSON.stringify({ name }),
 	});
 }
+
+/* Removes a type from the master list; loans already pledged with it keep their ornament. */
+export async function deleteOrnamentType(id: number): Promise<void> {
+  await apiFetch<{ deleted: boolean }>(`/ornament-types/${id}`, { method: "DELETE" });
+}

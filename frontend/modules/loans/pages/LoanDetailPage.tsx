@@ -17,6 +17,7 @@ import {
 	isFinalStage,
 	nextStage,
 	stageByPending,
+  stageTag,
 	trackerLabels,
 } from "@/common/services/approvalWorkflowService";
 import { StatusChip } from "@/common/components/ui/StatusChip";
@@ -1530,6 +1531,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 							{l.status === "Closed" && l.closed && (
 								<div className="i"><div className="k">Closed On</div><div className="v">{fmtDate(l.closed)}</div></div>
 							)}
+              {l.approvals.length > 0 && l.approvals.map((a, i) => (
+                <div className="i" key={i}><div className="k">{a.action === "Verified" ? "Verified by" : "Approved by"} · {stageTag(workflow, "loan_sanction", a.stage) ?? a.stage}</div><div className="v">{a.actorName}</div></div>
+              ))}
 							{l.additionalInfo && (
 								<div className="i" style={{ gridColumn: "1 / -1" }}>
 									<div className="k">Additional Information</div>

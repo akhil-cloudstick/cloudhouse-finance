@@ -34,7 +34,7 @@ type CreateInvestorModalContentProps = { onCreated: (customer: CustomerView) => 
  * are validated the same way here as on the server (see service.go's
  * validate) so a malformed value is caught before the round trip. */
 export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorModalContentProps) {
-  const { closeModal, openChildModal } = useModal();
+  const { closeModal } = useModal();
   const toast = useToast();
 
   const [name, setName] = useState(edit?.name ?? "");
@@ -119,6 +119,10 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
   // "same person?" question comes up while filling the form and not only when Create is pressed. Each set of values
   // is asked about once; answering "no" is remembered until they change.
   const askedRef = useRef(new Set<string>());
+  // The "same person?" question is shown in place of the form (not as a child modal, which unmounts this form and
+  // loses what was typed, so the borrower's details had nowhere to be filled in).
+  const sameFromSave = useRef(false);
+  const [sameMatches, setSameMatches] = useState<Awaited<ReturnType<typeof checkInvestorIdentity>> | null>(null);
   useEffect(() => {
     if (edit || linkedCustomerId) return;
     const p = phone.trim();
@@ -137,16 +141,12 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
           if (!live) return;
           askedRef.current.add(key);
           if (!matches.length) return;
-          openChildModal(<SameInvestorModalContent newName={name.trim() || "this person"} matches={matches} onConfirm={async () => {
-            closeModal();
-            const borrower = matches.find((m) => m.source === "customer");
-            if (borrower) await prefillFromBorrower(String(borrower.id));
-          }} />);
+          sameFromSave.current = false;
+          setSameMatches(matches);
         })
         .catch(() => { /* the check is a convenience — Create still makes the same check on the server */ });
     }, 500);
     return () => { live = false; clearTimeout(t); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- name / the modal helpers are read when the check answers
   }, [phone, pan, aadhaar, edit, linkedCustomerId]);
 
   // confirmSamePerson: the user has said the number already on file belongs to this same person.
@@ -194,13 +194,8 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
       const matches = edit ? null : sameIdentityMatches(e);
       if (matches) {
         toast("Possible duplicate — please confirm before adding");
-        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => {
-          closeModal();
-          // An existing borrower: fill the form from them and let staff complete the rest before adding.
-          const borrower = matches.find((m) => m.source === "customer");
-          if (borrower) await prefillFromBorrower(String(borrower.id));
-          else await save(true);
-        }} />);
+        sameFromSave.current = true;
+        setSameMatches(matches);
         return;
       }
       const msg = e instanceof Error ? e.message : "Failed to create investor.";
@@ -209,6 +204,26 @@ export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorMo
     } finally {
       setSaving(false);
     }
+  }
+
+  if (sameMatches) {
+    return (
+      <SameInvestorModalContent
+        newName={name.trim() || "this person"}
+        matches={sameMatches}
+        hideNo
+        onClose={() => setSameMatches(null)}
+        onConfirm={async () => {
+          const matches = sameMatches;
+          setSameMatches(null);
+          // An existing borrower: fill the form from them and let staff complete the rest before adding.
+          const borrower = matches.find((m) => m.source === "customer");
+          if (borrower) await prefillFromBorrower(String(borrower.id));
+          // Only a rejected Create is held for this answer; a match found while typing just informs.
+          else if (sameFromSave.current) await save(true);
+        }}
+      />
+    );
   }
 
   return (

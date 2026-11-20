@@ -30,7 +30,7 @@ import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on
 import { useAuth } from "@/common/providers/AuthProvider";
 import { approveLoan, loanDisplayStatus, getLoan, hardDeleteLoan, listLoanRequests, listTopUps, normalizeSanctionStage } from "@/modules/loans/services/loanService";
 import { type SanctionStage } from "@/modules/loans/types/loan-types";
-import { isFinalStage, stageByKey, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import { isFinalStage, stageByKey, stageByPending, stageIndex, stageTag, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { getCashSummary } from "@/modules/cash/services/cashService";
 import { getAuction } from "@/modules/auctions/services/auctionService";
@@ -329,6 +329,10 @@ export default function LoanDetailScreen() {
     { k: "Due date", v: dmy(l.dueDate), color: l.isOverdue ? C.red : undefined },
     { k: "Tenure", v: tenure ? `${tenure} month${tenure === 1 ? "" : "s"}` : "—" },
   ];
+  for (const a of l.approvals ?? []) {
+    if (!a.actorName || (a.action !== "Approved" && a.action !== "Verified")) continue;
+    detailItems.push({ k: `${a.action === "Verified" ? "Verified by" : "Approved by"} · ${stageTag(wf, "loan_sanction", a.stage) ?? a.stage}`, v: a.actorName });
+  }
   if (l.disbursementDate) detailItems.push({ k: "Disbursed on", v: dmy(l.disbursementDate) });
   if (l.bankPledgeStatus) detailItems.push({ k: "Gold location", v: l.bankPledgeStatus });
   if (packet) detailItems.push({ k: "Packet", v: `${packet.code} · ${packet.status}` });

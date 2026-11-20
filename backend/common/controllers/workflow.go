@@ -168,7 +168,27 @@ func listActions(ctx context.Context, flow string, entityID uint) ([]commonModel
 	var rows []commonModels.ApprovalAction
 	err := config.DB.
 		WithContext(ctx).Where("flow = ? AND entity_id = ?", flow, entityID).Order("created_at ASC, id ASC").Find(&rows).Error
-	return rows, err
+	if err != nil || len(rows) == 0 {
+		return rows, err
+	}
+	ids := make([]uint, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ActorEmployeeID)
+	}
+	var emps []struct {
+		ID   uint
+		Name string
+	}
+	if e := config.DB.WithContext(ctx).Table("employees").Select("id, name").Where("id IN ?", ids).Scan(&emps).Error; e == nil {
+		names := make(map[uint]string, len(emps))
+		for _, e := range emps {
+			names[e.ID] = e.Name
+		}
+		for i := range rows {
+			rows[i].ActorName = names[rows[i].ActorEmployeeID]
+		}
+	}
+	return rows, nil
 }
 
 func StageKey(roleID uint) string { return "R" + strconv.FormatUint(uint64(roleID), 10) }

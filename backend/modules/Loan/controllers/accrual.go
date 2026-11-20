@@ -791,6 +791,13 @@ func enrichLoan(ctx context.Context, l *models.Loan) {
 	}
 	l.TotalPaid = totalPaid
 	enrichStatusFlags(l, time.Now())
+	if l.Status == models.StatusAuctionEligible {
+		var stage string
+		config.DB.WithContext(ctx).Model(&models.AuctionRecord{}).Select("stage").
+			Where("loan_id = ? AND stage NOT IN (?, ?)", l.ID, models.AuctionStageSettled, models.AuctionStageWithdrawn).
+			Order("created_at desc, id desc").Limit(1).Scan(&stage)
+		l.AuctionStage = stage
+	}
 	l.ApprovalWarning = sanctionWarning(ctx, l)
 	if sch, err := common.FindSchemeByID(ctx, l.SchemeID); err == nil {
 		v := sch.LTVPercent

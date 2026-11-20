@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { AccRow, C, ConfirmSheet, Txt, FabCorner, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, emptyGroupedFilter, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { userMessage } from "@/common/services/apiErrors";
@@ -28,6 +28,30 @@ function serviceCharge(sc: Scheme) {
   if (!sc.serviceChargeType || sc.serviceChargeType === "None") return null;
   const v = sc.serviceChargeType === "Flat" ? `₹${(sc.serviceChargeValue ?? 0).toLocaleString("en-IN")}` : `${sc.serviceChargeValue ?? 0}%`;
   return `${v} · ${sc.serviceChargeMode === "AddedToPrincipal" ? "added to principal" : "withheld"}`;
+}
+
+/** Two lines with an ellipsis; tap to read the whole condition text (mobile has no hover tooltip). */
+const TEXT = { fontSize: 12.5, fontWeight: "700", color: C.ink } as const;
+
+function ConditionsText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  return (
+    <Pressable onPress={() => (truncated || open) && setOpen((o) => !o)} hitSlop={6}>
+      <Txt numberOfLines={open ? undefined : 2} style={TEXT}>
+        {text}
+      </Txt>
+      {/* Invisible full-length copy: with numberOfLines set, Android only reports the visible lines, so truncation is measured here. */}
+      <Txt
+        pointerEvents="none"
+        onTextLayout={(e) => setTruncated(e.nativeEvent.lines.length > 2)}
+        style={[TEXT, { position: "absolute", left: 0, right: 0, opacity: 0 }]}
+      >
+        {text}
+      </Txt>
+      {truncated || open ? <Txt style={{ fontSize: 11.5, fontWeight: "700", color: C.brandDeep, marginTop: 2 }}>{open ? "Show less" : "Tap to read more"}</Txt> : null}
+    </Pressable>
+  );
 }
 
 export default function SchemesScreen() {
@@ -112,7 +136,7 @@ export default function SchemesScreen() {
                 { k: "Code", v: sc.code || "—" },
                 ...(showBranch ? [{ k: "Branch", v: sc.branch?.name || "—" }] : []),
                 { k: "Penal rate", v: sc.penalRate != null ? `${sc.penalRate}% p.a.` : "—" },
-                { k: "Conditions", v: sc.conditions ? (<ScrollView nestedScrollEnabled style={{ maxHeight: 72 }}><Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.ink }}>{sc.conditions}</Txt></ScrollView>) : "—" },
+                { k: "Conditions", v: sc.conditions ? <ConditionsText text={sc.conditions} /> : "—" },
                 ...(sc.interestMethod ? [{ k: "Interest method", v: sc.interestMethod }] : []),
                 ...(sc.accrualBasis ? [{ k: "Accrual method", v: sc.accrualBasis === "monthly" ? "Monthly" : "Daily" }] : []),
                 ...(charge ? [{ k: "Service charge", v: charge }] : []),

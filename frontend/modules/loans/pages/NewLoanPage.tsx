@@ -20,7 +20,7 @@ import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { VerifiedBadge } from "@/modules/customers/components/VerifiedBadge";
 import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeService";
 import { type SchemeView } from "@/modules/schemes/types/scheme-types";
-import { searchOrnamentTypesPage, createOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
+import { searchOrnamentTypesPage, createOrnamentType, deleteOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
 import { createLoan, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber, getLoanByNumber, updateLoan, previewLoanEdit, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage, type LedgerEditDependent, type LedgerFollowingEntry } from "@/modules/loans/services/loanService";
 import { type BackendLoanDraft, type SaveDraftInput, type LoanView } from "@/modules/loans/types/loan-types";
@@ -1343,6 +1343,7 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
 											portal
 											allowCreate={canCreateOrnamentType}
 											onCreate={createOrnamentType}
+                      onDeleteItem={canCreateOrnamentType ? (t) => deleteOrnamentType(t.id).then(() => { if (t.name === r.n) updOrn(i, "n", ""); toast(`Ornament type "${t.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this ornament type."); throw e; }) : undefined}
 										/>
 									</td>
 									<td style={{ paddingRight: 4 }}><input className="inp" style={{ padding: "6px 8px", width: "100%", minWidth: 32, height: 31, textAlign: "center", boxSizing: "border-box" }} type="number" onWheel={blurOnWheel} min={0} placeholder="Qty" value={r.q === 0 ? "" : r.q} onChange={(e) => updOrn(i, "q", e.target.value === "" ? 0 : Math.max(0, +e.target.value || 0))} /></td>
@@ -1391,6 +1392,7 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
 											portal
 											allowCreate={canCreateOrnamentType}
 											onCreate={createOrnamentType}
+                      onDeleteItem={canCreateOrnamentType ? (t) => deleteOrnamentType(t.id).then(() => { if (t.name === r.n) updOrn(i, "n", ""); toast(`Ornament type "${t.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this ornament type."); throw e; }) : undefined}
 										/>
 									</div>
 									{/* Qty sits right beside Ornament (not down with the

@@ -35,6 +35,7 @@ export function ExpenseInfoModalContent({ e, showBranch, onEdit, onDelete }: Pro
           <div className="i"><div className="k">Mode</div><div className="v">{e.mode}</div></div>
           {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{e.branch}</div></div>}
           <div className="i"><div className="k">Status</div><div className="v"><StatusChip status={e.status} /></div></div>
+          {e.approvedBy && e.approvedBy !== "System" && <div className="i"><div className="k">{e.status === "Rejected" ? "Rejected by" : "Approved by"}</div><div className="v">{e.approvedBy}</div></div>}
         </div>
         <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Additional Information</h4>
         <div className="addl-info boxed">

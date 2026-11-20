@@ -138,6 +138,7 @@ export type PersonalLoanApproval = {
   action: "Approved" | "Rejected";
   actorEmployeeId: number;
   actorRole: string;
+  actorName?: string;
   remarks: string;
   createdAt: string;
 };

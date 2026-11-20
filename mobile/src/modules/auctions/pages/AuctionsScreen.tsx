@@ -51,7 +51,6 @@ const AUCTION_STAGE_LABELS: Record<AuctionStage, string> = {
   Withdrawn: "Withdrawn",
 };
 const ACTIVE_STAGES: AuctionStage[] = ["AuctionEligible", "NoticeIssued", "AuctionScheduled", "Auctioned"];
-const ALL_STAGES: AuctionStage[] = [...ACTIVE_STAGES, "Settled", "Withdrawn"];
 // The "Auction Status" filter belongs to Active Cases only; History has its own Sale Outcome filter.
 const OUTCOME_SECTIONS: GFSection[] = [
   { kind: "static", key: "outcome", label: "Sale Outcome", options: [{ value: "surplus", label: "Settle Surplus" }, { value: "shortfall", label: "Shortfall" }] },
@@ -134,7 +133,7 @@ function ActiveCases({ tabs }: ActiveCasesProps) {
               onChangeText={list.setSearch}
               placeholder="Search by loan ID or customer name"
               style={{ paddingTop: 12, paddingBottom: 12 }}
-              filter={<GroupedFilter title="Filter cases" sections={stageSections(ALL_STAGES)} value={fv} onChange={setFv} />}
+              filter={<GroupedFilter title="Filter cases" sections={stageSections(ACTIVE_STAGES)} value={fv} onChange={setFv} />}
             />
           </>
         }
@@ -175,6 +174,9 @@ function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: AuctionCa
   const hasRecord = l.status === "Auction Eligible" || l.status === "Auctioned";
   const auction = useQuery({ queryKey: ["auction", String(l.id)], queryFn: () => getAuction(l.id), enabled: hasRecord });
   const days = l.daysOverdue ?? 0;
+  // The loan's own status stays "Auction Eligible" through notice and scheduling, so the pill follows the auction record's stage.
+  const rec = auction.data;
+  const stageStatus = hasRecord && rec && rec.stage !== "Settled" && rec.stage !== "Withdrawn" ? AUCTION_STAGE_LABELS[rec.stage] : sub;
   return (
     <AccRow
       defaultOpen={defaultOpen}
@@ -183,10 +185,12 @@ function AuctionCaseRow({ loan: l, defaultOpen, sub, onView, onFlow }: AuctionCa
       amount={inr(l.totalOutstandingBalance ?? l.outstandingAmount)}
       // The case status (Defaulted / Auction Eligible / Auctioned) shows only as the status pill — not "Overdue",
       // and not repeated as a line under the customer's name.
-      status={sub}
+      status={stageStatus}
       details={[
         { k: "Gold weight", v: l.totalNetWeight != null ? `${+Number(l.totalNetWeight).toFixed(2)} g` : "—" },
         { k: "Days overdue", v: `${days} day${days === 1 ? "" : "s"}`, color: days > 0 ? C.red : undefined },
+        ...(rec?.auctionDate ? [{ k: "Auction date", v: dmy(rec.auctionDate) }] : []),
+        ...(rec?.auctionReferenceNumber ? [{ k: "Reference number", v: rec.auctionReferenceNumber }] : []),
       ]}
       actions={[
         { label: "View Loan", onPress: onView },
@@ -325,9 +329,9 @@ function AuctionHistory({ tabs }: AuctionHistoryProps) {
           ))}
           {info.surplusDisposition === "RecordedAsIncome" ? <DetailRow k="Surplus settlement" v="Kept as company income" /> : null}
           {info.surplusDisposition === "RecordedAsIncome" ? (
-            <DetailRow k="Reason for keeping surplus" v={info.surplusRemarks || "—"} />
+            <DetailRow k="Reason for keeping surplus" v={info.surplusRemarks || "—"} truncLines={2} />
           ) : info.surplusRemarks ? (
-            <DetailRow k="Settlement remarks" v={info.surplusRemarks} />
+            <DetailRow k="Settlement remarks" v={info.surplusRemarks} truncLines={2} />
           ) : null}
         </View>
       ) : null}

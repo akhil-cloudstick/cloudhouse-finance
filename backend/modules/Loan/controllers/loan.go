@@ -1351,6 +1351,7 @@ func findLoanByID(ctx context.Context, id uint) (*models.Loan, error) {
 		WithContext(ctx)).First(&l, id).Error; err != nil {
 		return nil, err
 	}
+	nameLoanApprovals(ctx, l.Approvals)
 	return &l, nil
 }
 
@@ -1360,6 +1361,7 @@ func findByLoanNumber(ctx context.Context, loanNumber string) (*models.Loan, err
 		WithContext(ctx)).Where("loan_number = ?", loanNumber).First(&l).Error; err != nil {
 		return nil, err
 	}
+	nameLoanApprovals(ctx, l.Approvals)
 	return &l, nil
 }
 

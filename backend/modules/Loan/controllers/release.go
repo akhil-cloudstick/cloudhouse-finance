@@ -275,6 +275,10 @@ func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, i
 	if in.CustomerSawGold != nil {
 		// The checklist is not tied to the payment lock: whether the customer has seen the gold can be set at any time
 		// while the request is pending (a locked request only stops it being rejected).
+		// Once the request has been approved at the first (manager) stage, the tick is frozen.
+		if *in.CustomerSawGold != req.CustomerSawGold && req.ApprovalStage != "" && req.ApprovalStage != models.ApprovalStagePendingManager {
+			return nil, common.NewBadRequest("\"Customer has seen the gold\" can no longer be changed after the first approval")
+		}
 		req.CustomerSawGold = *in.CustomerSawGold
 	}
 	if releaseFieldsLocked(req) {
@@ -334,7 +338,6 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if chargeDelta < 0 {
 		chargeDelta = 0
 	}
-	wasAlreadyRecorded := req.PaymentRecorded
 	// The amount needed to release is checked here, at payment time, against the live balance the release
 	// page showed — before anything is posted. Later approval stages then trust this check instead of
 	// re-checking a balance that interest has moved on.
@@ -438,12 +441,7 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if err := persistLoanRequest(ctx, req); err != nil {
 		return nil, err
 	}
-	stillAtPaymentStage := req.ApprovalStage == "" || req.ApprovalStage == models.ApprovalStagePendingManager
-	if !wasAlreadyRecorded || stillAtPaymentStage {
-		if _, err := advanceReleaseRequestStage(ctx, req, in.ActorEmployeeID, "Auto-advanced after payment was recorded"); err != nil {
-			return nil, err
-		}
-	}
+	// Recording the payment never approves the request: every stage is still approved by a person.
 	return findLoanRequestByID(ctx, req.ID)
 }
 

@@ -30,8 +30,21 @@ export function sameIdentityMatches(e: unknown): SameIdentityMatch[] | null {
 }
 
 /** confirmSamePerson: the user confirmed this is the same person as the existing investor(s) sharing a number. */
-export function createInvestor(input: CustomerInput, confirmSamePerson?: boolean) {
-  return apiRequest<Investor>("/investors", { method: "POST", body: input, params: confirmSamePerson ? { confirm_same_person: "true" } : undefined });
+export function createInvestor(input: CustomerInput, confirmSamePerson?: boolean, fromCustomerId?: number) {
+  const params: Record<string, string> = {};
+  if (confirmSamePerson) params.confirm_same_person = "true";
+  if (fromCustomerId) params.from_customer_id = String(fromCustomerId);
+  return apiRequest<Investor>("/investors", { method: "POST", body: input, params: Object.keys(params).length ? params : undefined });
+}
+
+/** The reverse, for the Register Customer form: existing investors that share the phone, PAN or Aadhaar being typed. */
+export function checkBorrowerIdentity(input: { phone: string; pan: string; aadhaar: string }) {
+  return apiRequest<{ matches: SameIdentityMatch[] | null }>("/customers/identity-check", { method: "POST", body: input }).then((r) => r.matches ?? []);
+}
+
+/** Existing investors / borrowers that share the phone, PAN or Aadhaar being typed. Nothing is saved. */
+export function checkInvestorIdentity(input: { phone: string; pan: string; aadhaar: string }) {
+  return apiRequest<{ matches: SameIdentityMatch[] | null }>("/investors/identity-check", { method: "POST", body: input }).then((r) => r.matches ?? []);
 }
 
 export function updateInvestor(id: number, input: CustomerInput) {

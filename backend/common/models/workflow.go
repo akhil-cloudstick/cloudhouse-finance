@@ -20,16 +20,17 @@ type ApprovalStageSetting struct {
 
 type ApprovalAction struct {
 	config.TenantScoped
-	ID              uint      `json:"id" gorm:"primaryKey"`
-	Flow            string    `json:"flow" gorm:"size:40;not null;index:idx_approval_actions_entity"`
-	EntityID        uint      `json:"entity_id" gorm:"not null;index:idx_approval_actions_entity"`
-	Stage           string    `json:"stage" gorm:"size:40"`
-	Action          string    `json:"action" gorm:"size:20"`
-	ActorEmployeeID uint      `json:"actor_employee_id"`
-	ActorRole       string    `json:"actor_role" gorm:"size:60"`
-	Remarks         string    `json:"remarks"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              uint   `json:"id" gorm:"primaryKey"`
+	Flow            string `json:"flow" gorm:"size:40;not null;index:idx_approval_actions_entity"`
+	EntityID        uint   `json:"entity_id" gorm:"not null;index:idx_approval_actions_entity"`
+	Stage           string `json:"stage" gorm:"size:40"`
+	Action          string `json:"action" gorm:"size:20"`
+	ActorEmployeeID uint   `json:"actor_employee_id"`
+	ActorRole       string `json:"actor_role" gorm:"size:60"`
+	// ActorName is the acting employee's name, filled on read; never stored.
+	ActorName string    `json:"actor_name" gorm:"-"`
+	Remarks   string    `json:"remarks"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type ApprovalChain struct {
