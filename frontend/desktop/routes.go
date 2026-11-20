@@ -63,6 +63,19 @@ func pageFor(urlPath string) string {
 		return ""
 	}
 
+	// the platform administrator's own pages: /superadmin and /superadmin/login (not under a business slug)
+	if parts[0] == "superadmin" {
+		switch len(parts) {
+		case 1:
+			return "superadmin.html"
+		case 2:
+			if parts[1] == "login" {
+				return "superadmin/login.html"
+			}
+		}
+		return ""
+	}
+
 	hasSlug := isBusinessSlug(parts[0]) && !isReservedSegment(parts[0])
 	if hasSlug {
 		parts = parts[1:]

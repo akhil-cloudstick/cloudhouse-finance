@@ -136,7 +136,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 		result.Before = summarize(l)
 		snapshot := *l
 		before = &snapshot
-
 		var linked int64
 		if err := tx.WithContext(ctx).Model(&cashModels.CashMovement{}).
 			Where("source_id = ? AND source_type IN ?", l.ID, []string{cashbook.SourceLoanDisbursement, cashbook.SourceLoanServiceCharge}).
@@ -146,7 +145,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 		if linked == 0 {
 			return common.NewConflict("this loan's disbursement cash entries cannot be identified exactly, so it cannot be edited safely")
 		}
-
 		// An edit that only changes how the payout was paid (mode, bank) touches no figure: nothing is recalculated.
 		light := in.Prepare == nil &&
 			(in.SanctionedAmount == nil || absMoney(common.RoundMoney(*in.SanctionedAmount)-l.SanctionedAmount) < 0.005) &&
@@ -163,7 +161,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 				return err
 			}
 		}
-
 		ups, err := activeTopUpsInOrder(ctx, tx, loanID)
 		if err != nil {
 			return err
@@ -182,7 +179,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 			}
 		}
 		currentSanctioned := common.RoundMoney(l.PrincipalAmount - topUpSum)
-
 		fig, err := computeDisbursementFigures(l, in, currentSanctioned)
 		if err != nil {
 			return err
@@ -200,7 +196,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 				return err
 			}
 		}
-
 		// date and due date
 		oldOpened := l.OpenedDate
 		newDate := *l.DisbursementDate
@@ -228,7 +223,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 		if !l.DueDate.After(l.OpenedDate) {
 			return common.NewBadRequest("due date must be after the disbursement date")
 		}
-
 		// payout split: defaults to the saved split, which must still add up to the payout
 		var disb *models.LoanPayment
 		if len(disbRows) == 1 {
@@ -268,7 +262,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 		if err != nil {
 			return err
 		}
-
 		l.PrincipalAmount = common.RoundMoney(fig.Sanctioned + topUpSum)
 		l.SanctionedAmount = fig.Sanctioned
 		l.DisbursedAmount = fig.Disbursed
@@ -279,7 +272,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 				l.ServiceChargeValue = fig.ServiceCharge
 			}
 		}
-
 		// every payment as it was saved (the recalculation changes the rows in place)
 		savedRows := make(map[uint]models.LoanPayment, len(rows))
 		for _, r := range rows {
@@ -306,7 +298,6 @@ func editLoanDisbursement(ctx context.Context, loanID uint, in *EditDisbursement
 		if err != nil {
 			return err
 		}
-
 		if !light {
 			for i := range edited {
 				if err := tx.WithContext(ctx).Save(&edited[i]).Error; err != nil {

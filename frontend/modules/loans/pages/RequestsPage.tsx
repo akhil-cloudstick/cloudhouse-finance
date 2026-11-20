@@ -12,17 +12,18 @@ import { usePersistedState, usePersistedPage } from "@/common/hooks/use-persiste
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF } from "@/modules/loans/services/loanService";
 import { type RequestView } from "@/modules/loans/types/loan-types";
+import { listPackets } from "@/modules/packets/services/packetService";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 const STATUS_OPTIONS = [
-  { value: "Pending", label: "Pending" },
-  { value: "Approved", label: "Approved" },
-  { value: "Rejected", label: "Rejected" },
+	{ value: "Pending", label: "Pending" },
+	{ value: "Approved", label: "Approved" },
+	{ value: "Rejected", label: "Rejected" },
 ];
 const TYPE_OPTIONS = [
-  { value: "extension", label: "Extension" },
-  { value: "release", label: "Release" },
+	{ value: "extension", label: "Extension" },
+	{ value: "release", label: "Release" },
 ];
 import { ReleaseReviewModalContent } from "@/modules/loans/components/ReleaseReviewModalContent";
 import { ExtensionReviewModalContent } from "@/modules/loans/components/ExtensionReviewModalContent";
@@ -47,32 +48,41 @@ import { singleFlight } from "@/common/utils/singleFlight";
 const PENDING_PRESETS: Record<string, string> = { "pending-extension": "extension", "pending-release": "release" };
 
 export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: string } = {}) {
-  const presetType = routeArg ? PENDING_PRESETS[routeArg] : undefined;
-  const focusLoanNumber = presetType ? undefined : routeArg;
-  const { openModal } = useModal();
-  const { refresh: refreshLoans } = useLoans();
-  // Without "can update loan" the review modal opens read-only (its
-  // checklist and approve/reject controls hide themselves), so the row
-  // button says View rather than Review.
-  const { can } = useAuth();
-  const canDecide = can("Loan_Management", "can_update_loan");
-  const toast = useToast();
+	const presetType = routeArg ? PENDING_PRESETS[routeArg] : undefined;
+	const focusLoanNumber = presetType ? undefined : routeArg;
+	const { openModal } = useModal();
+	const { refresh: refreshLoans } = useLoans();
+	// Without "can update loan" the review modal opens read-only (its
+	// checklist and approve/reject controls hide themselves), so the row
+	// button says View rather than Review.
+	const { can } = useAuth();
+	const canDecide = can("Loan_Management", "can_update_loan");
+	const toast = useToast();
 
-  const basePageSize = useResponsivePageSize(15, 15);
-  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
-  const [reqs, setReqs] = useState<RequestView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = usePersistedPage("requests");
-  const [total, setTotal] = useState(0);
-  const [status, setStatus] = usePersistedState("requests:status", "");
-  const [type, setType] = usePersistedState("requests:type", "");
-  const [fromDate, setFromDate] = usePersistedState("requests:from", "");
-  const [toDate, setToDate] = usePersistedState("requests:to", "");
-  // `qInput` is what's typed; `q` is the debounced value that drives the
-  // server query, so each keystroke doesn't fire a request.
-  const [qInput, setQInput] = useState(focusLoanNumber || "");
-  const [q, setQ] = useState(focusLoanNumber || "");
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+	const basePageSize = useResponsivePageSize(15, 15);
+	const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
+	const [reqs, setReqs] = useState<RequestView[]>([]);
+	// packet number of each loan, for the Loan column (only for a role that may see packets)
+	const [packetByLoan, setPacketByLoan] = useState<Record<number, string>>({});
+	const canViewPackets = can("Packet_Management", "can_view_packet_module");
+	useEffect(() => {
+		if (!canViewPackets) return;
+		listPackets()
+			.then((ps) => setPacketByLoan(Object.fromEntries(ps.map((p) => [p.loanId, p.code]))))
+			.catch(() => setPacketByLoan({}));
+	}, [canViewPackets, reqs.length]);
+	const [loading, setLoading] = useState(true);
+	const [page, setPage] = usePersistedPage("requests");
+	const [total, setTotal] = useState(0);
+	const [status, setStatus] = usePersistedState("requests:status", "");
+	const [type, setType] = usePersistedState("requests:type", "");
+	const [fromDate, setFromDate] = usePersistedState("requests:from", "");
+	const [toDate, setToDate] = usePersistedState("requests:to", "");
+	// `qInput` is what's typed; `q` is the debounced value that drives the
+	// server query, so each keystroke doesn't fire a request.
+	const [qInput, setQInput] = useState(focusLoanNumber || "");
+	const [q, setQ] = useState(focusLoanNumber || "");
+	const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   // The sidebar's Requests link (or a same-page reload) returns to the plain main list: close any open
   // review/detail modal on arrival, and when the route argument clears (a loan focus / dashboard preset
@@ -93,39 +103,39 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeArg]);
 
-  // Lets an Approved release row's document be re-downloaded right from
-  // this list, without navigating to Loan Detail first — same generator
-  // LoanDetail.tsx's own Documents menu uses.
-  async function downloadReleaseAgreement(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:release-agreement:"+r.id+":"+lang, async () => {
-    setDownloadingId(r.id);
-    try {
-      const loan = await getLoanByNumber(r.loanNumber);
-      await downloadReleaseAgreementPDF(loan.numericId, lang);
-    } catch {
-      toast("Could not generate the release agreement — try again");
-    } finally {
-      setDownloadingId(null);
-    }
-  }); }
+	// Lets an Approved release row's document be re-downloaded right from
+	// this list, without navigating to Loan Detail first — same generator
+	// LoanDetail.tsx's own Documents menu uses.
+	async function downloadReleaseAgreement(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:release-agreement:"+r.id+":"+lang, async () => {
+		setDownloadingId(r.id);
+		try {
+			const loan = await getLoanByNumber(r.loanNumber);
+			await downloadReleaseAgreementPDF(loan.numericId, lang);
+		} catch {
+			toast("Could not generate the release agreement — try again");
+		} finally {
+			setDownloadingId(null);
+		}
+	}); }
 
-  // Partial Ornament Release counterpart — keyed off the REQUEST rather
-  // than the loan (the receipt lists only what THIS request released), same
-  // Approved-only gate as the full-release FORM 7 agreement above.
-  async function downloadPartialReceipt(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:partial-receipt:"+r.id+":"+lang, async () => {
-    setDownloadingId(r.id);
-    try {
-      await downloadPartialReleaseReceiptPDF(r.id, lang);
-    } catch {
-      toast("Could not generate the partial release receipt — try again");
-    } finally {
-      setDownloadingId(null);
-    }
-  }); }
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+	// Partial Ornament Release counterpart — keyed off the REQUEST rather
+	// than the loan (the receipt lists only what THIS request released), same
+	// Approved-only gate as the full-release FORM 7 agreement above.
+	async function downloadPartialReceipt(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:partial-receipt:"+r.id+":"+lang, async () => {
+		setDownloadingId(r.id);
+		try {
+			await downloadPartialReleaseReceiptPDF(r.id, lang);
+		} catch {
+			toast("Could not generate the partial release receipt — try again");
+		} finally {
+			setDownloadingId(null);
+		}
+	}); }
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // Re-fetches whatever page is currently on screen — used both by the
-  // page-change effect below and after a decision/review-save, so an admin
-  // working through page 3 isn't bounced back to page 1 every time.
+	// Re-fetches whatever page is currently on screen — used both by the
+	// page-change effect below and after a decision/review-save, so an admin
+	// working through page 3 isn't bounced back to page 1 every time.
   // A dashboard tile arrives with a preset: the remembered (stale) filters must not be fetched first, and a slow
   // earlier response must never overwrite the preset's list — that was the intermittent "entire page" load.
   // Applied DURING render (before any effect/fetch) and re-applied whenever the preset changes, so it also wins
@@ -143,70 +153,70 @@ export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: 
     setPage(1);
   }
   const fetchSeq = useRef(0);
-  const refresh = useCallback(() => {
+	const refresh = useCallback(() => {
     if (presetType && !presetReady) return;
     const seq = ++fetchSeq.current;
-    listLoanRequestsPage(page, { status: status || undefined, type: type || undefined, q: q || undefined, from: fromDate || undefined, to: toDate || undefined }, pageSize)
+		listLoanRequestsPage(page, { status: status || undefined, type: type || undefined, q: q || undefined, from: fromDate || undefined, to: toDate || undefined }, pageSize)
       .then((res) => { if (seq === fetchSeq.current) { setReqs(res.items); setTotal(res.total); } })
       .catch(() => { if (seq === fetchSeq.current) { setReqs([]); setTotal(0); } })
       .finally(() => { if (seq === fetchSeq.current) setLoading(false); });
   }, [page, status, type, q, fromDate, toDate, pageSize, presetType, presetReady]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+	useEffect(() => { refresh(); }, [refresh]);
 
-  // Arrived from the dashboard's Needs Attention list (/requests/<loanNumber>):
-  // narrow to that loan's pending requests (a remembered Approved/Rejected or
-  // type filter would hide them), and open the review straight away when
-  // there is exactly one.
-  const focusHandled = useRef(false);
-  // Arrived from a dashboard Extension / Gold Release tile: that type's Pending list.
-  useEffect(() => {
-    if (!presetType) return;
-  }, [presetType]);
-  useEffect(() => {
-    if (!focusLoanNumber) return;
-    setStatus("Pending");
-    setType("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusLoanNumber]);
-  useEffect(() => {
-    if (!focusLoanNumber || focusHandled.current || loading || status !== "Pending" || q !== focusLoanNumber) return;
-    const mine = reqs.filter((r) => r.loanNumber === focusLoanNumber && r.status === "Pending");
-    focusHandled.current = true;
-    if (mine.length !== 1) return;
-    const r = mine[0];
-    openModal(
-      r.type === "Extension"
-        ? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
-        : <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
-      true
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reqs, loading, status, q, focusLoanNumber]);
+	// Arrived from the dashboard's Needs Attention list (/requests/<loanNumber>):
+	// narrow to that loan's pending requests (a remembered Approved/Rejected or
+	// type filter would hide them), and open the review straight away when
+	// there is exactly one.
+	const focusHandled = useRef(false);
+	// Arrived from a dashboard Extension / Gold Release tile: that type's Pending list.
+	useEffect(() => {
+		if (!presetType) return;
+	}, [presetType]);
+	useEffect(() => {
+		if (!focusLoanNumber) return;
+		setStatus("Pending");
+		setType("");
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [focusLoanNumber]);
+	useEffect(() => {
+		if (!focusLoanNumber || focusHandled.current || loading || status !== "Pending" || q !== focusLoanNumber) return;
+		const mine = reqs.filter((r) => r.loanNumber === focusLoanNumber && r.status === "Pending");
+		focusHandled.current = true;
+		if (mine.length !== 1) return;
+		const r = mine[0];
+		openModal(
+			r.type === "Extension"
+				? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
+				: <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
+			true
+		);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [reqs, loading, status, q, focusLoanNumber]);
 
-  useEffect(() => {
-    const t = qInput.trim();
-    if (t === q) return;
-    const handle = setTimeout(() => { setQ(t); setPage(1); }, 300);
-    return () => clearTimeout(handle);
-  }, [qInput, q]);
+	useEffect(() => {
+		const t = qInput.trim();
+		if (t === q) return;
+		const handle = setTimeout(() => { setQ(t); setPage(1); }, 300);
+		return () => clearTimeout(handle);
+	}, [qInput, q]);
 
-  // One grouped filter for Type and Status (single choice each).
-  const filterCategories: FilterCategory[] = [
-    { key: "type", label: "Type", kind: "static", options: TYPE_OPTIONS },
-    { key: "status", label: "Status", kind: "static", options: STATUS_OPTIONS },
-    { key: "__date", label: "Requested date", kind: "date" as const },
-  ];
-  const filterValue: FilterValue = { type: type ? type.split(",") : [], status: status ? status.split(",") : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
+	// One grouped filter for Type and Status (single choice each).
+	const filterCategories: FilterCategory[] = [
+		{ key: "type", label: "Type", kind: "static", options: TYPE_OPTIONS },
+		{ key: "status", label: "Status", kind: "static", options: STATUS_OPTIONS },
+		{ key: "__date", label: "Requested date", kind: "date" as const },
+	];
+	const filterValue: FilterValue = { type: type ? type.split(",") : [], status: status ? status.split(",") : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
 
-  function refreshAfterSave() {
-    refresh();
-    refreshLoans();
-  }
+	function refreshAfterSave() {
+		refresh();
+		refreshLoans();
+	}
 
-  return (
-    <>
-      <div className="page-h">
+	return (
+		<>
+			<div className="page-h">
         <div><h1>Extension &amp; Release</h1><p>Extension/release requests </p></div>
         <div className="sp" />
         <TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />

@@ -332,7 +332,7 @@ type indemnityBondPreviewRequest struct {
 	InterestRate    float64                        `json:"interest_rate"`
 	DueDate         string                         `json:"due_date"`
 	OpenedDate      string                         `json:"opened_date"`
-	Ornaments      []indemnityBondPreviewOrnament `json:"ornaments"`
+	Ornaments       []indemnityBondPreviewOrnament `json:"ornaments"`
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -468,9 +468,17 @@ func findTemplatesDir() string {
 func mustLoadTemplate(templateName, fileName string, funcs template.FuncMap) *template.Template {
 	b, err := os.ReadFile(filepath.Join(resolvedTemplatesDir, fileName))
 	if err != nil {
-		panic(fmt.Sprintf("pledge agreement: read template %s: %v", fileName, err))
+		// The desktop app links this package but carries no templates folder (it renders its own documents). A missing
+		// template then fails only when that document is asked for, instead of stopping the whole program at start-up.
+		log.Printf("pledge agreement: template %s is not available (%v); the document that uses it cannot be produced here", fileName, err)
+		return unavailableTemplate(templateName, fileName)
 	}
 	return template.Must(template.New(templateName).Funcs(funcs).Parse(string(b)))
+}
+
+func unavailableTemplate(templateName, fileName string) *template.Template {
+	missing := func() (string, error) { return "", fmt.Errorf("template %s is not available in this build", fileName) }
+	return template.Must(template.New(templateName).Funcs(template.FuncMap{"templateUnavailable": missing}).Parse("{{templateUnavailable}}"))
 }
 
 func bondDocFor(policy, lang string) bondDoc {
@@ -641,7 +649,7 @@ func startIndemnityBondSign(ctx context.Context, loanID uint, branchID *uint, la
 		return nil, common.NewBadRequest("lang must be \"en\", \"ml\", \"gu\" or \"ta\"")
 	}
 	if !tenantAllowsLanguage(ctx, lang) {
-		return nil, common.NewForbidden("this business is not set up to issue documents in that language")
+		return nil, common.NewForbidden("language is not enabled for this business")
 	}
 	if deliverBy == "" {
 		deliverBy = "open"

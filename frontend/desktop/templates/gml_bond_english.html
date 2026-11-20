@@ -1,0 +1,98 @@
+<!--
+  The GML (Gujarat) document family's ENGLISH pledge deed — the English
+  counterpart of gml-bond-gujarati.html, the same "Agreement of Pledge of
+  Movable" instrument rather than a translation of the KML letter.
+
+  Loaded by indemnitybond.go's bondDocs as [gml][en]. It exists as a wired-up
+  template because every policy MUST have an English entry: tenant.HasLanguage
+  grants English unconditionally, so a GML business printing in English has to
+  receive its own instrument, not the KML promissory-pledge letter.
+
+  This file was previously marked ARCHIVED — it is the numbered-clause deed
+  kml-bond-english.html used to contain, before that was replaced with the
+  short KML letterhead letter matching kml-bond-malayalam.html. It turned out
+  to be exactly the English GML deed the policy split needed.
+-->
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Agreement of Pledge of Movable — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
+<h2>Gold Loan Account No. {{.LoanNumber}}</h2>
+<p>MEMORANDUM OF AGREEMENT, made the <b>{{printf "%02d" .Day}}</b> day of <b>{{.Month}}, {{.Year}}</b> BETWEEN</p>
+<p>
+<b>{{.CustomerName}}</b><br>
+Age :- <b>{{.Age}}</b>, business :- {{.Blank}}<br>
+Aadhar Card No. <b>{{.Aadhaar}}</b><br>
+Pan Card No. <b>{{.PAN}}</b><br>
+Residing at :- <b>{{.Address}}</b>
+</p>
+<p>(Hereinafter called &quot;the borrower&quot;) of the one part.</p>
+<p>AND</p>
+<p>
+<b>{{.LenderName}}</b><br>
+Age :- <b>{{.LenderAge}}</b>, business :- <b>{{.LenderBusiness}}</b><br>
+Aadhar Card No. <b>{{.LenderAadhaar}}</b><br>
+Pan Card No. <b>{{.LenderPAN}}</b><br>
+Residing at :- <b><span style="white-space:pre-line">{{.LenderAddress}}</span></b>
+</p>
+<p>(Hereinafter called &quot;the lender&quot;) of the other part.</p>
+<p>The lender carrying on business of money-lending under certificate of registration number <b>{{.LenderRegNo}}</b> of the other part.</p>
+<p>The Money lender and borrower are collectively referred to as the &quot;Parties&quot;.</p>
+<p><b>WHEREBY IT IS AGREED AS FOLLOWS</b></p>
+<ol>
+<li><b>Covenant to pay</b><br>In Consideration of the loan of Rs <b>{{.PrincipalAmount}}</b> advance by the lender to the borrower, the borrower hereby covenants with the lender that he will repay the said loan on or before {{.DueDate}} with interest at <b>{{.InterestRate}}</b> percent per annum from the date of execution of this agreement.</li>
+<li><b>Pledge Clause</b><br>The Lender has lent the sum of Rs <b>{{.PrincipalAmount}}</b> (the receipt of which the borrower hereby acknowledges) and borrower has delivered to the lender article belonging to the borrower and specified in the schedule hereto to be held by him as security for the repayment of the aforesaid loan in the manner herein provided,
+<ol type="a">
+<li><b>Right to Extraordinary Expenses</b> — The lender is entitled to receive from the borrower extraordinary expenses incurred by him for the preservation of the good pledged.</li>
+<li><b>Expenses of Repairs</b> — The Expenses of keeping the said articles in a good state of repair and in proper working order.</li>
+<li><b>Other Costs</b> — All other costs, charges and expenses (if any) which the lender may be entitled by law to add to his security.</li>
+</ol>
+</li>
+<li><b>Lender's Liability for Losses</b><br>The Lender shall not be liable to the borrower for any involuntary losses which may occur during his custody of the said articles (goods) or by reason of the sale thereof.</li>
+<li><b>Right of Lender</b><br>The Borrower further covenants with the lender that in case any interest payable hereunder is not paid within 30 days after the due date, the whole sum hereby secured shall become payable at once, and in case of default in the payment of the principal money hereby secured with interest thereon on the aforesaid or in the performance of any of the covenants by the borrower hereinbefore contained the lender may enforce all or any of the remedies of a Pawnee provided by law provided that in case of sale of any part of the pledged property, a previous notice of two months shall be given to the borrower.</li>
+<li><b>Power of Sale</b>
+<ol type="a">
+<li>The power of sale conferred by law on the lender shall be exercisable by public auction or private contract in respect of the entire articles in one lot or in several lots at the discretion of the lender;</li>
+<li>Before exercising such power of sale as aforesaid the lender shall give at least two months' notice to the borrower.</li>
+</ol>
+</li>
+<li><b>Interpretation clause</b><br>It is hereby agreed that wherever such an interpretation would be requisite in order to give the fullest scope and effect legally possible to any covenant herein contained, the expression &quot;the borrower&quot; and &quot;the lender&quot; hereinbefore used include their respective heirs, executors, administrators, and assigns.</li>
+</ol>
+<div class="deed-end">
+<p><b>The Schedule herein referred to</b></p>
+<table>
+<thead><tr><th>Sr. no</th><th>Description of the Article</th><th>Carat</th><th class="num">Gross Weight</th><th class="num">Net Weight</th><th class="num">Estimated Value</th></tr></thead>
+<tbody>
+{{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{wt $o.GrossWeight}}</td><td class="num">{{wt $o.NetWeight}}</td><td class="num">{{printf "%.0f" $o.Value}}</td></tr>
+{{else}}<tr><td colspan="6" style="text-align:center;color:#777">{{.Blank}}</td></tr>
+{{end}}
+</tbody>
+</table>
+<p><b>Total Estimated Value :- Rs. {{.TotalValue}}/-</b></p>
+<p><b>Total Loan Advanced :- Rs. {{.PrincipalAmount}}/-</b></p>
+{{if .Distribution}}<table style="margin:4px 0 10px">
+<thead><tr><th>Date</th><th>Particulars</th><th class="num">Amount (Rs.)</th></tr></thead>
+<tbody>
+{{range .Distribution}}<tr><td>{{.Date}}</td><td>{{if .Initial}}Initial loan amount{{else}}Additional loan amount{{end}}</td><td class="num">{{.Amount}}</td></tr>
+{{end}}<tr><th colspan="2">Total</th><th class="num">{{.PrincipalAmount}}</th></tr>
+</tbody>
+</table>{{end}}
+<p>Place :- {{.Blank}}</p>
+<p>Date :- {{printf "%02d" .Day}} / {{.Month}} / {{.Year}}</p>
+
+<div class="sig-bottom">
+<p><b>IN WITNESS WHEREOF Etc.</b></p>
+<div class="sig">
+<div><span class="esign-slot" data-esign-role="gml_esign_witness1" data-esign-dx="80" data-esign-dy="-58">Name: {{with .Witness1Name}}{{.}}{{else}}{{.Blank}}{{end}}<br>Residing at</span></div>
+<div><span class="esign-slot" data-esign-role="gml_esign_witness2" data-esign-dx="80" data-esign-dy="-58">Name: {{with .Witness2Name}}{{.}}{{else}}{{.Blank}}{{end}}<br>Residing at</span></div>
+</div>
+{{/* The Borrower/Lender signature row is deliberately the LAST thing in
+     this page-bottom-pinned block (.deed-end .sig-bottom{margin-top:auto} —
+     see that class's comment) — the Aadhaar eSign stamp targets
+     "bottom-right of the last page", which is whatever sits at the very
+     bottom, not a specific line. */}}
+<div class="sig">
+<div>The Borrower<span class="esign-slot" data-esign-role="gml_esign_borrower" data-esign-dx="80" data-esign-dy="-58">Name: {{.CustomerName}}</span></div>
+<div>The Lender{{with .LenderSignature}}<div class="lender-sig">{{.}}</div>{{end}}<span>{{.LenderName}}</span></div>
+</div>
+</div>
+</div>
+</body></html>

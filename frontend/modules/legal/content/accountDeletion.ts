@@ -1,8 +1,8 @@
 import type { LegalDocumentSource } from "@/modules/legal/types/legal-types";
 import {
-  BACKUP_PURGE_DAYS,
-  DELETION_COMPLETE_DAYS,
-  DELETION_REPLY_DAYS,
+	BACKUP_PURGE_DAYS,
+	DELETION_COMPLETE_DAYS,
+	DELETION_REPLY_DAYS,
 } from "@/modules/legal/content/legalConfig";
 
 export const accountDeletion: LegalDocumentSource = {

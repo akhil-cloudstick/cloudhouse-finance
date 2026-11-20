@@ -63,7 +63,7 @@ func roundWindowCorners(title string) {
 	if isWindows11() {
 		return
 	}
-	go func() {
+	guardGo("window corners", func() {
 		var hwnd uintptr
 		for i := 0; i < 100 && hwnd == 0; i++ {
 			hwnd = findWindow(title)
@@ -100,5 +100,5 @@ func roundWindowCorners(title string) {
 			rgn, _, _ := procCreateRoundRectRgn.Call(0, 0, uintptr(w+1), uintptr(h+1), diameter, diameter)
 			procSetWindowRgn.Call(hwnd, rgn, 1)
 		}
-	}()
+	})
 }

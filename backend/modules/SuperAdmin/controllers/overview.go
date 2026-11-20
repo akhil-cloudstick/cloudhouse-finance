@@ -200,11 +200,11 @@ func recordPayment(ctx context.Context, actor *models.SuperAdminUser, tenantID u
 	}
 	mode := strings.TrimSpace(in.Mode)
 	if !PaymentModes[mode] {
-		return nil, common.NewBadRequest("payment mode must be one of cash, bank_transfer, upi, cheque, card, other")
+		return nil, common.NewBadRequest("payment mode is not valid")
 	}
 	paidOn, err := time.Parse("2006-01-02", strings.TrimSpace(in.PaidOn))
 	if err != nil || paidOn.After(time.Now()) {
-		return nil, common.NewBadRequest("payment date is required (YYYY-MM-DD) and cannot be in the future")
+		return nil, common.NewBadRequest("payment date is required (not in the future)")
 	}
 	from, err := optionalDate(in.PeriodFrom)
 	if err != nil {

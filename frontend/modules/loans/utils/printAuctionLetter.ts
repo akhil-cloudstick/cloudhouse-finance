@@ -17,10 +17,10 @@ import { type LoanView } from "@/modules/loans/types/loan-types";
  * already-existing ones) plus notice/venue fields that have no backend
  * equivalent. Now works directly off a real loan. */
 export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
-  const today = new Date().toISOString().slice(0, 10);
-  const venue = `${BRAND.legalName}, Head Office`;
+	const today = new Date().toISOString().slice(0, 10);
+	const venue = `${BRAND.legalName}, Head Office`;
 
-  openPrintWindow("Auction Letter — " + loan.id, `
+	openPrintWindow("Auction Letter — " + loan.id, `
     ${brandHeader()}
     <p class="muted">Ref: CHGF/AUC/${loan.id.replace("LN-", "")} · Date: ${today}</p>
     <p><b>To,</b><br>${loan.customerName}</p>
@@ -37,8 +37,8 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
     <table>
       <tr><th>Ornament</th><th>Purity</th><th class="num">Gross (g)</th><th class="num">Net (g)</th><th class="num">Qty</th></tr>
       ${loan.ornaments.length
-      ? loan.ornaments.map((o) => `<tr><td>${o.name}</td><td>${o.purity}</td><td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td></tr>`).join("")
-      : `<tr><td colspan="5">Pledged gold — ${loan.totalNetWeight.toFixed(1)} g total</td></tr>`}
+			? loan.ornaments.map((o) => `<tr><td>${o.name}</td><td>${o.purity}</td><td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td></tr>`).join("")
+			: `<tr><td colspan="5">Pledged gold — ${loan.totalNetWeight.toFixed(1)} g total</td></tr>`}
     </table>
     <ol start="4">
       <li>Any surplus from the auction sale after adjusting the principal, interest, penal charges and auction
@@ -48,5 +48,5 @@ export function printAuctionLetter(loan: LoanView, toast: (m: string) => void) {
     </ol>
     <p>This notice is issued as per the terms of the loan agreement and applicable regulations.</p>
     <div class="sig"><div><span>Authorized Signatory</span></div><div><span>Branch Manager</span></div></div>`,
-    toast);
+		toast);
 }

@@ -28,15 +28,15 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 // Which field a server message is about, by its words (first match wins).
 const SERVER_FIELDS: Record<string, RegExp> = {
-  fromBank: /from bank/i, toBank: /to bank/i, remarks: /remarks/i, branch: /branch/i, date: /date/i, category: /categor|loan/i, amount: /amount/i,
+	fromBank: /from bank/i, toBank: /to bank/i, remarks: /remarks/i, branch: /branch/i, date: /date/i, category: /categor|loan/i, amount: /amount/i,
 };
 
 // How the money moved — both ledger rows show it. Banks are always From/To here,
 // so unlike Credit/Debit there is no separate Bank field for the mode.
 const MODE_OPTIONS = [
-  { value: "Bank Transfer", label: "Bank Transfer" },
-  { value: "UPI", label: "UPI" },
-  { value: "Cash", label: "Cash" },
+	{ value: "Bank Transfer", label: "Bank Transfer" },
+	{ value: "UPI", label: "UPI" },
+	{ value: "Cash", label: "Cash" },
 ];
 
 // Built-in categories that move money between the cash drawer and a bank. The cash side has no bank
@@ -59,208 +59,209 @@ type SelfTransferModalContentProps = { onSaved?: () => void; defaultBranchId?: n
  * repayment, debited from From Bank and credited on that loan's ledger. */
 export function SelfTransferModalContent({ onSaved, defaultBranchId, tabs, edit }: SelfTransferModalContentProps) {
   const { closeModal, closeAllModals } = useModal();
-  const toast = useToast();
-  const today = new Date().toISOString().slice(0, 10);
+	const toast = useToast();
+	const today = new Date().toISOString().slice(0, 10);
 
-  // Editing starts from the entry's category name; the full row (a loan's
-  // details) is looked up below.
-  const [catRec, setCatRec] = useState<BackendCategory | null>(edit ? ({ id: 0, name: edit.category } as BackendCategory) : null);
-  const category = catRec?.name ?? "";
-  useEffect(() => {
-    if (!edit || !isLoanSource(edit.category)) return;
-    searchTransferCategories(edit.category, 0).then((r) => {
-      const found = r.items.find((c) => c.name === edit.category);
-      if (found) setCatRec(found);
-    }).catch(() => {});
-  }, [edit]);
-  // A loan category (name starts with "Loan") makes this a repayment on that loan.
-  const loan = catRec && isLoanSource(catRec.name) ? catRec : null;
-  const loanReady = !!loan;
-  const cashToBank = sameName(category, CASH_TO_BANK);
-  const bankToCash = sameName(category, BANK_TO_CASH);
-  const cashSide = cashToBank || bankToCash;
+	// Editing starts from the entry's category name; the full row (a loan's
+	// details) is looked up below.
+	const [catRec, setCatRec] = useState<BackendCategory | null>(edit ? ({ id: 0, name: edit.category } as BackendCategory) : null);
+	const category = catRec?.name ?? "";
+	useEffect(() => {
+		if (!edit || !isLoanSource(edit.category)) return;
+		searchTransferCategories(edit.category, 0).then((r) => {
+			const found = r.items.find((c) => c.name === edit.category);
+			if (found) setCatRec(found);
+		}).catch(() => {});
+	}, [edit]);
+	// A loan category (name starts with "Loan") makes this a repayment on that loan.
+	const loan = catRec && isLoanSource(catRec.name) ? catRec : null;
+	const loanReady = !!loan;
+	const cashToBank = sameName(category, CASH_TO_BANK);
+	const bankToCash = sameName(category, BANK_TO_CASH);
+	const cashSide = cashToBank || bankToCash;
 
-  const [fromBank, setFromBank] = useState(edit?.fromBank ?? "");
-  const [fromBankId, setFromBankId] = useState(edit?.fromBankId ? String(edit.fromBankId) : "");
-  const [toBank, setToBank] = useState(edit?.toBank ?? "");
-  const [toBankId, setToBankId] = useState(edit?.toBankId ? String(edit.toBankId) : "");
-  // A Cash to Bank entry's first line is the cash debit, so its bank-side mode is not on the form.
-  const [mode, setMode] = useState(edit?.lines[0]?.mode && edit.lines[0].mode !== "Cash" ? edit.lines[0].mode : "Bank Transfer");
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
-  const [remarks, setRemarks] = useState(edit?.remarks ?? "");
+	const [fromBank, setFromBank] = useState(edit?.fromBank ?? "");
+	const [fromBankId, setFromBankId] = useState(edit?.fromBankId ? String(edit.fromBankId) : "");
+	const [toBank, setToBank] = useState(edit?.toBank ?? "");
+	const [toBankId, setToBankId] = useState(edit?.toBankId ? String(edit.toBankId) : "");
+	// A Cash to Bank entry's first line is the cash debit, so its bank-side mode is not on the form.
+	const [mode, setMode] = useState(edit?.lines[0]?.mode && edit.lines[0].mode !== "Cash" ? edit.lines[0].mode : "Bank Transfer");
+	const [receiptFile, setReceiptFile] = useState<File | null>(null);
+	const [amt, setAmt] = useState(edit ? String(edit.amount) : "");
+	const [remarks, setRemarks] = useState(edit?.remarks ?? "");
 
-  // A transfer to a loan is a repayment — it can't exceed what has been drawn
-  // and not yet repaid. Blocks the button (the backend refuses it too). When
-  // editing, the entry's own amount is already counted as repaid.
-  const loanBal = useLoanBalance(loan);
-  const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit ? edit.amount : 0) : 0;
-  const loanExceeded = !!loanBal && (+amt || 0) > owed + 0.005;
-  const loanWarning = loanExceeded
-    ? `Repayment exceeds what has been paid on ${category} — only ${fmt(owed)} is outstanding.`
-    : "";
+	// A transfer to a loan is a repayment — it can't exceed what has been drawn
+	// and not yet repaid. Blocks the button (the backend refuses it too). When
+	// editing, the entry's own amount is already counted as repaid.
+	const loanBal = useLoanBalance(loan);
+	const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit ? edit.amount : 0) : 0;
+	const loanExceeded = !!loanBal && (+amt || 0) > owed + 0.005;
+	const loanWarning = loanExceeded
+		? `Repayment exceeds what has been paid on ${category} — only ${fmt(owed)} is outstanding.`
+		: "";
 
-  const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
-  const [err, setErr] = useState("");
-  // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
-  const [fe, setFe] = useState<Record<string, string>>({});
-  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
-  const [saving, setSaving] = useState(false);
+	const [date, setDate] = useState(edit ? edit.occurredOn.slice(0, 10) : today);
+	const [err, setErr] = useState("");
+	// Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
+	const [fe, setFe] = useState<Record<string, string>>({});
+	const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+	const [saving, setSaving] = useState(false);
 
-  const [branches, setBranches] = useState<BranchView[]>([]);
-  const { singleBranch } = useBranding();
-  // Single-branch plan: no branch is ever shown — the field is not rendered.
-  const showBranch = useShowBranch();
-  // Locked (and defaulted) to the global branch selection when one is
-  // active, the same way a single-branch business locks it.
-  const lockedBranchId = useLockedBranchId();
-  const branchLocked = singleBranch || lockedBranchId != null;
-  const [branchId, setBranchId] = useState<number | "">(edit?.branchId || defaultBranchId || lockedBranchId || "");
-  useEffect(() => {
-    listActiveBranches().then((list) => {
-      setBranches(list);
-      if (list.length) setBranchId((cur) => cur || list[0].id);
-    }).catch(() => setErr("Could not load branches — try again later."));
-  }, []);
+	const [branches, setBranches] = useState<BranchView[]>([]);
+	const { singleBranch } = useBranding();
+	// Single-branch plan: no branch is ever shown — the field is not rendered.
+	const showBranch = useShowBranch();
+	// Locked (and defaulted) to the global branch selection when one is
+	// active, the same way a single-branch business locks it.
+	const lockedBranchId = useLockedBranchId();
+	const branchLocked = singleBranch || lockedBranchId != null;
+	const [branchId, setBranchId] = useState<number | "">(edit?.branchId || defaultBranchId || lockedBranchId || "");
+	useEffect(() => {
+		listActiveBranches().then((list) => {
+			setBranches(list);
+			if (list.length) setBranchId((cur) => cur || list[0].id);
+		}).catch(() => setErr("Could not load branches — try again later."));
+	}, []);
 
-  async function save() { return singleFlight("modal:selftransfer:save", async () => {
-    const amount = +amt;
-    setErr(""); setFe({});
-    // Every problem is shown at once, each beside its own field.
-    const errors: Record<string, string> = {};
-    if (!category) errors["category"] ??= "Please select a category.";
-    if (!(amount > 0)) errors["amount"] ??= "Please enter a valid amount.";
-    if (!date) errors["date"] ??= "Please select the date.";
-    if (!cashToBank && !fromBankId) errors["fromBank"] ??= "Please select the From Bank.";
-    if (loan && !loanReady) errors["category"] ??= "This loan has no details recorded yet — add cash from it first.";
-    if (!loan && !bankToCash && !toBankId) errors["toBank"] ??= "Please select the To Bank.";
-    if (!loan && !cashSide && toBankId === fromBankId) errors["toBank"] ??= "From Bank and To Bank must be different.";
-    if (!branchId) errors["branch"] ??= "Please select a branch.";
-    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
-    if (!branchId) return; // narrows branchId; the check above already reported it
+	async function save() { return singleFlight("modal:selftransfer:save", async () => {
+		const amount = +amt;
+		setErr(""); setFe({});
+		// Every problem is shown at once, each beside its own field.
+		const errors: Record<string, string> = {};
+		if (!category) errors["category"] ??= "Please select a category.";
+		if (!(amount > 0)) errors["amount"] ??= "Please enter a valid amount.";
+		if (!date) errors["date"] ??= "Please select the date.";
+		if (!cashToBank && !fromBankId) errors["fromBank"] ??= "Please select the From Bank.";
+		if (loan && !loanReady) errors["category"] ??= "This loan has no details recorded yet — add cash from it first.";
+		if (!loan && !bankToCash && !toBankId) errors["toBank"] ??= "Please select the To Bank.";
+		if (!loan && !cashSide && toBankId === fromBankId) errors["toBank"] ??= "From Bank and To Bank must be different.";
+		if (!branchId) errors["branch"] ??= "Please select a branch.";
+		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+		if (!branchId) return; // narrows branchId; the check above already reported it
 
-    setSaving(true);
-    try {
-      const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
-      // The cash side of Cash to Bank / Bank to Cash carries no bank.
-      const noTo = !!loan || bankToCash;
-      const sendMode = cashSide && mode === "Cash" ? "Bank Transfer" : mode;
-      const fromPart = cashToBank ? { fromBankId: undefined, fromBank: undefined } : { fromBankId: +fromBankId, fromBank };
-      const toPart = noTo ? { toBankId: undefined, toBank: undefined } : { toBankId: +toBankId, toBank };
-      if (edit) {
-        await updateMovementEntry(edit.movementId, {
-          kind: "self_transfer", category, amount, ...fromPart, mode: sendMode, receiptImage, ...toPart,
-          branchId, occurredOn: date, remarks: remarks.trim(),
-        });
-        onSaved?.();
+		setSaving(true);
+		try {
+			const receiptImage = receiptFile ? await uploadReceipt(receiptFile) : undefined;
+			// The cash side of Cash to Bank / Bank to Cash carries no bank.
+			const noTo = !!loan || bankToCash;
+			const sendMode = cashSide && mode === "Cash" ? "Bank Transfer" : mode;
+			const fromPart = cashToBank ? { fromBankId: undefined, fromBank: undefined } : { fromBankId: +fromBankId, fromBank };
+			const toPart = noTo ? { toBankId: undefined, toBank: undefined } : { toBankId: +toBankId, toBank };
+			if (edit) {
+				await updateMovementEntry(edit.movementId, {
+					kind: "self_transfer", category, amount, ...fromPart, mode: sendMode, receiptImage, ...toPart,
+					branchId, occurredOn: date, remarks: remarks.trim(),
+				});
+				onSaved?.();
         closeAllModals();
-        toast("Self transfer updated");
-        return;
-      }
-      await createSelfTransfer({
-        category, amount, ...fromPart, mode: sendMode, receiptImage, ...toPart,
-        branchId, occurredOn: date, remarks: remarks.trim() || undefined,
-      });
-      onSaved?.();
-      closeModal();
-      const fromLabel = cashToBank ? "Cash" : fromBank;
-      const toLabel = bankToCash ? "Cash" : toBank;
-      toast(loan ? `${fmt(amount)} repaid on ${category} from ${fromBank}` : `${fmt(amount)} transferred ${fromLabel} → ${toLabel}`);
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not save — try again.";
-      const field = fieldForMessage(msg, SERVER_FIELDS);
-      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
-    } finally {
-      setSaving(false);
-    }
-  }); }
+				toast("Self transfer updated");
+				return;
+			}
+			await createSelfTransfer({
+				category, amount, ...fromPart, mode: sendMode, receiptImage, ...toPart,
+				branchId, occurredOn: date, remarks: remarks.trim() || undefined,
+			});
+			onSaved?.();
+			closeModal();
+			const fromLabel = cashToBank ? "Cash" : fromBank;
+			const toLabel = bankToCash ? "Cash" : toBank;
+			toast(loan ? `${fmt(amount)} repaid on ${category} from ${fromBank}` : `${fmt(amount)} transferred ${fromLabel} → ${toLabel}`);
+		} catch (e) {
+			const msg = e instanceof ApiError ? e.message : "Could not save — try again.";
+			const field = fieldForMessage(msg, SERVER_FIELDS);
+			if (field) fail(field, msg); else { setFe({}); setErr(msg); }
+		} finally {
+			setSaving(false);
+		}
+	}); }
 
-  const bankPicker = (value: string, onPick: (id: string, name: string) => void) => (
-    <SearchableSelect<BackendBank>
-      portal
-      value={value}
-      onChange={(id, item) => onPick(id, item.name)}
-      fetchFn={searchBanksPage}
-      searchHint="Searches: bank name"
-      getLabel={(b) => b.name}
-      getId={(b) => String(b.id)}
-      placeholder="Search or add a bank…"
-      allowCreate
-      onCreate={createBank}
-    />
-  );
+	const bankPicker = (value: string, onPick: (id: string, name: string) => void) => (
+		<SearchableSelect<BackendBank>
+			portal
+			value={value}
+			onChange={(id, item) => onPick(id, item.name)}
+			fetchFn={searchBanksPage}
+			searchHint="Searches: bank name"
+			getLabel={(b) => b.name}
+			getId={(b) => String(b.id)}
+			placeholder="Search or add a bank…"
+			allowCreate
+			onCreate={createBank}
+		/>
+	);
 
-  return (
-    <>
-      <div className="hd"><h3>{edit ? "Edit Self Transfer" : "Self Transfer"}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll entry-form">
-        {tabs}
-        {/* Same order as every entry form: Category → Date → Mode → Amount → Branch → Bill
-            (the From/To banks sit with Mode, since they replace the usual Bank field). */}
-        <div className="frow">
-          <div className={fe.category ? "has-err" : undefined}><label className="f">Category *</label>
-            <SearchableSelect<BackendCategory>
-              portal
-              value={category}
-              onChange={(_id, item) => {
-                setCatRec(item);
-                clearFe("category");
-                // A category from another form: choosing it flips it to common.
-                if (item.type !== "self_transfer" && !item.isCommon) createCategory("self_transfer")(item.name).catch(() => {});
-              }}
-              fetchFn={searchTransferCategories}
-              searchHint="Searches: category / loan name"
-              getLabel={(s) => s.name}
-              getId={(s) => String(s.id)}
-              placeholder="Search or add a category…"
-              allowCreate
-              onCreate={createCategory("self_transfer")}
-              onDeleteItem={(c) => deleteCategoryById(c.id).then(() => { if (c.name === category) setCatRec(null); toast(`Category "${c.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this category."); throw e; })}
-            /><FieldError msg={fe.category} /></div>
-        </div>
-        <div className="frow c2">
-          <div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
-          <div><label className="f">Mode *</label><Select options={cashSide ? BANK_MODE_OPTIONS : MODE_OPTIONS} value={cashSide && mode === "Cash" ? "Bank Transfer" : mode} onChange={setMode} /></div>
-        </div>
-        <div className={loan ? "frow" : "frow c2"}>
-          {cashToBank ? (
-            <div><label className="f">From</label><input className="inp" value="Cash" disabled readOnly /></div>
-          ) : (
-            <div className={fe.fromBank ? "has-err" : undefined}><label className="f">From Bank *</label>{bankPicker(fromBank, (id, name) => { setFromBankId(id); setFromBank(name); clearFe("fromBank"); })}<FieldError msg={fe.fromBank} /></div>
-          )}
-          {bankToCash ? (
-            <div><label className="f">To</label><input className="inp" value="Cash" disabled readOnly /></div>
-          ) : !loan && (
-            <div className={fe.toBank ? "has-err" : undefined}><label className="f">To Bank *</label>{bankPicker(toBank, (id, name) => { setToBankId(id); setToBank(name); clearFe("toBank"); })}<FieldError msg={fe.toBank} /></div>
-          )}
-        </div>
-        <div className={showBranch ? "frow c2" : "frow"}>
-          <div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} onWheel={noWheelStep} /><FieldError msg={fe.amount} /></div>
-          {showBranch && (
-            <div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
-              <Select
-                disabled={branchLocked}
-                options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
-                value={branchId ? String(branchId) : ""}
-                onChange={(v) => { setBranchId(v ? Number(v) : ""); clearFe("branch"); }}
-                placeholder="Select branch…"
-              /><FieldError msg={fe.branch} /></div>
-          )}
-        </div>
-        <div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
-          <FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
-        <div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
+	return (
+		<>
+			<div className="hd"><h3>{edit ? "Edit Self Transfer" : "Self Transfer"}</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll entry-form">
+				{tabs}
+				{/* Same order as every entry form: Category → Date → Mode → Amount → Branch → Bill
+						(the From/To banks sit with Mode, since they replace the usual Bank field). */}
+				<div className="frow">
+					<div className={fe.category ? "has-err" : undefined}><label className="f">Category *</label>
+						<SearchableSelect<BackendCategory>
+							portal
+							value={category}
+							onChange={(_id, item) => {
+								setCatRec(item);
+								clearFe("category");
+								// A category from another form: choosing it flips it to common.
+								if (item.type !== "self_transfer" && !item.isCommon) createCategory("self_transfer")(item.name).catch(() => {});
+							}}
+							fetchFn={searchTransferCategories}
+							searchHint="Searches: category / loan name"
+							getLabel={(s) => s.name}
+							getId={(s) => String(s.id)}
+							placeholder="Search or add a category…"
+							allowCreate
+							onCreate={createCategory("self_transfer")}
+							onDeleteItem={(c) => deleteCategoryById(c.id).then(() => { if (c.name === category) setCatRec(null); toast(`Category "${c.name}" deleted`); }, (e) => { toast(e instanceof ApiError ? e.message : "Could not delete this category."); throw e; })}
+						/><FieldError msg={fe.category} /></div>
+				</div>
+				<div className="frow c2">
+					<div className={fe.date ? "has-err" : undefined}><label className="f">Date *</label><DatePicker value={date} onChange={(v) => { setDate(v); clearFe("date"); }} /><FieldError msg={fe.date} /></div>
+					<div><label className="f">Mode *</label><Select options={cashSide ? BANK_MODE_OPTIONS : MODE_OPTIONS} value={cashSide && mode === "Cash" ? "Bank Transfer" : mode} onChange={setMode} /></div>
+				</div>
+				<div className={loan ? "frow" : "frow c2"}>
+					{cashToBank ? (
+						<div><label className="f">From</label><input className="inp" value="Cash" disabled readOnly /></div>
+					) : (
+						<div className={fe.fromBank ? "has-err" : undefined}><label className="f">From Bank *</label>{bankPicker(fromBank, (id, name) => { setFromBankId(id); setFromBank(name); clearFe("fromBank"); })}<FieldError msg={fe.fromBank} /></div>
+					)}
+					{bankToCash ? (
+						<div><label className="f">To</label><input className="inp" value="Cash" disabled readOnly /></div>
+					) : !loan && (
+						<div className={fe.toBank ? "has-err" : undefined}><label className="f">To Bank *</label>{bankPicker(toBank, (id, name) => { setToBankId(id); setToBank(name); clearFe("toBank"); })}<FieldError msg={fe.toBank} /></div>
+					)}
+				</div>
+				<div className={showBranch ? "frow c2" : "frow"}>
+					<div className={fe.amount ? "has-err" : undefined}><label className="f">Amount (₹) *</label><input className="inp" type="number" min={1} value={amt} onChange={(e) => { setAmt(e.target.value); clearFe("amount"); }} onWheel={noWheelStep} /><FieldError msg={fe.amount} /></div>
+					{showBranch && (
+						<div className={fe.branch ? "has-err" : undefined}><label className="f">Branch *</label>
+							<Select
+								disabled={branchLocked}
+								options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+								value={branchId ? String(branchId) : ""}
+								onChange={(v) => { setBranchId(v ? Number(v) : ""); clearFe("branch"); }}
+								placeholder="Select branch…"
+							/><FieldError msg={fe.branch} /></div>
+					)}
+				</div>
+				<div className="frow"><div><label className="f">Bill{edit?.receiptImage ? <span style={{ fontWeight: 400, color: "var(--muted)" }}> (a bill is attached — choose a file to replace it)</span> : null}</label>
+					<FileInput value={receiptFile} onChange={setReceiptFile} accept="image/*" /></div></div>
+				<div className="frow"><div className={fe.remarks ? "has-err" : undefined}><label className="f">Remarks</label>
           <NoteField placeholder="Optional notes" value={remarks} onChange={(v) => { setRemarks(v); clearFe("remarks"); }} /><FieldError msg={fe.remarks} /></div></div>
-        {loanWarning && (
-          <div className="notice" style={{ marginBottom: 4, borderLeft: "3px solid var(--red)", color: "var(--red)" }}>
-            {loanWarning}
-          </div>
-        )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
-      </div>
-      <div className="ft">        <button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Transfer"}</button>
-      </div>
-    </>
-  );
+				{loanWarning && (
+					<div className="notice" style={{ marginBottom: 4, borderLeft: "3px solid var(--red)", color: "var(--red)" }}>
+						{loanWarning}
+					</div>
+				)}
+			</div>
+			<div className="ft">
+					{err && <span className="ft-err" role="alert">{err}</span>}
+				<button className="btn" onClick={save} disabled={saving || loanExceeded}><Icon name="check" /> {saving ? "Saving…" : edit ? "Save Changes" : "Record Transfer"}</button>
+			</div>
+		</>
+	);
 }

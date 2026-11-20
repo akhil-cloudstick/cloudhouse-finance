@@ -69,7 +69,7 @@ func ensureSession(ctx context.Context) (*models.Session, error) {
 	var created openwaSession
 	if err := openwaCall(http.MethodPost, "/sessions", map[string]string{"name": sessionName(ctx)}, &created); err != nil {
 		if isOpenWAStatus(err, http.StatusConflict) {
-			return nil, common.NewConflict("a WhatsApp session already exists for this business; ask support to reset it")
+			return nil, common.NewConflict("WhatsApp session already exists")
 		}
 		return nil, err
 	}

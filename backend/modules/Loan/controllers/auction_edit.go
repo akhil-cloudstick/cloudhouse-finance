@@ -128,7 +128,6 @@ func loadAuctionState(ctx context.Context, tx *gorm.DB, loanID uint) (*auctionSt
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-
 	return st, nil
 }
 
@@ -248,7 +247,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 		}
 		res.Current = cur
 		others := append([]models.LoanPayment{}, st.rows[:st.saleIdx]...)
-
 		// the balance just before the sale: the loan as it is now with the sale (and a write-off after it) taken off,
 		// so every payment the customer made is already in it
 		before := *l
@@ -258,7 +256,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 		takeOffLoan(&before, sale)
 		oldDebt := summarize(&before).Total
 		after := before
-
 		var out saleOutcome
 		saleDate := sale.PaidOn
 		var newSale models.LoanPayment
@@ -356,7 +353,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 				newWriteOff = summarize(&after).Total
 			}
 		}
-
 		snap := st.snapshot()
 		res.Dependents = detectDependents(snap, out, newWriteOff, undo)
 		if !dryRun {
@@ -373,7 +369,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			}
 			return false
 		}
-
 		// the rows after the change: the other payments, the new sale, and the write-off when it stays
 		edited := append([]models.LoanPayment{}, others...)
 		removeWriteOff := st.woIdx >= 0 && (undo || out.Covered)
@@ -387,7 +382,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			}
 			edited = append(edited, wo)
 		}
-
 		// the case, its decision and the loan after the change
 		var plan casePlan
 		decStatus := ""
@@ -411,7 +405,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			}
 			plan = planCase(out, decStatus, keepSettlement, settledDisp, shortfallChain.Off())
 		}
-
 		// a write-off that stays is applied on the balance the sale leaves
 		if st.woIdx >= 0 && !removeWriteOff {
 			wo := &edited[len(edited)-1]
@@ -435,7 +428,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			res.Outcome = &out
 		}
 		res.After = summarize(l)
-
 		// ---- save ----
 		for i := range edited {
 			if err := tx.WithContext(ctx).Save(&edited[i]).Error; err != nil {
@@ -456,7 +448,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 			return err
 		}
 		txCtx := cashbook.WithTx(ctx, tx)
-
 		// a settled surplus
 		if settledDisp != "" && depApplied(DependentSurplusSettlement) {
 			var oldMove *cashModels.CashMovement
@@ -486,7 +477,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 				rec.SurplusDisposition = ""
 			}
 		}
-
 		// the sale's cash lines and expense entry
 		if err := cashbook.DeleteLinesByGroup(txCtx, oldGroup); err != nil {
 			return err
@@ -512,7 +502,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 				}
 			}
 		}
-
 		// the case record
 		if undo {
 			rec.SaleAmount, rec.AuctionExpenses, rec.SurplusShortfall, rec.SurplusPayableAmount = 0, 0, 0, 0
@@ -525,7 +514,6 @@ func editAuctionSale(ctx context.Context, loanID uint, in *AuctionSaleEdit, appl
 		if err := updateAuctionTx(ctx, tx, rec); err != nil {
 			return err
 		}
-
 		// the shortfall decision
 		switch {
 		case st.dec != nil && (undo || out.Covered):
@@ -908,6 +896,7 @@ func EditAuctionSale(c echo.Context) error {
 
 // DeleteAuctionSale is DELETE /loans/:id/auction/sale[?dry_run=true]; apply_dependents goes in the JSON body.
 func DeleteAuctionSale(c echo.Context) error {
+	reason := c.QueryParam("reason")
 	ctx, loanID, dry, err := auctionEditPrologue(c, "can record auction sale", "")
 	if err != nil {
 		return common.FailErr(c, err)
@@ -918,7 +907,7 @@ func DeleteAuctionSale(c echo.Context) error {
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	return finishAuctionEdit(c, ctx, loanID, "Auction sale deleted", res, dry, c.QueryParam("reason"))
+	return finishAuctionEdit(c, ctx, loanID, "Auction sale deleted", res, dry, reason)
 }
 
 // EditAuctionWriteOff is PATCH /loans/:id/auction/write-off[?dry_run=true]; body {paid_on}.
@@ -944,6 +933,7 @@ func EditAuctionWriteOff(c echo.Context) error {
 
 // DeleteAuctionWriteOff is DELETE /loans/:id/auction/write-off[?dry_run=true]; apply_dependents goes in the body.
 func DeleteAuctionWriteOff(c echo.Context) error {
+	reason := c.QueryParam("reason")
 	ctx, loanID, dry, err := auctionEditPrologue(c, "", common.FlowAuctionShortfall)
 	if err != nil {
 		return common.FailErr(c, err)
@@ -954,7 +944,7 @@ func DeleteAuctionWriteOff(c echo.Context) error {
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	return finishAuctionEdit(c, ctx, loanID, "Auction write-off deleted", res, dry, c.QueryParam("reason"))
+	return finishAuctionEdit(c, ctx, loanID, "Auction write-off deleted", res, dry, reason)
 }
 
 // EditAuctionSurplus is PATCH /loans/:id/auction/surplus[?dry_run=true].
@@ -984,6 +974,7 @@ func EditAuctionSurplus(c echo.Context) error {
 
 // DeleteAuctionSurplus is DELETE /loans/:id/auction/surplus[?dry_run=true].
 func DeleteAuctionSurplus(c echo.Context) error {
+	reason := c.QueryParam("reason")
 	ctx, loanID, dry, err := auctionEditPrologue(c, "can settle auction", "")
 	if err != nil {
 		return common.FailErr(c, err)
@@ -992,5 +983,5 @@ func DeleteAuctionSurplus(c echo.Context) error {
 	if err != nil {
 		return common.FailErr(c, err)
 	}
-	return finishAuctionEdit(c, ctx, loanID, "Auction surplus settlement deleted", res, dry, c.QueryParam("reason"))
+	return finishAuctionEdit(c, ctx, loanID, "Auction surplus settlement deleted", res, dry, reason)
 }

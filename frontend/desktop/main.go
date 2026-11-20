@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -98,11 +99,17 @@ const framelessWindow = true
 var nonIDChars = regexp.MustCompile(`[^a-z0-9]+`)
 
 // One lock per business, so two different tenants' apps can still run side by side.
+// CLOUDHOUSE_INSTANCE lets a second copy run on the same PC for testing the LAN screen.
 func instanceID() string {
-	return "cloudhouse-finance-" + nonIDChars.ReplaceAllString(strings.ToLower(windowTitle), "-")
+	id := "cloudhouse-finance-" + nonIDChars.ReplaceAllString(strings.ToLower(windowTitle), "-")
+	if inst := strings.ToLower(strings.TrimSpace(os.Getenv("CLOUDHOUSE_INSTANCE"))); inst != "" {
+		id += "-" + nonIDChars.ReplaceAllString(inst, "-")
+	}
+	return id
 }
 
 func main() {
+	setupCrashLog()
 	update.WaitForPreviousInstance(os.Args[1:])
 	update.CleanupOld()
 	if framelessWindow {
@@ -116,6 +123,8 @@ func main() {
 		// during `npm run start`. Errors only, same as the backend's own
 		// terminal output.
 		LogLevel: logger.ERROR,
+		// the web view process dying closes the app; its report goes to webview.log so the cause is not lost
+		Logger: logger.NewFileLogger(filepath.Join(crashDir(), "webview.log")),
 		// No native right-click menu at all — the app draws its own
 		// (DesktopContextMenu.tsx), PIN-gating Inspect every time.
 		EnableDefaultContextMenu: false,
@@ -127,11 +136,12 @@ func main() {
 		Frameless:                framelessWindow,
 		AssetServer:              assetOptions(),
 		OnStartup:                app.startup,
+		OnShutdown:               app.shutdown,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               instanceID(),
 			OnSecondInstanceLaunch: app.onSecondInstanceLaunch,
 		},
-		Bind:                     []any{app},
+		Bind: []any{app},
 	})
 	if err != nil {
 		log.Fatal(err)

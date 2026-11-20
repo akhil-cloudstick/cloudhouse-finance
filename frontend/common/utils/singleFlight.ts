@@ -8,11 +8,11 @@
 const inflight = new Set<string>();
 
 export async function singleFlight<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
-  if (inflight.has(key)) return undefined;
-  inflight.add(key);
-  try {
-    return await fn();
-  } finally {
-    inflight.delete(key);
-  }
+	if (inflight.has(key)) return undefined;
+	inflight.add(key);
+	try {
+		return await fn();
+	} finally {
+		inflight.delete(key);
+	}
 }

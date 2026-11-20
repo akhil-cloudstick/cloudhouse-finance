@@ -345,7 +345,7 @@ func deactivateBranch(ctx context.Context, id uint, by actor) (*commonModels.Bra
 		return nil, err
 	}
 	if refs > 0 {
-		return nil, NewConflict("branch cannot be deactivated while it still has linked employees, expenses, cash movements, or customers")
+		return nil, NewConflict("branch still has linked records")
 	}
 	rec.IsActive = false
 	if err := persistBranch(ctx, rec); err != nil {

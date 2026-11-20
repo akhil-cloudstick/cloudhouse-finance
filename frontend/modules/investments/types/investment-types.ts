@@ -24,60 +24,60 @@ export type ProductType = "Bond";
 /* Mirrors backend/internal/investment/model_plan.go's InvestmentPlan
  * exactly (only the fields the frontend needs). */
 export type BackendInvestmentPlan = {
-  id: number;
-  name: string;
-  interestRateType: InterestRateType;
-  interestRatePercent: number;
-  payoutFrequency: PayoutFrequency;
-  tenureMonths: number;
-  minPrincipal: number;
-  isActive: boolean;
-  engine: Engine;
-  productType: ProductType;
+	id: number;
+	name: string;
+	interestRateType: InterestRateType;
+	interestRatePercent: number;
+	payoutFrequency: PayoutFrequency;
+	tenureMonths: number;
+	minPrincipal: number;
+	isActive: boolean;
+	engine: Engine;
+	productType: ProductType;
 };
 export type CreatePlanInput = {
-  name: string;
-  interestRateType: InterestRateType;
-  interestRatePercent: number;
-  payoutFrequency: PayoutFrequency;
-  tenureMonths: number;
-  minPrincipal: number;
-  isActive: boolean;
-  engine: Engine;
-  productType: ProductType;
+	name: string;
+	interestRateType: InterestRateType;
+	interestRatePercent: number;
+	payoutFrequency: PayoutFrequency;
+	tenureMonths: number;
+	minPrincipal: number;
+	isActive: boolean;
+	engine: Engine;
+	productType: ProductType;
 };
 /* Mirrors backend/internal/investment/model_investment.go's Investment
  * exactly (only the fields the frontend needs). */
 export type BackendInvestment = {
-  id: number;
-  investmentNumber: string;
-  branchId: number;
-  customerId: number;
-  customer: { id: number; name: string; code: string; phone: string };
-  planId: number;
-  plan: BackendInvestmentPlan;
-  principalAmount: number;
-  interestRateType: InterestRateType;
-  interestRatePercent: number;
-  payoutFrequency: PayoutFrequency;
-  tenureMonths: number;
-  startDate: string;
-  maturityDate: string;
-  status: InvestmentStatus;
-  totalInterestPaid: number;
-  closedAt: string | null;
-  renewedFromInvestmentId: number | null;
-  renewedToInvestmentId: number | null;
-  createdAt: string;
+	id: number;
+	investmentNumber: string;
+	branchId: number;
+	customerId: number;
+	customer: { id: number; name: string; code: string; phone: string };
+	planId: number;
+	plan: BackendInvestmentPlan;
+	principalAmount: number;
+	interestRateType: InterestRateType;
+	interestRatePercent: number;
+	payoutFrequency: PayoutFrequency;
+	tenureMonths: number;
+	startDate: string;
+	maturityDate: string;
+	status: InvestmentStatus;
+	totalInterestPaid: number;
+	closedAt: string | null;
+	renewedFromInvestmentId: number | null;
+	renewedToInvestmentId: number | null;
+	createdAt: string;
 
-  engine: Engine;
-  /* Meaningful only when engine === "Live" — see model_investment.go's
-   * field doc comments. Zero/absent for a "Schedule" investment. */
-  outstandingPrincipal: number;
-  accruedInterest: number;
-  interestWithdrawn: number;
-  outstandingInterest: number;
-  lastAccrualDate: string | null;
+	engine: Engine;
+	/* Meaningful only when engine === "Live" — see model_investment.go's
+	 * field doc comments. Zero/absent for a "Schedule" investment. */
+	outstandingPrincipal: number;
+	accruedInterest: number;
+	interestWithdrawn: number;
+	outstandingInterest: number;
+	lastAccrualDate: string | null;
   /* Fixed-payout ("Schedule") investments only: the interest closing would pay right now (payouts due plus the share
    * earned in the running period) and the principal already paid back by earlier withdrawals. */
   settlementInterest?: number;
@@ -90,100 +90,101 @@ export type BackendInvestment = {
  * precomputed schedule row. */
 export type InvestmentTransactionType = "Deposit" | "Withdrawal";
 export type BackendInvestmentTransaction = {
-  id: number;
-  investmentId: number;
-  type: InvestmentTransactionType;
-  amount: number;
-  principalAmount: number;
-  interestAmount: number;
-  cashAmount: number;
-  upiAmount: number;
-  bankTransferAmount: number;
-  chequeAmount: number;
-  principalBefore: number;
-  principalAfter: number;
-  interestBefore: number;
-  interestAfter: number;
-  occurredOn: string;
-  recordedByEmployeeId: number | null;
-  reference: string;
-  cashMovementId: number | null;
-  createdAt: string;
+	id: number;
+	investmentId: number;
+	type: InvestmentTransactionType;
+	amount: number;
+	principalAmount: number;
+	interestAmount: number;
+	cashAmount: number;
+	upiAmount: number;
+	bankTransferAmount: number;
+	chequeAmount: number;
+	principalBefore: number;
+	principalAfter: number;
+	interestBefore: number;
+	interestAfter: number;
+	occurredOn: string;
+	recordedByEmployeeId: number | null;
+	reference: string;
+	cashMovementId: number | null;
+	createdAt: string;
 };
 /* Mirrors backend/internal/investment/model_payout.go's InvestmentPayout
  * exactly. */
 export type BackendInvestmentPayout = {
-  id: number;
-  investmentId: number;
-  sequenceNo: number;
-  dueDate: string;
-  amount: number;
-  cashAmount: number;
-  upiAmount: number;
-  bankTransferAmount: number;
-  chequeAmount: number;
-  isPrincipalReturn: boolean;
-  status: PayoutStatus;
-  paidAt: string | null;
-  paidByEmployeeId: number | null;
+	id: number;
+	investmentId: number;
+	sequenceNo: number;
+	dueDate: string;
+	amount: number;
+	cashAmount: number;
+	upiAmount: number;
+	bankTransferAmount: number;
+	chequeAmount: number;
+	isPrincipalReturn: boolean;
+	status: PayoutStatus;
+	paidAt: string | null;
+	paidByEmployeeId: number | null;
 };
 export type CreateInvestmentInput = {
-  branchId: number;
-  customerId: number;
-  planId: number;
-  principalAmount: number;
-  startDate?: string; // RFC3339, optional — defaults to now on the backend
-  /* How the investor paid the deposit, and the bank account a UPI/Bank
-   * Transfer/Cheque share landed in. Omitted = all Cash. */
-  cashAmount?: number;
-  upiAmount?: number;
-  bankTransferAmount?: number;
-  chequeAmount?: number;
-  bankId?: number;
+	branchId: number;
+	// "uuid:<uuid>" for an investor this PC registered that the server has not numbered yet
+	customerId: number | string;
+	planId: number;
+	principalAmount: number;
+	startDate?: string; // RFC3339, optional — defaults to now on the backend
+	/* How the investor paid the deposit, and the bank account a UPI/Bank
+	 * Transfer/Cheque share landed in. Omitted = all Cash. */
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	chequeAmount?: number;
+	bankId?: number;
 };
 /* One row of GET /investments/:id/ledger — deposit = credit (money in),
  * payout/withdrawal = debit; runningBalance is the principal still owed to
  * the investor after the row. Oldest first. */
 export type InvestmentLedgerRow = {
-  id: string;
-  date: string;
-  description: string;
-  type: string;
-  method: string;
-  reference: string;
-  debitOrCredit: "debit" | "credit";
-  amount: number;
-  principalAmount: number;
-  interestAmount: number;
-  runningBalance: number;
-  /* Edit/Delete support: which kind of entry the row is and its whole breakdown (see backend ledger.go). */
-  entryKind?: "opening" | "deposit" | "withdrawal" | "payout";
-  entryAmount?: number;
-  cashAmount?: number;
-  upiAmount?: number;
-  bankTransferAmount?: number;
-  chequeAmount?: number;
-  bankId?: number | null;
-  editable?: boolean;
-  deletable?: boolean;
+	id: string;
+	date: string;
+	description: string;
+	type: string;
+	method: string;
+	reference: string;
+	debitOrCredit: "debit" | "credit";
+	amount: number;
+	principalAmount: number;
+	interestAmount: number;
+	runningBalance: number;
+	/* Edit/Delete support: which kind of entry the row is and its whole breakdown (see backend ledger.go). */
+	entryKind?: "opening" | "deposit" | "withdrawal" | "payout";
+	entryAmount?: number;
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	chequeAmount?: number;
+	bankId?: number | null;
+	editable?: boolean;
+	deletable?: boolean;
 };
 export type MaturityAction = "Close" | "Renew";
 /* --- Live engine: Add Cash / Withdraw / Transactions --- */
 
 export type AddCashInput = SplitAmounts & {
-  amount: number;
-  occurredOn?: string; // RFC3339, optional — defaults to now on the backend
-  reference?: string;
-  /* Branch bank account a UPI/Bank Transfer/Cheque share landed in. */
-  bankId?: number;
+	amount: number;
+	occurredOn?: string; // RFC3339, optional — defaults to now on the backend
+	reference?: string;
+	/* Branch bank account a UPI/Bank Transfer/Cheque share landed in. */
+	bankId?: number;
 };
 export type WithdrawInput = SplitAmounts & {
-  /* Either can be 0 — this pair IS the "withdraw from Interest / Principal /
-   * Both" choice; see BackendInvestmentTransaction's doc comment. */
-  interestAmount: number;
-  principalAmount: number;
-  occurredOn?: string;
-  reference?: string;
-  /* Branch bank account a UPI/Bank Transfer/Cheque share leaves from. */
-  bankId?: number;
+	/* Either can be 0 — this pair IS the "withdraw from Interest / Principal /
+	 * Both" choice; see BackendInvestmentTransaction's doc comment. */
+	interestAmount: number;
+	principalAmount: number;
+	occurredOn?: string;
+	reference?: string;
+	/* Branch bank account a UPI/Bank Transfer/Cheque share leaves from. */
+	bankId?: number;
 };
