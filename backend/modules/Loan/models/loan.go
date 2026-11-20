@@ -105,6 +105,9 @@ type Loan struct {
 	IsDueSoon                  bool               `json:"is_due_soon" gorm:"-"`
 	IsOverdue                  bool               `json:"is_overdue" gorm:"-"`
 	IsDefaulted                bool               `json:"is_defaulted" gorm:"-"`
+	// AuctionStage is the live auction case's stage while the loan is Auction Eligible (pre-sale), so the
+	// status shown follows Eligible -> Notice Issued -> Auction Scheduled.
+	AuctionStage string `json:"auction_stage,omitempty" gorm:"-"`
 	DaysOverdue                int                `json:"days_overdue" gorm:"-"`
 	DueSoonNotifiedAt          *time.Time         `json:"-"`
 	OverdueNotifiedAt          *time.Time         `json:"-"`

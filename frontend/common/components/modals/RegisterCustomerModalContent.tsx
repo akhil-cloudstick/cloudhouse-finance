@@ -56,7 +56,7 @@ export function RegisterCustomerModalContent({
   onSaved,
   onCreated,
 }: RegisterCustomerModalContentProps) {
-  const { closeModal, openChildModal } = useModal();
+  const { closeModal } = useModal();
   const canOpen = useCanOpenRoute();
   const toast = useToast();
 
@@ -142,6 +142,9 @@ export function RegisterCustomerModalContent({
   // "same person?" question comes up while filling the form and not only when Register is pressed. Each set of values
   // is asked about once; answering "no" is remembered until they change.
   const askedRef = useRef(new Set<string>());
+  // The "same person?" question is shown in place of the form (not as a child modal, which unmounts this form and
+  // loses what was typed, so the investor's details had nowhere to be filled in).
+  const [sameMatches, setSameMatches] = useState<Awaited<ReturnType<typeof checkBorrowerIdentity>> | null>(null);
   useEffect(() => {
     if (sameConfirmed) return;
     const p = phone.trim();
@@ -161,12 +164,11 @@ export function RegisterCustomerModalContent({
           askedRef.current.add(key);
           const investor = matches.find((m) => m.source === "investor");
           if (!investor) return;
-          openChildModal(<SameInvestorModalContent newName={name.trim() || "this person"} matches={matches} onConfirm={async () => { closeModal(); await prefillFromInvestor(String(investor.id)); }} />);
+          setSameMatches(matches);
         })
         .catch(() => { /* the check is a convenience — Register still makes the same check on the server */ });
     }, 500);
     return () => { live = false; clearTimeout(t); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- name / the modal helpers are read when the check answers
   }, [phone, pan, aadhaar, sameConfirmed]);
 
   async function save() { return singleFlight("modal:registercustomer:save", async () => {
@@ -235,7 +237,7 @@ export function RegisterCustomerModalContent({
       const investor = matches?.find((m) => m.source === "investor");
       if (matches && investor) {
         toast("Possible duplicate — please confirm before adding");
-        openChildModal(<SameInvestorModalContent newName={n} matches={matches} onConfirm={async () => { closeModal(); await prefillFromInvestor(String(investor.id)); }} />);
+        setSameMatches(matches);
         return;
       }
       const msg = e instanceof Error ? e.message : "Failed to register customer.";
@@ -245,6 +247,22 @@ export function RegisterCustomerModalContent({
       setSaving(false);
     }
   }); }
+
+  if (sameMatches) {
+    const investor = sameMatches.find((m) => m.source === "investor");
+    return (
+      <SameInvestorModalContent
+        newName={name.trim() || "this person"}
+        matches={sameMatches}
+        hideNo
+        onClose={() => setSameMatches(null)}
+        onConfirm={async () => {
+          setSameMatches(null);
+          if (investor) await prefillFromInvestor(String(investor.id));
+        }}
+      />
+    );
+  }
 
   return (
     <>

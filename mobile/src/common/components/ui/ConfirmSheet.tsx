@@ -17,6 +17,8 @@ type ConfirmSheetProps = {
   confirmLabel?: string;
   /** The dismiss button (default "Cancel"). */
   cancelLabel?: string;
+  /** Only the confirm button is shown; the sheet is still dismissed by tapping outside it. */
+  hideCancel?: boolean;
   danger?: boolean;
   /** Show a remarks input (value is passed to onConfirm). */
   remarks?: { label: string; placeholder?: string; required?: boolean; initial?: string };
@@ -34,6 +36,7 @@ export function ConfirmSheet({
   message,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
+  hideCancel,
   danger,
   remarks,
   loading,
@@ -56,7 +59,7 @@ export function ConfirmSheet({
       ) : null}
       {error ? <Txt style={{ color: C.red, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>{error}</Txt> : null}
       <BtnRow2>
-        <PrimaryButton label={cancelLabel} variant="outline" onPress={onClose} disabled={loading} />
+        {hideCancel ? null : <PrimaryButton label={cancelLabel} variant="outline" onPress={onClose} disabled={loading} />}
         <PrimaryButton
           label={confirmLabel}
           variant={danger ? "danger" : "primary"}

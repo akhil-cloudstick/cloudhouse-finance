@@ -211,6 +211,7 @@ export type BackendLoan = {
   isDueSoon: boolean;
   isOverdue: boolean;
   isDefaulted: boolean;
+  auctionStage?: string;
   daysOverdue: number;
   auctionDate?: string | null;
   auctionAmount?: number | null;
@@ -364,6 +365,7 @@ export type LoanView = {
   isDueSoon: boolean;
   isOverdue: boolean;
   isDefaulted: boolean;
+  auctionStage?: string;
   daysOverdue: number;
   approvalWarning: string;
   rejectedByName: string;

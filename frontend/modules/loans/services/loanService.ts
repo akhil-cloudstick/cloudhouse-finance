@@ -152,6 +152,7 @@ export function toView(l: BackendLoan): LoanView {
     isDueSoon: l.isDueSoon,
     isOverdue: l.isOverdue,
     isDefaulted: l.isDefaulted,
+    auctionStage: l.auctionStage || "",
     daysOverdue: l.daysOverdue,
     approvalWarning: l.approvalWarning || "",
     rejectedByName: l.rejectedByName || "",
@@ -628,7 +629,12 @@ export function loanDisplayStatus(l: LoanView): string {
     default: return l.status;
   }
   if (l.totalOutstandingBalance <= 0.01) return "Closure Requested";
-  if (l.status === "Auction Eligible") return l.status;
+  if (l.status === "Auction Eligible") {
+    // the status follows the live case: Auction Eligible -> Notice Issued -> Auction Scheduled
+    if (l.auctionStage === "NoticeIssued") return "Notice Issued";
+    if (l.auctionStage === "AuctionScheduled") return "Auction Scheduled";
+    return l.status;
+  }
   if (l.isDefaulted) return "Defaulted";
   if (l.isOverdue) return l.outstandingInterest > 0.01 || l.outstandingPenalInterest > 0.01 ? "Overdue" : "Active";
   if (l.isDueSoon) return "Due Soon";

@@ -561,6 +561,8 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `superAdminUser` | `super_admin_user` |
 | `superAdminUserId` | `super_admin_user_id` |
 | `surplusDisposition` | `surplus_disposition` |
+| `surplusRemarks` | `surplus_remarks` |
+| `auctionStage` | `auction_stage` |
 | `surplusPaidOutMovementId` | `surplus_paid_out_movement_id` |
 | `surplusPayableAmount` | `surplus_payable_amount` |
 | `surplusShortfall` | `surplus_shortfall` |
