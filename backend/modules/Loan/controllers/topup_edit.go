@@ -145,6 +145,7 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		interestBefore := accrualSnapshot(ctx, tx, loanID)
 		originalStatus := l.Status
 		result.Before = summarize(l)
+
 		ups, err := activeTopUpsInOrder(ctx, tx, loanID)
 		if err != nil {
 			return err
@@ -162,12 +163,14 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		}
 		old := ups[idx]
 		oldTopUp = &old
+
 		// An edit that only changes how the top-up was paid out (mode, bank, reference) touches no figure: nothing is
 		// recalculated, only this top-up and its cash lines are rewritten.
 		if in != nil && topUpModeOnly(&old, in) {
 			result.After = result.Before
 			return lightTopUpEdit(ctx, tx, l, &old, in, dryRun)
 		}
+
 		// The loan is first recalculated untouched: if that does not reproduce what is saved, an edit would
 		// silently change figures this recalculation cannot explain. Only the entries from the top-up's date on
 		// (the earlier of its old and new date) are recalculated; what was saved before it is kept as it is.
@@ -189,10 +192,12 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		if err := probeReplayFrom(ctx, tx, l, rows, originalStatus, from); err != nil {
 			return err
 		}
+
 		group, err := topUpCashGroup(ctx, tx, l, &old)
 		if err != nil {
 			return err
 		}
+
 		initial := common.RoundMoney(l.PrincipalAmount - sum)
 		newSum := sum
 		// every payment as it was saved (the edit below changes the rows in place)
@@ -276,6 +281,7 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 			}
 		}
 		l.PrincipalAmount = common.RoundMoney(initial + newSum)
+
 		fit := newReplayFit(0, choices.Adjust)
 		fit.strict = !dryRun
 		if err := replayLoanFrom(withReplayFit(ctx, fit), tx, l, edited, originalStatus, from); err != nil {
@@ -297,6 +303,7 @@ func editLoanTopUp(ctx context.Context, loanID, topUpID uint, in *EditTopUpInput
 		if err != nil {
 			return err
 		}
+
 		for i := range edited {
 			if err := tx.WithContext(ctx).Save(&edited[i]).Error; err != nil {
 				return err

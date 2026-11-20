@@ -11,7 +11,6 @@ import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts, type SplitPaymentLine
 import { fmt } from "@/common/utils/format";
 import { ApiError } from "@/common/services/httpClient";
 import { singleFlight } from "@/common/utils/singleFlight";
-import { canQueue } from "@/common/offline/queueWrite";
 import { editBankPledge, deleteBankPledge, type BankPledgeEditPreview } from "@/modules/loans/services/loanService";
 import { type BankPledgeCashTreatment } from "@/modules/loans/types/loan-types";
 import { searchBanksPage } from "@/modules/banks/services/bankService";
@@ -20,128 +19,120 @@ import { TableCols } from "@/common/components/ui/TableCols";
 
 // The fields of a pledge record the editor needs (a loan's pledge row and a history row both carry them).
 export type EditablePledge = {
-	id: number;
-	bankId?: number | null;
-	bankName: string;
-	pledgedAmount: number;
-	pledgeDate: string;
-	releaseDate: string | null;
-	bankPledgeDueDate: string | null;
-	bankInterestRate: number;
-	referenceNumber: string;
-	cashTreatment: BankPledgeCashTreatment;
-	status: "Active" | "Released" | "Voided";
-	cashAmount?: number;
-	upiAmount?: number;
-	bankTransferAmount?: number;
-	receivedBankId?: number | null;
-	releaseCashAmount?: number;
-	releaseUpiAmount?: number;
-	releaseBankTransferAmount?: number;
-	releaseBankId?: number | null;
+  id: number;
+  bankId?: number | null;
+  bankName: string;
+  pledgedAmount: number;
+  pledgeDate: string;
+  releaseDate: string | null;
+  bankPledgeDueDate: string | null;
+  bankInterestRate: number;
+  referenceNumber: string;
+  cashTreatment: BankPledgeCashTreatment;
+  status: "Active" | "Released" | "Voided";
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number | null;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number | null;
 };
 
 type Props = {
-	loanId: number;
-	pledge: EditablePledge;
-	mode: "edit" | "delete";
-	onSaved: () => void;
+  loanId: number;
+  pledge: EditablePledge;
+  mode: "edit" | "delete";
+  onSaved: () => void;
 };
 
 function splitLines(cash = 0, upi = 0, bt = 0, bankId?: number | null): SplitPaymentLine[] {
-	return [
-		cash > 0 && { mode: "Cash" as const, amount: String(cash) },
-		upi > 0 && { mode: "UPI" as const, amount: String(upi), bankId: bankId ?? undefined },
-		bt > 0 && { mode: "Bank Transfer" as const, amount: String(bt), bankId: bankId ?? undefined },
-	].filter(Boolean) as SplitPaymentLine[];
+  return [
+    cash > 0 && { mode: "Cash" as const, amount: String(cash) },
+    upi > 0 && { mode: "UPI" as const, amount: String(upi), bankId: bankId ?? undefined },
+    bt > 0 && { mode: "Bank Transfer" as const, amount: String(bt), bankId: bankId ?? undefined },
+  ].filter(Boolean) as SplitPaymentLine[];
 }
 
 // Two steps, like the top-up editor: the first click previews (nothing is saved), the second click saves. Saving
 // rewrites the pledge's cash lines and, for a released pledge, the release cash lines and its expense entry.
 export function BankPledgeEditModalContent({ loanId, pledge: p, mode, onSaved }: Props) {
-	const { closeModal, closeAllModals, openChildModal } = useModal();
-	const toast = useToast();
-	const released = p.status === "Released";
-	const [bank, setBank] = useState(p.bankName);
-	const [bankId, setBankId] = useState<number | undefined>(p.bankId ?? undefined);
-	const [amount, setAmount] = useState(String(p.pledgedAmount));
-	const [date, setDate] = useState(p.pledgeDate.slice(0, 10));
-	const [dueDate, setDueDate] = useState(p.bankPledgeDueDate?.slice(0, 10) ?? "");
-	const [rate, setRate] = useState(String(p.bankInterestRate ?? 0));
-	const [reference, setReference] = useState(p.referenceNumber || "");
-	const [treatment, setTreatment] = useState<BankPledgeCashTreatment>(p.cashTreatment);
-	const [split, setSplit] = useState<SplitAmounts>({ cashAmount: p.cashAmount ?? 0, upiAmount: p.upiAmount ?? 0, bankTransferAmount: p.bankTransferAmount ?? 0, chequeAmount: 0 });
-	const [remaining, setRemaining] = useState(0);
-	const [receivedBankId, setReceivedBankId] = useState<number | undefined>(p.receivedBankId ?? undefined);
-	const [releaseDate, setReleaseDate] = useState(p.releaseDate?.slice(0, 10) ?? "");
-	const [relSplit, setRelSplit] = useState<SplitAmounts>({ cashAmount: p.releaseCashAmount ?? 0, upiAmount: p.releaseUpiAmount ?? 0, bankTransferAmount: p.releaseBankTransferAmount ?? 0, chequeAmount: 0 });
-	const [relRemaining, setRelRemaining] = useState(0);
-	const [relBankId, setRelBankId] = useState<number | undefined>(p.releaseBankId ?? undefined);
-	const [err, setErr] = useState("");
-	const [saving, setSaving] = useState(false);
-	const today = new Date().toISOString().slice(0, 10);
-	void ZERO_SPLIT;
+  const { closeModal, closeAllModals, openChildModal } = useModal();
+  const toast = useToast();
+  const released = p.status === "Released";
+  const [bank, setBank] = useState(p.bankName);
+  const [bankId, setBankId] = useState<number | undefined>(p.bankId ?? undefined);
+  const [amount, setAmount] = useState(String(p.pledgedAmount));
+  const [date, setDate] = useState(p.pledgeDate.slice(0, 10));
+  const [dueDate, setDueDate] = useState(p.bankPledgeDueDate?.slice(0, 10) ?? "");
+  const [rate, setRate] = useState(String(p.bankInterestRate ?? 0));
+  const [reference, setReference] = useState(p.referenceNumber || "");
+  const [treatment, setTreatment] = useState<BankPledgeCashTreatment>(p.cashTreatment);
+  const [split, setSplit] = useState<SplitAmounts>({ cashAmount: p.cashAmount ?? 0, upiAmount: p.upiAmount ?? 0, bankTransferAmount: p.bankTransferAmount ?? 0, chequeAmount: 0 });
+  const [remaining, setRemaining] = useState(0);
+  const [receivedBankId, setReceivedBankId] = useState<number | undefined>(p.receivedBankId ?? undefined);
+  const [releaseDate, setReleaseDate] = useState(p.releaseDate?.slice(0, 10) ?? "");
+  const [relSplit, setRelSplit] = useState<SplitAmounts>({ cashAmount: p.releaseCashAmount ?? 0, upiAmount: p.releaseUpiAmount ?? 0, bankTransferAmount: p.releaseBankTransferAmount ?? 0, chequeAmount: 0 });
+  const [relRemaining, setRelRemaining] = useState(0);
+  const [relBankId, setRelBankId] = useState<number | undefined>(p.releaseBankId ?? undefined);
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  void ZERO_SPLIT;
 
-	const changed = (set: (v: string) => void) => (v: string) => { setErr(""); set(v); };
+  const changed = (set: (v: string) => void) => (v: string) => { setErr(""); set(v); };
 
-	// Builds and sends the request; dry only previews. Returns null (with err set) when the form is not valid yet.
-	async function request(dry: boolean): Promise<BankPledgeEditPreview | null> {
-		if (mode === "delete") return deleteBankPledge(loanId, p.id, dry);
-		const amt = +amount;
-		if (!bank.trim()) { setErr("Select the bank."); return null; }
-		if (!(amt > 0)) { setErr("Enter a valid amount."); return null; }
-		if (treatment === "CashIn") {
-			if (Math.abs(remaining) > 0.01) { setErr(`The payment breakdown must add up to the amount (${fmt(amt)}).`); return null; }
-			if ((split.upiAmount > 0 || split.bankTransferAmount > 0) && !receivedBankId) { setErr("Select the bank the UPI / Bank Transfer part was received in."); return null; }
-			if (released) {
-				if (Math.abs(relRemaining) > 0.01) { setErr(`The release payment breakdown must add up to the amount (${fmt(amt)}).`); return null; }
-				if ((relSplit.upiAmount > 0 || relSplit.bankTransferAmount > 0) && !relBankId) { setErr("Select the bank the release UPI / Bank Transfer part was paid from."); return null; }
-			}
-		}
-		return editBankPledge(loanId, p.id, {
-			bankId, bankName: bank.trim(), pledgedAmount: amt, pledgeDate: date, bankPledgeDueDate: dueDate, bankInterestRate: +rate || 0,
-			referenceNumber: reference, cashTreatment: treatment,
-			...(treatment === "CashIn" ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, receivedBankId } : {}),
-			...(released ? { releaseDate } : {}),
-			...(released && treatment === "CashIn" ? { releaseCashAmount: relSplit.cashAmount, releaseUpiAmount: relSplit.upiAmount, releaseBankTransferAmount: relSplit.bankTransferAmount, releaseBankId: relBankId } : {}),
-		}, dry);
-	}
+  // Builds and sends the request; dry only previews. Returns null (with err set) when the form is not valid yet.
+  async function request(dry: boolean): Promise<BankPledgeEditPreview | null> {
+    if (mode === "delete") return deleteBankPledge(loanId, p.id, dry);
+    const amt = +amount;
+    if (!bank.trim()) { setErr("Select the bank."); return null; }
+    if (!(amt > 0)) { setErr("Enter a valid amount."); return null; }
+    if (treatment === "CashIn") {
+      if (Math.abs(remaining) > 0.01) { setErr(`The payment breakdown must add up to the amount (${fmt(amt)}).`); return null; }
+      if ((split.upiAmount > 0 || split.bankTransferAmount > 0) && !receivedBankId) { setErr("Select the bank the UPI / Bank Transfer part was received in."); return null; }
+      if (released) {
+        if (Math.abs(relRemaining) > 0.01) { setErr(`The release payment breakdown must add up to the amount (${fmt(amt)}).`); return null; }
+        if ((relSplit.upiAmount > 0 || relSplit.bankTransferAmount > 0) && !relBankId) { setErr("Select the bank the release UPI / Bank Transfer part was paid from."); return null; }
+      }
+    }
+    return editBankPledge(loanId, p.id, {
+      bankId, bankName: bank.trim(), pledgedAmount: amt, pledgeDate: date, bankPledgeDueDate: dueDate, bankInterestRate: +rate || 0,
+      referenceNumber: reference, cashTreatment: treatment,
+      ...(treatment === "CashIn" ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, receivedBankId } : {}),
+      ...(released ? { releaseDate } : {}),
+      ...(released && treatment === "CashIn" ? { releaseCashAmount: relSplit.cashAmount, releaseUpiAmount: relSplit.upiAmount, releaseBankTransferAmount: relSplit.bankTransferAmount, releaseBankId: relBankId } : {}),
+    }, dry);
+  }
 
-	// The preview opens as its own modal over this one; its Confirm does the real save.
-	async function openPreview() {
-		return singleFlight("modal:bank-pledge-edit", async () => {
-			setSaving(true);
-			try {
-				// offline there is no server to work out the before/after, so the change is saved straight to the queue
-				if (canQueue()) {
-					if ((await request(false)) === null) return;
-					toast(mode === "delete" ? "Bank pledge deleted" : "Bank pledge updated");
-					onSaved();
-					closeAllModals();
-					return;
-				}
-				const res = await request(true);
-				if (!res) return;
-				setErr("");
-				openChildModal(
-					<BankPledgePreviewModalContent
-						mode={mode}
-						preview={res}
-						onConfirm={async () => {
-							await request(false);
-							toast(mode === "delete" ? "Bank pledge deleted" : "Bank pledge updated");
-							onSaved();
-							closeAllModals();
-						}}
-					/>,
-				);
-			} catch (e) {
-				setErr(e instanceof ApiError ? e.message : "Could not preview the change — try again.");
-			} finally {
-				setSaving(false);
-			}
-		});
-	}
+  // The preview opens as its own modal over this one; its Confirm does the real save.
+  async function openPreview() {
+    return singleFlight("modal:bank-pledge-edit", async () => {
+      setSaving(true);
+      try {
+        const res = await request(true);
+        if (!res) return;
+        setErr("");
+        openChildModal(
+          <BankPledgePreviewModalContent
+            mode={mode}
+            preview={res}
+            onConfirm={async () => {
+              await request(false);
+              toast(mode === "delete" ? "Bank pledge deleted" : "Bank pledge updated");
+              onSaved();
+              closeAllModals();
+            }}
+          />,
+        );
+      } catch (e) {
+        setErr(e instanceof ApiError ? e.message : "Could not preview the change — try again.");
+      } finally {
+        setSaving(false);
+      }
+    });
+  }
 
   return (
     <>
@@ -245,17 +236,17 @@ function BankPledgePreviewModalContent({ mode, preview, onConfirm }: { mode: "ed
     <tr><td>{label}</td><td className="num" style={wrapCell}>{before}</td><td className="num" style={{ ...wrapCell, fontWeight: 600, color: String(before) !== String(after) ? "var(--brand)" : undefined }}>{after}</td></tr>
   );
 
-	async function confirm() {
-		return singleFlight("modal:bank-pledge-confirm", async () => {
-			setSaving(true);
-			try {
-				await onConfirm();
-			} catch (e) {
-				setErr(e instanceof ApiError ? e.message : "Could not save the change — try again.");
-				setSaving(false);
-			}
-		});
-	}
+  async function confirm() {
+    return singleFlight("modal:bank-pledge-confirm", async () => {
+      setSaving(true);
+      try {
+        await onConfirm();
+      } catch (e) {
+        setErr(e instanceof ApiError ? e.message : "Could not save the change — try again.");
+        setSaving(false);
+      }
+    });
+  }
 
   return (
     <>

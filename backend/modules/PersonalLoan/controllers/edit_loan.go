@@ -85,6 +85,7 @@ func editPersonalLoan(ctx context.Context, loanID uint, branchID *uint, req edit
 		snapshot := *l
 		before = &snapshot
 		booked := !slices.Contains(models.NotDisbursedStatuses, l.Status)
+
 		principal := loanPrincipalEntered(l)
 		interestType, interestValue := l.InterestType, l.InterestValue
 		frequency, tenure, full, grace := l.Frequency, l.TenureCount, l.FullDisbursement, l.GracePeriodDays
@@ -136,6 +137,7 @@ func editPersonalLoan(ctx context.Context, loanID uint, branchID *uint, req edit
 			disbursed = principal
 			obligation = common.RoundMoney(principal + interestAmount)
 		}
+
 		// Penal terms follow the interest terms unless they were set by hand.
 		oldRate, oldFlat := defaultPenalTerms(l.InterestType, l.InterestValue, l.InterestAmount)
 		followsInterest := l.PenalInterestRate == oldRate && l.PenalFlatAmount == oldFlat
@@ -145,6 +147,7 @@ func editPersonalLoan(ctx context.Context, loanID uint, branchID *uint, req edit
 		case req.PenalInterestRate != nil || followsInterest:
 			l.PenalInterestRate, l.PenalFlatAmount = defaultPenalTerms(interestType, interestValue, interestAmount)
 		}
+
 		oldAt := l.DisbursedAt
 		if oldAt.IsZero() {
 			oldAt = l.OpenedDate
@@ -163,6 +166,7 @@ func editPersonalLoan(ctx context.Context, loanID uint, branchID *uint, req edit
 		splitGiven := req.CashAmount != nil || req.UpiAmount != nil || req.BankTransferAmount != nil || req.ChequeAmount != nil || req.BankID != nil
 		amountChanged := common.RoundMoney(disbursed) != common.RoundMoney(l.DisbursedAmount)
 		cashChanged := booked && (amountChanged || splitGiven || !sameDay(newAt, oldAt))
+
 		cash, upi, bank, cheque := oldCash, oldUpi, oldBank, oldCheque
 		bankID := l.DisbursementBankID
 		if splitGiven || amountChanged {
@@ -198,6 +202,7 @@ func editPersonalLoan(ctx context.Context, loanID uint, branchID *uint, req edit
 				return err
 			}
 		}
+
 		l.PrincipalAmount, l.InterestType, l.InterestValue, l.InterestAmount = obligation, interestType, common.RoundDecimal2(interestValue), interestAmount
 		l.DisbursedAmount, l.FullDisbursement, l.Frequency, l.TenureCount, l.GracePeriodDays = disbursed, full, frequency, tenure, grace
 		l.DisbursementCashAmount, l.DisbursementUpiAmount, l.DisbursementBankTransferAmount, l.DisbursementChequeAmount, l.DisbursementBankID = cash, upi, bank, cheque, bankID
@@ -206,6 +211,7 @@ func editPersonalLoan(ctx context.Context, loanID uint, branchID *uint, req edit
 		if booked {
 			l.DisbursedAt, l.OpenedDate = newAt, newAt
 		}
+
 		if cashChanged {
 			oldGroup, err := findCashGroup(ctx, tx, l.DisbursementCashGroupID, "Loan disbursement — "+l.LoanNumber, "out", "", l.BranchID, before.DisbursedAmount, oldAt)
 			if err != nil {

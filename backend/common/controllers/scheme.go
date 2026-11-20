@@ -306,7 +306,7 @@ func schemeValidate(in SchemeCreateInput) error {
 	case "", commonModels.ServiceChargeTypeNone:
 	case commonModels.ServiceChargeTypeFlat, commonModels.ServiceChargeTypePercent:
 		if in.ServiceChargeValue < 0 || (in.ServiceChargeType == commonModels.ServiceChargeTypePercent && in.ServiceChargeValue > 100) {
-			return NewBadRequest("service charge value is not valid")
+			return NewBadRequest("service charge value must be non-negative, and no more than 100 for a Percent charge")
 		}
 	default:
 		return NewBadRequest("service charge type must be None, Flat, or Percent")
@@ -366,10 +366,6 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 		ServiceChargeType:  chargeType,
 		ServiceChargeValue: in.ServiceChargeValue,
 		ServiceChargeMode:  in.ServiceChargeMode,
-	}
-	// a scheme queued on a PC keeps the id that PC gave it
-	if entry, queued := config.SyncEntryFromContext(ctx); queued {
-		rec.UUID = entry.ClientUUID
 	}
 	if err := insertScheme(ctx, rec); err != nil {
 		return nil, err
@@ -463,26 +459,15 @@ func deleteScheme(ctx context.Context, id uint, branchID *uint) error {
 		return err
 	}
 	if loans > 0 || drafts > 0 {
-		return errSchemeInUse(loans, drafts, schemeLoanNumbers(ctx, id))
+		return errSchemeInUse(loans, drafts)
 	}
 	return hardDelete(ctx, id)
 }
 
-// schemeLoanNumbers are the first loans that use the scheme, so the refusal can name them.
-func schemeLoanNumbers(ctx context.Context, id uint) []string {
-	var numbers []string
-	config.DB.WithContext(ctx).Raw("SELECT loan_number FROM loans WHERE scheme_id = ? ORDER BY id LIMIT ?", id, maxListedRecords).Scan(&numbers)
-	return numbers
-}
-
-func errSchemeInUse(loans, drafts int64, numbers []string) error {
+func errSchemeInUse(loans, drafts int64) error {
 	var parts []string
 	if loans > 0 {
-		if len(numbers) > 0 {
-			parts = append(parts, fmt.Sprintf("%d loan(s) (%s)", loans, RecordList(numbers, loans)))
-		} else {
-			parts = append(parts, fmt.Sprintf("%d loan(s)", loans))
-		}
+		parts = append(parts, fmt.Sprintf("%d loan(s)", loans))
 	}
 	if drafts > 0 {
 		parts = append(parts, fmt.Sprintf("%d loan draft(s)", drafts))

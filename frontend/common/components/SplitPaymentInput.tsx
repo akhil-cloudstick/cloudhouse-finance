@@ -1,10 +1,9 @@
 "use client";
 
-import { fmt, roundRupee } from "@/common/utils/format";
+import { roundRupee } from "@/common/utils/format";
 import { useEffect, useState } from "react";
 import { getBank } from "@/modules/banks/services/bankService";
-import { useBalanceInHand } from "@/common/hooks/use-balance-in-hand";
-import { PaymentBreakdownFields, effectiveRows, isBankMode, newPaymentRow, type PaymentIssue, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
+import { PaymentBreakdownFields, effectiveRows, newPaymentRow, type PaymentRow } from "@/modules/cash/components/PaymentBreakdownFields";
 
 // Cheque is not a payment mode in the application: Cash, UPI and Bank Transfer only.
 export const SPLIT_PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
@@ -16,10 +15,10 @@ export type SplitPaymentMode = (typeof SPLIT_PAYMENT_MODES)[number];
  * split-payment endpoint in the app accepts exactly this shape alongside
  * its own `amount`. */
 export type SplitAmounts = {
-	cashAmount: number;
-	upiAmount: number;
-	bankTransferAmount: number;
-	chequeAmount: number;
+  cashAmount: number;
+  upiAmount: number;
+  bankTransferAmount: number;
+  chequeAmount: number;
 };
 
 /* bankId/bankName are only meaningful when mode is UPI/Bank Transfer —
@@ -35,10 +34,10 @@ export const NON_CASH_MODES: readonly SplitPaymentMode[] = ["UPI", "Bank Transfe
  * matching what the backend can actually persist. Undefined when no
  * non-cash line has a bank selected yet. */
 export function firstSelectedBankId(lines: SplitPaymentLine[]): number | undefined {
-	for (const l of lines) {
-		if (NON_CASH_MODES.includes(l.mode) && l.bankId) return l.bankId;
-	}
-	return undefined;
+  for (const l of lines) {
+    if (NON_CASH_MODES.includes(l.mode) && l.bankId) return l.bankId;
+  }
+  return undefined;
 }
 
 export const ZERO_SPLIT: SplitAmounts = { cashAmount: 0, upiAmount: 0, bankTransferAmount: 0, chequeAmount: 0 };
@@ -48,51 +47,46 @@ export const ZERO_SPLIT: SplitAmounts = { cashAmount: 0, upiAmount: 0, bankTrans
  * fixed columns. Exported so callers can derive the request payload from
  * whatever line state SplitPaymentInput last reported via onChange. */
 export function sumSplitLines(lines: SplitPaymentLine[]): SplitAmounts {
-	const split = { ...ZERO_SPLIT };
-	for (const l of lines) {
-		const amt = +l.amount || 0;
-		if (amt <= 0) continue;
-		if (l.mode === "Cash") split.cashAmount += amt;
-		else if (l.mode === "UPI") split.upiAmount += amt;
-		else if (l.mode === "Bank Transfer") split.bankTransferAmount += amt;
-	}
-	return {
-		cashAmount: roundRupee(split.cashAmount),
-		upiAmount: roundRupee(split.upiAmount),
-		bankTransferAmount: roundRupee(split.bankTransferAmount),
-		chequeAmount: roundRupee(split.chequeAmount),
-	};
+  const split = { ...ZERO_SPLIT };
+  for (const l of lines) {
+    const amt = +l.amount || 0;
+    if (amt <= 0) continue;
+    if (l.mode === "Cash") split.cashAmount += amt;
+    else if (l.mode === "UPI") split.upiAmount += amt;
+    else if (l.mode === "Bank Transfer") split.bankTransferAmount += amt;
+  }
+  return {
+    cashAmount: roundRupee(split.cashAmount),
+    upiAmount: roundRupee(split.upiAmount),
+    bankTransferAmount: roundRupee(split.bankTransferAmount),
+    chequeAmount: roundRupee(split.chequeAmount),
+  };
 }
 
 function splitTotal(s: SplitAmounts): number {
-	return roundRupee((s.cashAmount + s.upiAmount + s.bankTransferAmount + s.chequeAmount));
+  return roundRupee((s.cashAmount + s.upiAmount + s.bankTransferAmount + s.chequeAmount));
 }
 
 type SplitPaymentInputProps = {
-	/** The amount this split must sum to — drives the live "remaining to
-	 * allocate" indicator. The single starting line tracks this value live
-	 * until the user actually edits something. */
-	totalAmount: number;
-	/** Fires whenever the lines (or totalAmount) change, with the summed
-	 * split, how much of totalAmount is still unallocated (0 = balanced,
-	 * matching platform.ValidateSplit's tolerance), and the bank id to submit
-	 * alongside the payment (see firstSelectedBankId's doc comment — nil when
-	 * no non-cash line has picked one yet). */
-	onChange: (split: SplitAmounts, remaining: number, bankId: number | undefined) => void;
-	/** Caps the lines list at ~3 visible rows and scrolls internally past
-	 * that, instead of growing with the list — the default, used by every
-	 * modal except PaymentModal, which sets this false so the breakdown
-	 * never gets cropped and only the modal's own `.bd-scroll` body scrolls. */
-	scrollInternally?: boolean;
-	/** Heading above the lines; null drops it (PaymentModal's section title already names it). */
-	label?: string | null;
-	/** Lines to start from (editing an existing payment); omit for a single Cash line that follows totalAmount. */
-	initialLines?: SplitPaymentLine[];
-	/** Money leaving the business (a disbursement): the Cash part is checked against the branch's balance in hand and the
-	 * bank part against the chosen bank's balance, inside the breakdown. */
-	payout?: { branchId?: number };
-	/** The first problem with the breakdown ("" when none), reported on every change so the parent can hold its submit. */
-	onIssue?: (message: string) => void;
+  /** The amount this split must sum to — drives the live "remaining to
+   * allocate" indicator. The single starting line tracks this value live
+   * until the user actually edits something. */
+  totalAmount: number;
+  /** Fires whenever the lines (or totalAmount) change, with the summed
+   * split, how much of totalAmount is still unallocated (0 = balanced,
+   * matching platform.ValidateSplit's tolerance), and the bank id to submit
+   * alongside the payment (see firstSelectedBankId's doc comment — nil when
+   * no non-cash line has picked one yet). */
+  onChange: (split: SplitAmounts, remaining: number, bankId: number | undefined) => void;
+  /** Caps the lines list at ~3 visible rows and scrolls internally past
+   * that, instead of growing with the list — the default, used by every
+   * modal except PaymentModal, which sets this false so the breakdown
+   * never gets cropped and only the modal's own `.bd-scroll` body scrolls. */
+  scrollInternally?: boolean;
+  /** Heading above the lines; null drops it (PaymentModal's section title already names it). */
+  label?: string | null;
+  /** Lines to start from (editing an existing payment); omit for a single Cash line that follows totalAmount. */
+  initialLines?: SplitPaymentLine[];
 };
 
 /**
@@ -110,102 +104,58 @@ type SplitPaymentInputProps = {
  * the backend's four fixed split columns and reports them via onChange.
  */
 export function SplitPaymentInput({
-	totalAmount,
-	onChange,
-	scrollInternally = true,
-	label,
-	initialLines,
-	payout,
-	onIssue,
+  totalAmount,
+  onChange,
+  scrollInternally = true,
+  label,
+  initialLines,
 }: SplitPaymentInputProps) {
-	const [rows, setRows] = useState<PaymentRow[]>(() =>
-		initialLines?.length
-			? initialLines.map((l) => newPaymentRow({ mode: l.mode, amount: l.amount, bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName ?? "", auto: initialLines.length === 1 }))
-			: [newPaymentRow({ mode: "Cash", amount: totalAmount > 0 ? String(totalAmount) : "" })]);
+  const [rows, setRows] = useState<PaymentRow[]>(() =>
+    initialLines?.length
+      ? initialLines.map((l) => newPaymentRow({ mode: l.mode, amount: l.amount, bankId: l.bankId ? String(l.bankId) : "", bankName: l.bankName ?? "", auto: initialLines.length === 1 }))
+      : [newPaymentRow({ mode: "Cash", amount: totalAmount > 0 ? String(totalAmount) : "" })]);
 
-	const lines: SplitPaymentLine[] = effectiveRows(rows, totalAmount).map((r) => ({
-		mode: r.mode as SplitPaymentMode,
-		amount: r.amount,
-		bankId: r.bankId ? +r.bankId : undefined,
-		bankName: r.bankName,
-	}));
-	const split = sumSplitLines(lines);
-	const remaining = roundRupee((totalAmount - splitTotal(split)));
-	const bankId = firstSelectedBankId(lines);
+  const lines: SplitPaymentLine[] = effectiveRows(rows, totalAmount).map((r) => ({
+    mode: r.mode as SplitPaymentMode,
+    amount: r.amount,
+    bankId: r.bankId ? +r.bankId : undefined,
+    bankName: r.bankName,
+  }));
+  const split = sumSplitLines(lines);
+  const remaining = roundRupee((totalAmount - splitTotal(split)));
+  const bankId = firstSelectedBankId(lines);
 
-	// A saved entry hands over only a bank id: the names are looked up once so the bank shows instead of an empty field.
-	useEffect(() => {
-		rows.filter((r) => r.bankId && !r.bankName).forEach((r) => {
-			getBank(+r.bankId)
-				.then((b) => setRows((cur) => cur.map((x) => (x.key === r.key && !x.bankName ? { ...x, bankName: b.name } : x))))
-				.catch(() => {});
-		});
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+  // A saved entry hands over only a bank id: the names are looked up once so the bank shows instead of an empty field.
+  useEffect(() => {
+    rows.filter((r) => r.bankId && !r.bankName).forEach((r) => {
+      getBank(+r.bankId)
+        .then((b) => setRows((cur) => cur.map((x) => (x.key === r.key && !x.bankName ? { ...x, bankName: b.name } : x))))
+        .catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-	// Reports the live split/remaining/bankId to the parent on every render
-	// where any changed — the parent owns submit-gating and payload assembly,
-	// this component only ever reports its own current state.
-	useEffect(() => {
-		onChange(split, remaining, bankId);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [JSON.stringify(split), remaining, bankId]);
+  // Reports the live split/remaining/bankId to the parent on every render
+  // where any changed — the parent owns submit-gating and payload assembly,
+  // this component only ever reports its own current state.
+  useEffect(() => {
+    onChange(split, remaining, bankId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(split), remaining, bankId]);
 
-	// Balances of the banks picked, looked up once per bank, for the payout check below.
-	const balanceInHand = useBalanceInHand(payout?.branchId);
-	const [bankBalances, setBankBalances] = useState<Record<string, number>>({});
-	const bankKey = effectiveRows(rows, totalAmount).filter((r) => isBankMode(r.mode) && r.bankId).map((r) => r.bankId).join(",");
-	useEffect(() => {
-		if (!payout || !bankKey) return;
-		bankKey.split(",").filter((id) => !(id in bankBalances)).forEach((id) => {
-			getBank(+id).then((b) => setBankBalances((cur) => ({ ...cur, [id]: b.balance }))).catch(() => {});
-		});
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [bankKey, !!payout]);
-
-	// The first problem: a bank mode with no bank, then (for a payout) a part the till or the bank cannot cover.
-	let issue: PaymentIssue | null = null;
-	const used = effectiveRows(rows, totalAmount).filter((r) => +r.amount > 0);
-	const noBank = used.find((r) => isBankMode(r.mode) && !r.bankId);
-	if (noBank) issue = { key: noBank.key, message: "Select the bank for the UPI / Bank Transfer part." };
-	else if (payout) {
-		const cash = roundRupee(used.filter((r) => r.mode === "Cash").reduce((s, r) => s + +r.amount, 0));
-		if (balanceInHand !== null && cash > balanceInHand + 0.005) {
-			issue = { key: null, message: `Insufficient balance in hand: available ${fmt(balanceInHand)}, required ${fmt(cash)}.` };
-		} else {
-			const perBank = new Map<string, { key: number; need: number }>();
-			for (const r of used) {
-				if (!isBankMode(r.mode) || !r.bankId) continue;
-				perBank.set(r.bankId, { key: r.key, need: roundRupee((perBank.get(r.bankId)?.need ?? 0) + +r.amount) });
-			}
-			for (const [id, { key, need }] of perBank) {
-				const have = bankBalances[id];
-				if (have !== undefined && need > have + 0.005) {
-					issue = { key, message: `Insufficient balance in the selected bank: available ${fmt(have)}, required ${fmt(need)}.` };
-					break;
-				}
-			}
-		}
-	}
-	const issueText = issue?.message ?? "";
-	useEffect(() => {
-		onIssue?.(issueText);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [issueText]);
-
-	return (
-		<div className="split-payment" style={{ width: "100%" }}>
-			<PaymentBreakdownFields total={totalAmount} rows={rows} onChange={setRows} scrollInternally={scrollInternally} label={label} error={issue} />
-		</div>
-	);
+  return (
+    <div className="split-payment" style={{ width: "100%" }}>
+      <PaymentBreakdownFields total={totalAmount} rows={rows} onChange={setRows} scrollInternally={scrollInternally} label={label} />
+    </div>
+  );
 }
 
 /* The one mode a split uses, or null when it spans several (or is empty). For screens whose backend
  * records a single payment mode and bank per event (auction proceeds and surplus refund). */
 export function singleSplitMode(s: SplitAmounts): SplitPaymentMode | null {
-	const used: SplitPaymentMode[] = [];
-	if (s.cashAmount > 0) used.push("Cash");
-	if (s.upiAmount > 0) used.push("UPI");
-	if (s.bankTransferAmount > 0) used.push("Bank Transfer");
-	return used.length === 1 ? used[0] : null;
+  const used: SplitPaymentMode[] = [];
+  if (s.cashAmount > 0) used.push("Cash");
+  if (s.upiAmount > 0) used.push("UPI");
+  if (s.bankTransferAmount > 0) used.push("Bank Transfer");
+  return used.length === 1 ? used[0] : null;
 }

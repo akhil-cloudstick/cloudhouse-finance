@@ -35,7 +35,6 @@ type RateTier struct {
 type Scheme struct {
 	config.TenantScoped
 	ID                 uint           `json:"id" gorm:"primaryKey"`
-	UUID               string         `json:"uuid" gorm:"type:uuid;default:gen_random_uuid()"`
 	BranchID           uint           `json:"branch_id" gorm:"not null"`
 	Branch             Branch         `json:"branch" gorm:"foreignKey:BranchID"`
 	Code               string         `json:"code" gorm:"index;size:20"`
@@ -48,7 +47,7 @@ type Scheme struct {
 	InterestMethod     string         `json:"interest_method" gorm:"size:80"`
 	PenalRate          float64        `json:"penal_rate"`
 	AccrualBasis       string         `json:"accrual_basis" gorm:"size:10;not null;default:'daily'"`
-	RateTiers          []RateTier     `json:"rate_tiers" gorm:"serializer:json;type:text"`
+	RateTiers         []RateTier     `json:"rate_tiers" gorm:"serializer:json;type:text"`
 	MinimumDays        int            `json:"minimum_days" gorm:"not null;default:0"`
 	Conditions         string         `json:"conditions"`
 	IsActive           bool           `json:"is_active" gorm:"default:false"`

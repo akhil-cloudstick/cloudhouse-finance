@@ -3,10 +3,10 @@
 import { useEffect } from "react";
 import { isTokenValid } from "@/common/providers/AuthProvider";
 import {
-	appPath,
-	loginPath,
-	readToken,
-	resolveActiveSlug,
+  appPath,
+  loginPath,
+  readToken,
+  resolveActiveSlug,
 } from "@/common/services/tenantSession";
 
 /* Cross-page moves are FULL document loads (window.location), not Next's
@@ -38,21 +38,21 @@ import {
  * whatever else is signed in in this browser. The real login form lives at
  * /login (app/(product)/login/page.tsx). */
 export default function RootRedirectPage() {
-	useEffect(() => {
-		// resolveActiveSlug tells apart a path match from a host match; only a
-		// host-resolved tenant (a production subdomain) must NOT get its slug
-		// written into the URL this redirects to — its address bar never had it.
-		// Neither a path-named business nor the "nothing matched at all"
-		// single-install fallback below changes: both keep showing the slug
-		// exactly as before.
-		const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
-		const slug = resolvedSlug ?? "default";
-		const includeInUrl = resolvedSlug === null || fromPath;
-		const signedIn = isTokenValid(readToken(slug));
-		window.location.replace(
-			signedIn ? appPath(slug, undefined, includeInUrl) : loginPath(slug, includeInUrl)
-		);
-	}, []);
+  useEffect(() => {
+    // resolveActiveSlug tells apart a path match from a host match; only a
+    // host-resolved tenant (a production subdomain) must NOT get its slug
+    // written into the URL this redirects to — its address bar never had it.
+    // Neither a path-named business nor the "nothing matched at all"
+    // single-install fallback below changes: both keep showing the slug
+    // exactly as before.
+    const { slug: resolvedSlug, fromPath } = resolveActiveSlug();
+    const slug = resolvedSlug ?? "default";
+    const includeInUrl = resolvedSlug === null || fromPath;
+    const signedIn = isTokenValid(readToken(slug));
+    window.location.replace(
+      signedIn ? appPath(slug, undefined, includeInUrl) : loginPath(slug, includeInUrl)
+    );
+  }, []);
 
-	return null;
+  return null;
 }

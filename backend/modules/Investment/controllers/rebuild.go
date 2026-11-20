@@ -559,6 +559,7 @@ func editOpeningDeposit(ctx context.Context, tx *gorm.DB, inv *models.Investment
 		return "", common.NewConflict(fmt.Sprintf("the opening deposit's cash lines (₹%.2f) do not match its amount (₹%.2f), so it cannot be edited safely", sum, opening))
 	}
 	oldJSON := marshalOld(map[string]any{"amount": opening, "start_date": inv.StartDate, "cash": oldSplit[0], "upi": oldSplit[1], "bank_transfer": oldSplit[2], "cheque": oldSplit[3]})
+
 	amount := opening
 	if in.Amount != nil {
 		amount = common.RoundMoney(*in.Amount)
@@ -581,6 +582,7 @@ func editOpeningDeposit(ctx context.Context, tx *gorm.DB, inv *models.Investment
 	if err != nil {
 		return "", err
 	}
+
 	inv.MaturityDate = start.AddDate(0, inv.TenureMonths, 0)
 	if inv.Engine == models.EngineLive {
 		if err := replayLive(inv, amount, start, txs, now); err != nil {

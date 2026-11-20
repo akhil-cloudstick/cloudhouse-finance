@@ -1,13 +1,11 @@
 package main
 
 import (
-	"os"
-
-	"github.com/labstack/echo/v4"
-
 	"cloudhouse/backend/common/routers"
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/scheduler"
+	"github.com/labstack/echo/v4"
+	"os"
 )
 
 func main() {

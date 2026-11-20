@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html/template"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,11 +81,7 @@ func findTemplatesDir() string {
 func mustLoadTemplate(templateName, fileName string) *template.Template {
 	b, err := os.ReadFile(filepath.Join(findTemplatesDir(), fileName))
 	if err != nil {
-		// The desktop app links this package but carries no templates folder. A missing template then fails only when
-		// the document is asked for, instead of stopping the whole program at start-up.
-		log.Printf("debenture subscription agreement: template %s is not available (%v); the document cannot be produced here", fileName, err)
-		missing := func() (string, error) { return "", fmt.Errorf("template %s is not available in this build", fileName) }
-		return template.Must(template.New(templateName).Funcs(template.FuncMap{"templateUnavailable": missing}).Parse("{{templateUnavailable}}"))
+		panic(fmt.Sprintf("debenture subscription agreement: read template %s: %v", fileName, err))
 	}
 	return template.Must(template.New(templateName).Parse(string(b)))
 }

@@ -19,16 +19,8 @@ func ForEachActive(ctx context.Context, label string, fn func(ctx context.Contex
 			continue
 		}
 		tenantCtx := config.WithTenant(ctx, t.ID)
-		// Row-level security reads app.tenant_id off the connection, which only a pinned connection carries: without it
-		// a job's reads quietly see nothing and its inserts fail the policy's WITH CHECK.
-		pinned, release, err := config.PinConn(tenantCtx, config.BaseDB, t.ID)
-		if err != nil {
-			log.Printf("%s: business %d (%s) failed: %v", label, t.ID, t.Code, err)
-			continue
-		}
-		if err := fn(pinned); err != nil {
+		if err := fn(tenantCtx); err != nil {
 			log.Printf("%s: business %d (%s) failed: %v", label, t.ID, t.Code, err)
 		}
-		release()
 	}
 }

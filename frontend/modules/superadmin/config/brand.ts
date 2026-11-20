@@ -6,8 +6,8 @@
  * this app only needs the one constant, not the tenant-branding machinery
  * (BrandingProvider, printBrand, etc.) that lives alongside it there. */
 export const VENDOR = {
-	name: "CloudHouse Technologies",
-	shortName: "CloudHouse",
-	product: "Superadmin Console",
-	markSrc: "/cloudhouse-mark.png",
+  name: "CloudHouse Technologies",
+  shortName: "CloudHouse",
+  product: "Superadmin Console",
+  markSrc: "/cloudhouse-mark.png",
 } as const;

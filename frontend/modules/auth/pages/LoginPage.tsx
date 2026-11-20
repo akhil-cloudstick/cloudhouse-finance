@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import "@/common/styles/login.css";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { ApiError, PROVIDER_SITE_URL } from "@/common/services/httpClient";
+import { ApiError } from "@/common/services/httpClient";
 import { BRAND } from "@/common/config/brand";
 import { useBranding } from "@/common/providers/BrandingProvider";
 import BrandLogo from "@/common/components/BrandLogo";
@@ -343,7 +343,7 @@ function LoginPageInner() {
         {known && <p className="copy">© 2026 {legalName || businessName}</p>}
         <p className="powered">
           Powered by{" "}
-          <a href={PROVIDER_SITE_URL} target="_blank" rel="noopener">
+          <a href="https://cloudhousetechnologies.com" target="_blank" rel="noopener">
             <span>CloudHouse</span>
           </a>
         </p>

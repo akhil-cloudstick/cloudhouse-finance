@@ -19,7 +19,6 @@ type PersonalLoanHistory struct {
 	RelatedLoanID  *uint     `json:"related_loan_id"`
 	OccurredAt     time.Time `json:"occurred_at" gorm:"not null"`
 	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 func (PersonalLoanHistory) TableName() string { return "personal_loan_history" }

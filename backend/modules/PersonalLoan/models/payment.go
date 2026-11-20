@@ -27,5 +27,4 @@ type PersonalLoanPayment struct {
 	InstallmentID          *uint              `json:"installment_id"`
 	CashTransactionGroupID string             `json:"-" gorm:"size:40"`
 	CreatedAt              time.Time          `json:"created_at"`
-	UpdatedAt              time.Time          `json:"updated_at"`
 }

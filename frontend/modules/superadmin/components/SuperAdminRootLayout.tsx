@@ -7,20 +7,20 @@ import { DesktopContextMenu } from "@/common/components/DesktopContextMenu";
  * tenant app's layout decides, including its font loading or its
  * BrandingProvider (a tenant's branding has no business appearing here). */
 export const metadata: Metadata = {
-	title: "CloudHouse Superadmin",
-	description: "Manage every business on this deployment.",
-	icons: { icon: "/cloudhouse-mark.png" },
+  title: "CloudHouse Superadmin",
+  description: "Manage every business on this deployment.",
+  icons: { icon: "/cloudhouse-mark.png" },
 };
 
 type SuperAdminRootLayoutProps = { children: React.ReactNode };
 
 export default function SuperAdminRootLayout({ children }: SuperAdminRootLayoutProps) {
-	return (
-		<html lang="en">
-			<body>
-				<DesktopContextMenu />
-				{children}
-			</body>
-		</html>
-	);
+  return (
+    <html lang="en">
+      <body>
+        <DesktopContextMenu />
+        {children}
+      </body>
+    </html>
+  );
 }

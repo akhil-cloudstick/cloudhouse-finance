@@ -2,24 +2,24 @@
 
 /* Shape returned by the Go backend (backend/internal/bank/model.go). */
 export type BackendBank = {
-	id: number;
-	name: string;
-	// The business branch this account belongs to (mandatory) — GET /banks is
-	// scoped by it via the X-Branch-Id header.
-	branchId: number;
-	branchName: string;
-	// The BANK's own branch (free text, e.g. "Koratty") — not a business branch.
-	branch: string;
-	ifsc: string;
-	accountNo: string;
-	phone: string;
-	// Current net balance of this account (money in less money out).
-	balance: number;
-	// Gold currently repledged to this bank: active pledge count and their total amount.
-	activePledgeCount?: number;
-	activePledgeAmount?: number;
-	createdAt: string;
-	updatedAt: string;
+  id: number;
+  name: string;
+  // The business branch this account belongs to (mandatory) — GET /banks is
+  // scoped by it via the X-Branch-Id header.
+  branchId: number;
+  branchName: string;
+  // The BANK's own branch (free text, e.g. "Koratty") — not a business branch.
+  branch: string;
+  ifsc: string;
+  accountNo: string;
+  phone: string;
+  // Current net balance of this account (money in less money out).
+  balance: number;
+  // Gold currently repledged to this bank: active pledge count and their total amount.
+  activePledgeCount?: number;
+  activePledgeAmount?: number;
+  createdAt: string;
+  updatedAt: string;
 };
 /* Full "Add Bank" form submission — name + the descriptive fields. Same
  * find-or-create endpoint as createBank(); note branch/ifsc/phone are only

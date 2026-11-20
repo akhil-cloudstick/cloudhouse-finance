@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	ErrAuctionNotFound = common.NewNotFound("no auction case — mark it eligible first")
+	ErrAuctionNotFound = common.NewNotFound("this loan has no auction case yet — mark it auction-eligible first")
 )
 
 const (
@@ -376,7 +376,7 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	}
 	now := time.Now()
 	if rate.Date.Year() != now.Year() || rate.Date.YearDay() != now.YearDay() {
-		return nil, common.NewBadRequest("publish today's gold rate first")
+		return nil, common.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
 	}
 	ornaments := make([]models.Ornament, 0, len(in.Ornaments))
 	for _, oi := range in.Ornaments {
@@ -446,10 +446,6 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 		return nil, err
 	}
 	rec.LoanNumber = fmt.Sprintf("LN-%05d", maxSuffix+1)
-	// a loan queued on a PC keeps the id that PC gave it
-	if entry, queued := config.SyncEntryFromContext(ctx); queued {
-		rec.UUID = entry.ClientUUID
-	}
 	if err := insertLoan(ctx, rec); err != nil {
 		return nil, err
 	}
@@ -695,7 +691,7 @@ func updateLoanFields(ctx context.Context, loanID uint, in UpdateLoanInput) (*mo
 	}
 	switch l.Status {
 	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusAuctionedBalanceDue:
-		return nil, common.NewBadRequest("loan is closed — nothing to extend")
+		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
 	}
 	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
 		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount)) ||
@@ -861,14 +857,14 @@ func disbursedLoanEdit(ctx context.Context, l *models.Loan, in UpdateLoanInput) 
 		}
 		newScheme = sch
 	}
-		ups, err := activeTopUpsInOrder(ctx, config.DB.WithContext(ctx), l.ID)
-		if err != nil {
-			return nil, err
-		}
-		var topUpSum float64
-		for _, t := range ups {
-			topUpSum = common.RoundMoney(topUpSum + t.Amount)
-		}
+	ups, err := activeTopUpsInOrder(ctx, config.DB.WithContext(ctx), l.ID)
+	if err != nil {
+		return nil, err
+	}
+	var topUpSum float64
+	for _, t := range ups {
+		topUpSum = common.RoundMoney(topUpSum + t.Amount)
+	}
 	edit := &EditDisbursementInput{CashAmount: in.CashAmount, UpiAmount: in.UpiAmount, BankTransferAmount: in.BankTransferAmount, BankID: in.BankID}
 	// the opening date of a paid-out loan is its disbursement date: moving it shifts the due date and redoes the interest
 	if in.OpenedDate != nil && dayOf(*in.OpenedDate) != dayOf(l.OpenedDate) {
@@ -1119,7 +1115,7 @@ func requireNoPendingDecision(ctx context.Context, recID uint) error {
 		return err
 	}
 	if pending {
-		return common.NewConflict("resolve the repayment decision first")
+		return common.NewConflict("a repayment decision is pending on this auction — it must be resolved before the auction can proceed")
 	}
 	return nil
 }

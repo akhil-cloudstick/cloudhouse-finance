@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -94,11 +95,13 @@ func TriggerRelease(c echo.Context) error {
 			return common.FailErr(c, common.NewBadRequest(fmt.Sprintf("unsupported build target %q", t)))
 		}
 	}
+
 	ctx := auth.RequestContext(c)
 	gh, err := newGitHubClient()
 	if err != nil {
 		return common.FailErr(c, common.NewBadRequest(err.Error()))
 	}
+
 	var tenantCodes []string
 	if req.BuildType == models.BuildTypeContent {
 		tenantCodes = []string{"common"}
@@ -113,6 +116,7 @@ func TriggerRelease(c echo.Context) error {
 	} else {
 		tenantCodes = []string{req.TenantCode}
 	}
+
 	// Rejects an equal-or-lower version before wasting a build, per tenant touched.
 	for _, code := range tenantCodes {
 		current, err := currentLiveVersion(code, req.BuildType)
@@ -124,6 +128,7 @@ func TriggerRelease(c echo.Context) error {
 				fmt.Sprintf("version %s is not higher than %s's current version %s", req.Version, code, current)))
 		}
 	}
+
 	adminID := currentAdminID(c)
 	targetList := strings.Join(targets, ",")
 	var created []models.ReleaseJob
@@ -146,6 +151,7 @@ func TriggerRelease(c echo.Context) error {
 			}
 			rows = append(rows, job)
 		}
+
 		dispatchTenant := code
 		if req.BuildType == models.BuildTypeContent {
 			dispatchTenant = ""
@@ -161,11 +167,12 @@ func TriggerRelease(c echo.Context) error {
 		}
 		created = append(created, rows...)
 	}
+
 	return common.Success(c, http.StatusOK, echo.Map{"jobs": created})
 }
 
 func releaseRef() string {
-	if v := config.EnvTrimmed("GITHUB_RELEASE_REF"); v != "" {
+	if v := strings.TrimSpace(os.Getenv("GITHUB_RELEASE_REF")); v != "" {
 		return v
 	}
 	return "Develop_v2"
@@ -179,10 +186,12 @@ func ListReleaseJobs(c echo.Context) error {
 		return common.FailErr(c, common.NewBadRequest("ids is required, as a comma-separated list"))
 	}
 	ctx := auth.RequestContext(c)
+
 	var jobs []models.ReleaseJob
 	if err := config.BaseDB.WithContext(ctx).Where("id IN ?", ids).Order("id").Find(&jobs).Error; err != nil {
 		return common.FailErr(c, err)
 	}
+
 	gh, ghErr := newGitHubClient()
 	for i := range jobs {
 		refreshJob(ctx, gh, ghErr, &jobs[i])
@@ -206,6 +215,7 @@ func refreshJob(ctx context.Context, gh *githubClient, ghErr error, job *models.
 		job.GitHubRunID = &id
 		config.BaseDB.WithContext(ctx).Save(job)
 	}
+
 	status, err := gh.CurrentStatus(ctx, *job.GitHubRunID, job.OS)
 	if err != nil {
 		return
@@ -251,6 +261,7 @@ func ListReleaseHistory(c echo.Context) error {
 		return common.FailErr(c, common.NewBadRequest("tenant_code is required"))
 	}
 	ctx := auth.RequestContext(c)
+
 	var done []models.ReleaseJob
 	if err := config.BaseDB.WithContext(ctx).
 		Where("tenant_code = ? AND build_type = ? AND status = ?", tenantCode, models.BuildTypeFull, models.StatusDone).
@@ -258,6 +269,7 @@ func ListReleaseHistory(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	sort.Slice(done, func(i, j int) bool { return semverGreater(done[i].Version, done[j].Version) })
+
 	base := bucketPublicBase()
 	out := make([]historyEntry, 0, len(done))
 	for _, job := range done {
@@ -288,9 +300,9 @@ func CurrentVersion(c echo.Context) error {
 }
 
 func bucketPublicBase() string {
-	endpoint := strings.TrimRight(config.EnvTrimmed("S3_ENDPOINT"), "/")
-	bucket := config.EnvTrimmed("S3_BUCKET")
-	folder := strings.Trim(config.EnvTrimmed("S3_FOLDER"), "/")
+	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv("S3_ENDPOINT")), "/")
+	bucket := strings.TrimSpace(os.Getenv("S3_BUCKET"))
+	folder := strings.Trim(strings.TrimSpace(os.Getenv("S3_FOLDER")), "/")
 	if endpoint == "" || bucket == "" {
 		return ""
 	}
@@ -304,6 +316,7 @@ func CancelReleaseJob(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	ctx := auth.RequestContext(c)
+
 	var job models.ReleaseJob
 	if err := config.BaseDB.WithContext(ctx).First(&job, id).Error; err != nil {
 		return common.FailErr(c, common.NewNotFound("release job not found"))
@@ -325,9 +338,9 @@ func CancelReleaseJob(c echo.Context) error {
 
 // currentLiveVersion reads the public manifest straight from the bucket, no credentials needed.
 func currentLiveVersion(tenantCode, buildType string) (string, error) {
-	endpoint := strings.TrimRight(config.EnvTrimmed("S3_ENDPOINT"), "/")
-	bucket := config.EnvTrimmed("S3_BUCKET")
-	folder := strings.Trim(config.EnvTrimmed("S3_FOLDER"), "/")
+	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv("S3_ENDPOINT")), "/")
+	bucket := strings.TrimSpace(os.Getenv("S3_BUCKET"))
+	folder := strings.Trim(strings.TrimSpace(os.Getenv("S3_FOLDER")), "/")
 	if endpoint == "" || bucket == "" {
 		return "", fmt.Errorf("S3_ENDPOINT/S3_BUCKET not set")
 	}
@@ -338,6 +351,7 @@ func currentLiveVersion(tenantCode, buildType string) (string, error) {
 	}
 	parts := []string{endpoint, bucket, folder, tenantCode, feedName}
 	url := strings.Join(filterNonEmpty(parts), "/")
+
 	res, err := http.Get(url)
 	if err != nil {
 		return "", err

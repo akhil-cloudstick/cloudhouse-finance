@@ -6,7 +6,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { fmt } from "@/common/utils/format";
-import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, releaseBankPledge, getLoanByNumber, editReleaseRecord } from "@/modules/loans/services/loanService";
+import { getLoan, listLoanRequests, verifyReleaseChecklist, approveReleaseRequest, releaseBankPledge } from "@/modules/loans/services/loanService";
 import { type RequestView, type LoanView } from "@/modules/loans/types/loan-types";
 import { listPackets, recordMovement, PACKET_STATUS } from "@/modules/packets/services/packetService";
 import { type PacketView } from "@/modules/packets/types/packet-types";
@@ -20,14 +20,13 @@ import { ApprovalActors } from "@/common/components/ui/ApprovalActors";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { singleFlight } from "@/common/utils/singleFlight";
-import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { FieldError } from "@/common/components/ui/FieldError";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { ReleaseCompleteModalContent } from "@/modules/loans/components/ReleaseCompleteModalContent";
 
 function localToday(): string {
-	const n = new Date();
-	return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
 }
 import { releaseAmountNeeded } from "@/modules/loans/utils/releaseAmount";
 import { TableCols } from "@/common/components/ui/TableCols";
@@ -39,7 +38,7 @@ import { TableCols } from "@/common/components/ui/TableCols";
 // authority (ErrDriftPaymentRequired) and this is just an earlier signal so
 // staff aren't surprised by a rejected Approve click.
 function partialReleaseDrift(outstandingBalance: number, remainingGoldValue: number, ltvPercent: number): number {
-	return outstandingBalance - (remainingGoldValue * ltvPercent) / 100;
+  return outstandingBalance - (remainingGoldValue * ltvPercent) / 100;
 }
 
 type ReleaseReviewModalContentProps = { request: RequestView; onSaved: () => void };
@@ -92,31 +91,25 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   });
 
   const [earlierLocked, setEarlierLocked] = useState<number[]>([]);
-	useEffect(() => {
-		loadLoan().then(setLoan).catch(() => setLoan(null));
-	}, [request.loanNumericId]);
+  useEffect(() => {
+    getLoan(request.loanNumericId).then(setLoan).catch(() => setLoan(null));
+  }, [request.loanNumericId]);
 
-	// A request made on this PC can point at a loan the server has not numbered yet (id 0): open it by its number then.
-	function loadLoan(): Promise<LoanView> {
-		const byNumber = () => getLoanByNumber(request.loanNumber);
-		return request.loanNumericId ? getLoan(request.loanNumericId).catch(byNumber) : byNumber();
-	}
+  // The backend no longer gates CustomerSawGold on the packet's own stage
+  // (see VerifyReleaseChecklist's own doc comment — that's tracked
+  // separately in internal/packet now), but ticking it while the gold is
+  // still physically pledged to a bank or sitting in a locker would have
+  // staff attest to something that hasn't actually happened yet. Caught
+  // here instead, same listPackets({loanId}) call LoanDetail.tsx already
+  // makes for its own Bank Pledge card.
+  useEffect(() => {
+    if (!loan) return;
+    if (!can("Packet_Management", "can_view_packet_module")) return;
+    listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
+  }, [loan?.numericId, loan?.bankPledgeStatus]);
 
-	// The backend no longer gates CustomerSawGold on the packet's own stage
-	// (see VerifyReleaseChecklist's own doc comment — that's tracked
-	// separately in internal/packet now), but ticking it while the gold is
-	// still physically pledged to a bank or sitting in a locker would have
-	// staff attest to something that hasn't actually happened yet. Caught
-	// here instead, same listPackets({loanId}) call LoanDetail.tsx already
-	// makes for its own Bank Pledge card.
-	useEffect(() => {
-		if (!loan) return;
-		if (!can("Packet_Management", "can_view_packet_module")) return;
-		listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
-	}, [loan?.numericId, loan?.bankPledgeStatus]);
-
-	// Shown again after a popup it opened (payment, bank pledge release) closes: pick up what that changed.
-	useEffect(() => { refreshRequest(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Shown again after a popup it opened (payment, bank pledge release) closes: pick up what that changed.
+  useEffect(() => { refreshRequest(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const releasingIds = loan ? (req.isPartial ? req.ornamentIds : loan.ornaments.filter((o) => !o.releasedAt).map((o) => o.id)) : [];
   // Only the ornaments of THIS request count; a pledge with no ornament list covers the whole loan.
@@ -157,15 +150,15 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   })) ?? false; }
   const goldHeldReason = pledgedHere ? "pledged to a bank" : "checked into a locker";
 
-	// Re-fetches this one request after a payment recorded via the general
-	// Record Payment modal — that modal returns a LoanView, not the updated
-	// RequestView, so PaymentRecorded/Locked/ApprovalStage have to be pulled
-	// fresh here rather than threaded back through its onSaved callback.
-	async function refreshRequest() {
-		try {
-			const all = await listLoanRequests({ loanId: request.loanNumericId });
-			const fresh = all.find((r) => r.id === req.id);
-			if (fresh) setReq(fresh);
+  // Re-fetches this one request after a payment recorded via the general
+  // Record Payment modal — that modal returns a LoanView, not the updated
+  // RequestView, so PaymentRecorded/Locked/ApprovalStage have to be pulled
+  // fresh here rather than threaded back through its onSaved callback.
+  async function refreshRequest() {
+    try {
+      const all = await listLoanRequests({ loanId: request.loanNumericId });
+      const fresh = all.find((r) => r.id === req.id);
+      if (fresh) setReq(fresh);
       // Ornaments of earlier open release requests are left out of this request's amount (mirrors the backend).
       const ids = new Set<number>();
       for (const r of all) {
@@ -174,84 +167,84 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
         else if (!(r.status === "Approved" && r.isPartial)) loan?.ornaments.forEach((o) => { if (!o.releasedAt) ids.add(o.id); });
       }
       setEarlierLocked([...ids]);
-		} catch {
-			/* keep the possibly-stale request rather than blocking the modal */
-		}
-	}
+    } catch {
+      /* keep the possibly-stale request rather than blocking the modal */
+    }
+  }
 
-	// After the release payment: with no approver, or only one, recording it also approves the release (backend
-	// advanceReleaseRequestStage). Rather than leave this screen sitting in its approved state, swap it for the one
-	// Release Complete summary. Runs after the payment popup has closed back to here, so openModal replaces this modal.
-	async function afterReleasePayment() {
-		try {
-			const [freshLoan, all] = await Promise.all([loadLoan(), listLoanRequests({ loanId: request.loanNumericId })]);
-			const fresh = all.find((r) => r.id === req.id);
-			setLoan(freshLoan);
-			if (fresh) setReq(fresh);
-			if (fresh?.status === "Approved") {
-				openModal(<ReleaseCompleteModalContent request={fresh} loan={freshLoan} onSaved={onSaved} />, true);
-			}
-		} catch {
-			/* the screen's own refresh on remount still picks the change up */
-		}
-	}
+  // After the release payment: with no approver, or only one, recording it also approves the release (backend
+  // advanceReleaseRequestStage). Rather than leave this screen sitting in its approved state, swap it for the one
+  // Release Complete summary. Runs after the payment popup has closed back to here, so openModal replaces this modal.
+  async function afterReleasePayment() {
+    try {
+      const [freshLoan, all] = await Promise.all([getLoan(request.loanNumericId), listLoanRequests({ loanId: request.loanNumericId })]);
+      const fresh = all.find((r) => r.id === req.id);
+      setLoan(freshLoan);
+      if (fresh) setReq(fresh);
+      if (fresh?.status === "Approved") {
+        openModal(<ReleaseCompleteModalContent request={fresh} loan={freshLoan} onSaved={onSaved} />, true);
+      }
+    } catch {
+      /* the screen's own refresh on remount still picks the change up */
+    }
+  }
 
-	// The pending stage from this business's chain (an empty approvalStage
-	// reads as PendingManager, like the backend). With every release stage
-	// switched off there is nothing to approve — recording the payment
-	// completes the release — unless the request was already parked on a
-	// stage before it was switched off, which can still be acted on.
-	const releaseOff = isFlowOff(workflow, "loan_release");
-	const stageView = req.status === "Pending" ? stageByPending(workflow, "loan_release", req.approvalStage) : null;
-	const parkedOnDisabled = !!stageView && !stageView.enabled && !!req.approvalStage;
-	const activeStage = releaseOff && !parkedOnDisabled ? null : stageView;
-	const stage = activeStage?.key ?? "";
-	const stageName = activeStage?.label ?? "";
-	const canActOnStage = canActAtStage({ role, isSystem }, activeStage);
-	const chain = chainFor(workflow, "loan_release", activeStage ? activeStage.pending : null);
-	const stageIndex = activeStage ? chain.findIndex((s) => s.key === activeStage.key) : chain.length;
+  // The pending stage from this business's chain (an empty approvalStage
+  // reads as PendingManager, like the backend). With every release stage
+  // switched off there is nothing to approve — recording the payment
+  // completes the release — unless the request was already parked on a
+  // stage before it was switched off, which can still be acted on.
+  const releaseOff = isFlowOff(workflow, "loan_release");
+  const stageView = req.status === "Pending" ? stageByPending(workflow, "loan_release", req.approvalStage) : null;
+  const parkedOnDisabled = !!stageView && !stageView.enabled && !!req.approvalStage;
+  const activeStage = releaseOff && !parkedOnDisabled ? null : stageView;
+  const stage = activeStage?.key ?? "";
+  const stageName = activeStage?.label ?? "";
+  const canActOnStage = canActAtStage({ role, isSystem }, activeStage);
+  const chain = chainFor(workflow, "loan_release", activeStage ? activeStage.pending : null);
+  const stageIndex = activeStage ? chain.findIndex((s) => s.key === activeStage.key) : chain.length;
 
   // The customer can only be shown gold that is out of the locker and out of the bank, so the box waits for
   // the Gold Release box beside it. A recorded payment locks the request (ErrRequestLocked), and the box with it.
   const gaveGoldCheckboxDisabled = saving || releasingPacket || !canDecide || !canVerifyChecklist || req.status !== "Pending" || req.locked || goldStillHeld || (!!req.approvalStage && req.approvalStage !== "PendingManager");
 
-	// Live pre-check for the Top-Up Payment reveal — only meaningful for a
-	// partial release (a full release keeps today's plain
-	// outstanding<=0.01 gate, no LTV math involved).
-	const remainingCollateral = loan && req.isPartial
-		? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).reduce((sum, o) => sum + o.goldValue, 0)
-		: 0;
-	const drift = loan && req.isPartial ? partialReleaseDrift(loan.totalOutstandingBalance, remainingCollateral, loan.schemeLtv) : 0;
-	const driftLikely = req.isPartial && drift > 0.01;
+  // Live pre-check for the Top-Up Payment reveal — only meaningful for a
+  // partial release (a full release keeps today's plain
+  // outstanding<=0.01 gate, no LTV math involved).
+  const remainingCollateral = loan && req.isPartial
+    ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).reduce((sum, o) => sum + o.goldValue, 0)
+    : 0;
+  const drift = loan && req.isPartial ? partialReleaseDrift(loan.totalOutstandingBalance, remainingCollateral, loan.schemeLtv) : 0;
+  const driftLikely = req.isPartial && drift > 0.01;
 
-	// Mirrors ApproveReleaseRequest's own fallback: PaymentRecorded is
-	// ordinarily set by clicking Record Payment against THIS request, but a
-	// loan can already satisfy the release's financial condition without
-	// that — paid down by an ordinary payment before the release was even
-	// requested, or via the Top-Up Payment path above (which posts against
-	// the plain loan, not this request). In that case the backend accepts
-	// Approve anyway, so the button/messaging here must not block on
-	// paymentRecorded alone or it would show a stale "must record payment"
-	// warning for a release that's actually ready to go.
-	const neededNum = loan
+  // Mirrors ApproveReleaseRequest's own fallback: PaymentRecorded is
+  // ordinarily set by clicking Record Payment against THIS request, but a
+  // loan can already satisfy the release's financial condition without
+  // that — paid down by an ordinary payment before the release was even
+  // requested, or via the Top-Up Payment path above (which posts against
+  // the plain loan, not this request). In that case the backend accepts
+  // Approve anyway, so the button/messaging here must not block on
+  // paymentRecorded alone or it would show a stale "must record payment"
+  // warning for a release that's actually ready to go.
+  const neededNum = loan
     ? releaseAmountNeeded(loan, req.isPartial ? loan.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null, earlierLocked)
 : 0;
   const neededText = loan ? fmt(neededNum) : "the minimum amount";
-	const paymentConditionMet =req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
+  const paymentConditionMet =req.paymentRecorded || (!!loan && (req.isPartial ? !driftLikely : loan.totalOutstandingBalance <= 0.01));
 
-	async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
-		setSaving(true);
-		setErr(""); setSawErr("");
-		try {
-			const updated = await verifyReleaseChecklist(req.id, { customerSawGold: value, ...(pendingDateChanged ? { requestedAt: releaseDate } : {}) }, req);
-			setReq(updated);
-		} catch (e) {
-			// The error belongs under the checkbox that triggered it, not in the generic line at the bottom.
-			setSawErr(e instanceof ApiError ? e.message : "Could not update the checklist — try again.");
-		} finally {
-			setSaving(false);
-		}
-	}); }
+  async function toggleSawGold(value: boolean) { return singleFlight("modal:releasereview:toggleSawGold", async () => {
+    setSaving(true);
+    setErr(""); setSawErr("");
+    try {
+      const updated = await verifyReleaseChecklist(req.id, { customerSawGold: value, ...(pendingDateChanged ? { requestedAt: releaseDate } : {}) });
+      setReq(updated);
+    } catch (e) {
+      // The error belongs under the checkbox that triggered it, not in the generic line at the bottom.
+      setSawErr(e instanceof ApiError ? e.message : "Could not update the checklist — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }); }
 
   // Once the request has left the first (manager) stage — payment recorded, or approved on to the next stage — or
   // has been decided, the release date and verification notes are fixed.
@@ -260,83 +253,59 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
   // A pending request keeps the date the manager picked: it is sent with the checklist and the approval, so the next stage sees it.
   const pendingDateChanged = req.status === "Pending" && !!req.requestedAt && releaseDate !== req.requestedAt.slice(0, 10);
 
-	async function saveReleaseDate() { return singleFlight("modal:releasereview:saveDate", async () => {
-		setSaving(true);
-		setErr("");
-		try {
-			await editReleaseRecord(req.id, { requestedAt: releaseDate });
-			await refreshRequest();
-			onSaved();
-			toast("Release date updated");
-		} catch (e) {
-			setErr(e instanceof ApiError ? e.message : "Could not update the release date — try again.");
-		} finally {
-			setSaving(false);
-		}
-	}); }
-
-	async function saveNotes() { return singleFlight("modal:releasereview:saveNotes", async () => {
-		setSaving(true);
+  async function saveNotes() { return singleFlight("modal:releasereview:saveNotes", async () => {
+    setSaving(true);
     setErr(""); setSawErr(""); setNotesErr("");
-		try {
-			const updated = await verifyReleaseChecklist(req.id, { verificationNotes: notes }, req);
-			setReq(updated);
-			toast("Saved");
-		} catch (e) {
-			// The only thing this call saves is the notes box, so its failure belongs under it.
-			setNotesErr(e instanceof ApiError ? e.message : "Could not save — try again.");
-		} finally {
-			setSaving(false);
-		}
-	}); }
+    try {
+      const updated = await verifyReleaseChecklist(req.id, { verificationNotes: notes });
+      setReq(updated);
+      toast("Saved");
+    } catch (e) {
+      // The only thing this call saves is the notes box, so its failure belongs under it.
+      setNotesErr(e instanceof ApiError ? e.message : "Could not save — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }); }
 
-	/* Rejecting a release request cannot be undone, and the button sits beside Approve: it asks first, as the extension screen does. */
-	function promptReject() {
-		openModal(
-			<ConfirmModalContent title="Reject Release Request" confirmLabel="Reject" busyLabel="Rejecting…" onConfirm={() => decide("Rejected")}>
-				<p style={{ margin: 0 }}>This rejects the release request for {req.loanNumber}. The gold stays pledged and the request cannot be reopened.</p>
-			</ConfirmModalContent>
-		);
-	}
-
-	async function decide(action: "Approved" | "Rejected") { return singleFlight("modal:releasereview:decide", async () => {
-		setSaving(true);
+  async function decide(action: "Approved" | "Rejected") { return singleFlight("modal:releasereview:decide", async () => {
+    setSaving(true);
     setErr(""); setSawErr(""); setNotesErr("");
-		try {
-			// The acting employee is derived server-side from the logged-in
-			// user's JWT — no employeeId sent from here.
+    try {
+      // The acting employee is derived server-side from the logged-in
+      // user's JWT — no employeeId sent from here.
       if (action === "Approved" && pendingDateChanged) await verifyReleaseChecklist(req.id, { requestedAt: releaseDate });
-			const updated = await approveReleaseRequest(req.id, { stage, action }, req);
-			setReq(updated);
-			onSaved();
-			if (action !== "Approved" || updated.status !== "Approved") {
-				// Approved-but-not-final (Manager stage on a two-stage chain) keeps
-				// the modal open so staff can see the advanced stage; Rejected and
-				// final Approved both close it.
-				if (action === "Rejected") {
-					closeModal();
-					toast("Release request rejected");
-				} else {
-					toast(`Release ${stageName} stage approved`);
-				}
-			} else {
-				closeModal();
-				toast(req.isPartial ? "Release approved — selected ornaments released" : "Release approved — gold released, loan closed");
-			}
-		} catch (e) {
-			if (e instanceof ApiError && e.status === 409 && /drift|top-up/i.test(e.message)) {
-				// ErrDriftPaymentRequired — the buffer that absorbed drift at
-				// creation time no longer covers it. Reveal the Top-Up Payment
-				// prompt instead of just showing the raw error.
-				setShowTopUp(true);
-				setErr("Outstanding balance has drifted above what the remaining collateral supports — record a top-up payment below, then try approving again.");
-			} else {
-				setErr(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
-			}
-		} finally {
-			setSaving(false);
-		}
-	}); }
+      const updated = await approveReleaseRequest(req.id, { stage, action });
+      setReq(updated);
+      onSaved();
+      if (action !== "Approved" || updated.status !== "Approved") {
+        // Approved-but-not-final (Manager stage on a two-stage chain) keeps
+        // the modal open so staff can see the advanced stage; Rejected and
+        // final Approved both close it.
+        if (action === "Rejected") {
+          closeModal();
+          toast("Release request rejected");
+        } else {
+          toast(`Release ${stageName} stage approved`);
+        }
+      } else {
+        closeModal();
+        toast(req.isPartial ? "Release approved — selected ornaments released" : "Release approved — gold released, loan closed");
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && /drift|top-up/i.test(e.message)) {
+        // ErrDriftPaymentRequired — the buffer that absorbed drift at
+        // creation time no longer covers it. Reveal the Top-Up Payment
+        // prompt instead of just showing the raw error.
+        setShowTopUp(true);
+        setErr("Outstanding balance has drifted above what the remaining collateral supports — record a top-up payment below, then try approving again.");
+      } else {
+        setErr(e instanceof ApiError ? e.message : "Could not record the decision — try again.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }); }
 
   return (
     <>
@@ -453,7 +422,7 @@ export function ReleaseReviewModalContent({ request, onSaved }: ReleaseReviewMod
                 className="btn ghost"
                 style={{ width: "100%" }}
                 disabled={req.status !== "Pending" || !canDecide || !loan}
-                onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} releaseRequest={req} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null, earlierLocked)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
+                onClick={() => openChildModal(<PaymentModalContent loan={loan!} releaseRequestId={req.id} initialDate={releaseDate} releaseMinFor={(l) => releaseAmountNeeded(l, req.isPartial ? l.ornaments.filter((o) => !o.releasedAt && !req.ornamentIds.includes(o.id)).map((o) => o.id) : null, earlierLocked)} onSaved={() => { onSaved(); void afterReleasePayment(); }} />, true)}
               >
                 <Icon name="coin" /> Record Payment
               </button>

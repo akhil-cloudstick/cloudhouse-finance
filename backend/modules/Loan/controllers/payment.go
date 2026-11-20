@@ -380,7 +380,7 @@ func allocatePayment(l *models.Loan, paymentType string, amount float64, interes
 		remaining -= interest
 		principal = math.Min(remaining, principalOutstanding)
 	default:
-		return 0, 0, 0, 0, common.NewBadRequest("payment type is not valid")
+		return 0, 0, 0, 0, common.NewBadRequest("type must be Interest, Principal, Partial, Full Settlement, Adjustment, Waiver, or Discount")
 	}
 	return fee, penal, interest, principal, nil
 }
@@ -409,7 +409,7 @@ func SaveLoanPayment(ctx context.Context, loanID uint, in PaymentInput) (*models
 			return nil, err
 		}
 		if (in.UpiAmount > 0 || in.BankTransferAmount > 0 || in.ChequeAmount > 0) && in.BankID == nil {
-			return nil, common.NewBadRequest("bank is required for the payment split")
+			return nil, common.NewBadRequest("bank is required when the payment breakdown includes UPI or Bank Transfer")
 		}
 	}
 	if in.InterestOverride != nil && *in.InterestOverride < 0 {

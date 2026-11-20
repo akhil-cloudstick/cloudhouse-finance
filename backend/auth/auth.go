@@ -181,7 +181,7 @@ func RequirePermission(permissionName string) echo.MiddlewareFunc {
 					return failForbidden(c, "Permission not found", permissionName)
 				}
 				log.Printf("permission check for %q (role %d) failed: %v", permissionName, roleID, err)
-				return failAbort(c, http.StatusBadRequest, "Permission check failed, please try again")
+				return failAbort(c, http.StatusInternalServerError, "permission check failed")
 			}
 			if !allowed {
 				return failForbidden(c, "Access denied", permissionName)
@@ -300,16 +300,8 @@ func RequireSelf(param, ctxKey string) echo.MiddlewareFunc {
 	}
 }
 
-// LocalStaff is set only by the desktop app's local read server (backend/localapi). When it is set, routes registered with
-// Staff use it instead of the online checks, because a PC without the server cannot verify a login token; it answers
-// from the session the PC saved at sign-in. The online server never sets it.
-var LocalStaff []echo.MiddlewareFunc
-
 func Staff(extra ...echo.MiddlewareFunc) []echo.MiddlewareFunc {
-	if LocalStaff != nil {
-		return append(append([]echo.MiddlewareFunc{}, LocalStaff...), extra...)
-	}
-	return append([]echo.MiddlewareFunc{AuthMiddleware(), RequireSelf("user_id", "employeeId"), RequireHostMatchesTenant(true), PinTenantConn(), PinSingleBranch(), SyncEntry()}, extra...)
+	return append([]echo.MiddlewareFunc{AuthMiddleware(), RequireSelf("user_id", "employeeId"), RequireHostMatchesTenant(true), PinTenantConn(), PinSingleBranch()}, extra...)
 }
 
 func Customer(extra ...echo.MiddlewareFunc) []echo.MiddlewareFunc {
@@ -388,8 +380,7 @@ func CORS(allowedOrigins string) echo.MiddlewareFunc {
 				c.Response().Header().Set("Vary", "Origin")
 			}
 			c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Branch-Id, ngrok-skip-browser-warning, X-Client-Uuid, X-Occurred-At, X-Device-Id, X-Device-Signature, ngrok-skip-browser-warning")
-			c.Response().Header().Set("Access-Control-Expose-Headers", "X-Sync-Duplicate")
+			c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Branch-Id, ngrok-skip-browser-warning")
 			if c.Request().Method == http.MethodOptions {
 				return c.NoContent(http.StatusNoContent)
 			}

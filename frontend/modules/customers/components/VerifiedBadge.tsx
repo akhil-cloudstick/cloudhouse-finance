@@ -17,11 +17,11 @@ type VerifiedBadgeProps = { customer: { panStatus: string; aadhaarStatus: string
  * PAN/Aadhaar), which is where that detail belongs.
  */
 export function VerifiedBadge({ customer }: VerifiedBadgeProps) {
-	if (verificationLabel(customer) !== "Verified") return null;
-	return (
-		<span className="vbadge" title="PAN and Aadhaar verified">
-			<Icon name="check" />
-			Verified
-		</span>
-	);
+  if (verificationLabel(customer) !== "Verified") return null;
+  return (
+    <span className="vbadge" title="PAN and Aadhaar verified">
+      <Icon name="check" />
+      Verified
+    </span>
+  );
 }

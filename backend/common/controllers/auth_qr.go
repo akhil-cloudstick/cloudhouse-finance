@@ -88,19 +88,19 @@ func redeemQRLogin(ctx context.Context, token string) (*QRLoginSession, error) {
 	qrSessions.
 		mu.Unlock()
 	if !ok || !time.Now().Before(e.expiresAt) {
-		return nil, NewNotFound("QR code expired — generate a new one")
+		return nil, NewNotFound("this QR code has expired — generate a new one from the web dashboard")
 	}
 	ctx = config.WithTenant(ctx, e.tenantID)
 	emp, err := FindEmployeeByID(ctx, e.employeeID)
 	if err != nil {
-		return nil, NewNotFound("QR code expired — generate a new one")
+		return nil, NewNotFound("this QR code has expired — generate a new one from the web dashboard")
 	}
 	if emp.PasswordHash == "" || emp.TenantID == 0 {
-		return nil, NewNotFound("QR code expired — generate a new one")
+		return nil, NewNotFound("this QR code has expired — generate a new one from the web dashboard")
 	}
 	session, ok := CurrentSession(ctx, emp.ID)
 	if !ok || !session.IsActive {
-		return nil, NewNotFound("QR code expired — generate a new one")
+		return nil, NewNotFound("this QR code has expired — generate a new one from the web dashboard")
 	}
 	emp.IsSystem = session.IsSystem
 	t, err := FindTenantByID(config.AllowCrossTenant(ctx), emp.TenantID)

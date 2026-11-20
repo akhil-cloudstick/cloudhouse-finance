@@ -5,6 +5,7 @@ import (
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/config"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -14,7 +15,7 @@ import (
 // Set PROVIDER_TENANT_CODE to the code of the business registered by the superadmin (e.g. "gml");
 // it falls back to "default".
 func providerTenantCode() string {
-	if v := config.EnvTrimmed("PROVIDER_TENANT_CODE"); v != "" {
+	if v := strings.TrimSpace(os.Getenv("PROVIDER_TENANT_CODE")); v != "" {
 		return v
 	}
 	return "default"

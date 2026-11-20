@@ -76,7 +76,7 @@ func updateAdminLogin(ctx context.Context, actor *models.SuperAdminUser, id uint
 		return nil, common.NewBadRequest("an initial administrator username is required")
 	}
 	if in.Password != "" && len(in.Password) < 8 {
-		return nil, common.NewBadRequest("password must be 8+ characters")
+		return nil, common.NewBadRequest("the initial administrator password must be at least 8 characters")
 	}
 	var out *AdminLogin
 	var changes []string
@@ -108,7 +108,7 @@ func updateAdminLogin(ctx context.Context, actor *models.SuperAdminUser, id uint
 		if len(updates) > 0 {
 			if err := tx.WithContext(tctx).Model(e).Updates(updates).Error; err != nil {
 				if isUniqueViolation(err) {
-					return common.NewConflict("username is already taken")
+					return common.NewConflict("that username is already used by another employee of this business")
 				}
 				return err
 			}

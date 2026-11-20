@@ -17,16 +17,16 @@ export type BondLang = "en" | "ml" | "gu" | "ta";
  * what a picker should render: which of these a business may actually issue
  * is a per-business grant, so pickers call bondLangOptionsFor() below. */
 export const BOND_LANG_OPTIONS: { value: BondLang; label: string; native: string }[] = [
-	{ value: "en", label: "English", native: "Indemnity Bond" },
-	{ value: "ml", label: "Malayalam", native: "ആഭരണ പണയ കരാർ" },
-	{ value: "gu", label: "Gujarati", native: "ગીરો કરાર" },
-	{ value: "ta", label: "Tamil", native: "அடகு ஒப்பந்தம்" },
+  { value: "en", label: "English", native: "Indemnity Bond" },
+  { value: "ml", label: "Malayalam", native: "ആഭരണ പണയ കരാർ" },
+  { value: "gu", label: "Gujarati", native: "ગીરો કરાર" },
+  { value: "ta", label: "Tamil", native: "அடகு ஒப்பந்தம்" },
 ];
 
 /* The release agreement (FORM 7) and the partial release receipt exist only in these two languages. */
 export const RELEASE_LANG_OPTIONS: { value: BondLang; label: string; native: string }[] = [
-	{ value: "en", label: "English", native: "Release Agreement" },
-	{ value: "ml", label: "Malayalam", native: "ഫോറം 7" },
+  { value: "en", label: "English", native: "Release Agreement" },
+  { value: "ml", label: "Malayalam", native: "ഫോറം 7" },
 ];
 
 /* bondLangOptionsFor narrows the catalogue to what this business has been
@@ -45,7 +45,7 @@ export const RELEASE_LANG_OPTIONS: { value: BondLang; label: string; native: str
  * Gujarati is the Gujarat branch's formal deed — see backend/templates/
  * gujarati-bond.html's own doc comment. */
 export function bondLangOptionsFor(languages: string[]): typeof BOND_LANG_OPTIONS {
-	const allowed = new Set(languages.length ? languages : ["en"]);
-	allowed.add("en");
-	return BOND_LANG_OPTIONS.filter((o) => allowed.has(o.value));
+  const allowed = new Set(languages.length ? languages : ["en"]);
+  allowed.add("en");
+  return BOND_LANG_OPTIONS.filter((o) => allowed.has(o.value));
 }

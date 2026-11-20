@@ -50,7 +50,7 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 		return nil, common.NewBadRequest("requested extension months must be greater than zero")
 	}
 	if l.Status == models.StatusPendingApproval {
-		return nil, common.NewBadRequest("loan is not approved yet")
+		return nil, common.NewBadRequest("this loan is still pending approval — extension or release can only be requested once it is approved and disbursed")
 	}
 	if isGoldSold(l.Status) {
 		return nil, common.NewBadRequest("this loan's gold has been auctioned — extension or release can no longer be requested")
@@ -59,7 +59,7 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 		ctx, l)
 	enrichLoan(ctx, l)
 	if l.OutstandingInterest > moneyEpsilon || l.OutstandingPenalInterest > moneyEpsilon {
-		return nil, common.NewBadRequest("pay the outstanding interest first")
+		return nil, common.NewBadRequest("outstanding interest and penal interest must be paid before an extension can be requested")
 	}
 	requestedBy := in.RequestedBy
 	if requestedBy == "" {
@@ -71,7 +71,7 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 	}
 	first, needsApproval := chain.First()
 	if !needsApproval && isLoanTerminal(l.Status) {
-		return nil, common.NewBadRequest("loan is closed — nothing to extend")
+		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
 	}
 	months := in.Months
 	req := &models.LoanRequest{
@@ -121,7 +121,7 @@ func applyExtension(ctx context.Context, req *models.LoanRequest, actorEmployeeI
 		return nil, common.NewNotFound("loan not found")
 	}
 	if isLoanTerminal(l.Status) {
-		return nil, common.NewBadRequest("loan is closed — nothing to extend")
+		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
 	}
 	months := 0
 	if req.RequestedExtensionMonths != nil {
@@ -184,10 +184,10 @@ func ApproveExtensionRequest(ctx context.Context, requestID uint, branchID *uint
 	}
 	step, ok := chain.ByPending(stage)
 	if !ok || in.Stage != step.Key {
-		return nil, common.NewBadRequest("wrong approval stage")
+		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
 	}
 	if !common.CanAct(ctx, in.ActorRoleID, common.FlowLoanExtension, step.Key) {
-		return nil, common.NewBadRequest("wrong approval stage")
+		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
 	}
 	next, hasNext := chain.Next(step.Key)
 	if in.Action == models.ApprovalStageApproved {
@@ -195,7 +195,7 @@ func ApproveExtensionRequest(ctx context.Context, requestID uint, branchID *uint
 			accrueAndSave(ctx, l)
 			enrichLoan(ctx, l)
 			if l.OutstandingInterest > moneyEpsilon || l.OutstandingPenalInterest > moneyEpsilon {
-				return nil, common.NewBadRequest("pay the outstanding interest first")
+				return nil, common.NewBadRequest("outstanding interest and penal interest must be paid before an extension can be requested")
 			}
 		}
 	}

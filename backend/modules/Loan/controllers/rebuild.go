@@ -329,6 +329,7 @@ func replayLoanFrom(ctx context.Context, tx *gorm.DB, l *models.Loan, rows []mod
 	l.RateTierLevel = 0
 	l.ArrearsSince = nil
 	l.Status = models.StatusActive
+
 	next := 0 // the next top-up not yet applied
 	for i := range rows {
 		p := &rows[i]
@@ -398,6 +399,7 @@ func replayLoanFrom(ctx context.Context, tx *gorm.DB, l *models.Loan, rows []mod
 		p.ProcessingFeeApplied, p.PenalInterestApplied, p.InterestApplied, p.PrincipalApplied = fee, penal, interest, principal
 		p.RunningBalance = l.OutstandingAmount + math.Max(0, oi) + math.Max(0, op) + l.OutstandingProcessingFee
 	}
+
 	if !cutDone { // the edit is at the very end: nothing after the last saved entry is kept
 		if err := cut(); err != nil {
 			return err
@@ -528,6 +530,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 		}
 		originalStatus := l.Status
 		result.Before = summarize(l)
+
 		idx := -1
 		for i := range rows {
 			if rows[i].ID == paymentID {
@@ -548,6 +551,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			kept := old.PaidOn
 			in.PaidOn = &kept
 		}
+
 		// the discount that came with this payment (edited together with it)
 		didx := -1
 		discountChanged := false
@@ -564,6 +568,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 				discountChanged = true
 			}
 		}
+
 		// An edit that leaves every figure alone (the payment mode, bank, reference or note) changes no balance and no
 		// interest, so the loan is not recalculated at all: only this entry and its cash lines are rewritten.
 		if in != nil && !discountChanged && !editChangesFigures(&old, in) {
@@ -577,6 +582,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			return err
 		}
 		interestBefore := accrualSnapshot(ctx, tx, loanID)
+
 		// The loan is first recalculated untouched: if that does not reproduce what is saved, the history holds
 		// figures this recalculation cannot explain and an edit would silently change them.
 		// The recalculation starts at the earliest entry the edit touches (the entry itself, or where a new date moves
@@ -605,6 +611,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 		if err != nil {
 			return err
 		}
+
 		// every row as it was saved (the edit below changes the rows in place)
 		savedRows := make(map[uint]models.LoanPayment, len(rows))
 		for _, r := range rows {
@@ -685,6 +692,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			}
 			sortReplayRows(edited)
 		}
+
 		fit := newReplayFit(paymentID, adjust)
 		fit.strict = !dryRun
 		if err := replayLoanFrom(withReplayFit(ctx, fit), tx, l, edited, originalStatus, from); err != nil {
@@ -712,6 +720,7 @@ func editLoanPayment(ctx context.Context, loanID, paymentID uint, in *EditPaymen
 			}
 			edited = kept
 		}
+
 		// Save: the recalculated rows, the loan, and this one payment's cash lines.
 		for i := from; i < len(edited); i++ { // the entries before the edit are not rewritten
 			if err := tx.WithContext(ctx).Save(&edited[i]).Error; err != nil {
