@@ -41,11 +41,11 @@ const ACTIVE_BUSINESS_KEY = "cloudhouse_active_business";
  * they are never read for a value and never displayed. Every key this app
  * writes today is prefixed `cloudhouse_`. */
 const STALE_KEYS = [
-  "ambikagold_token",
-  "ambikagold_employee",
-  "ambikagold_active_business",
-  "ambikagold_superadmin_token",
-  "ambikagold_superadmin_user",
+	"ambikagold_token",
+	"ambikagold_employee",
+	"ambikagold_active_business",
+	"ambikagold_superadmin_token",
+	"ambikagold_superadmin_user",
 ] as const;
 
 /* The bucket used when no slug is known — the single-business installation,
@@ -69,11 +69,11 @@ export { isValidBusinessSlug } from "@/common/config/routes";
  * a bare path (/login, /dashboard), which is the single-business install.
  */
 export function businessSlugFromPath(pathname?: string): string | null {
-  const path = pathname ?? (typeof window === "undefined" ? "" : window.location.pathname);
-  const parts = path.split("/").filter(Boolean);
-  if (!parts.length) return null;
-  const candidate = parts[0].toLowerCase();
-  return isBusinessSegment(candidate) ? candidate : null;
+	const path = pathname ?? (typeof window === "undefined" ? "" : window.location.pathname);
+	const parts = path.split("/").filter(Boolean);
+	if (!parts.length) return null;
+	const candidate = parts[0].toLowerCase();
+	return isBusinessSegment(candidate) ? candidate : null;
 }
 
 /* Host labels that never name a business — the platform's own bare/marketing
@@ -98,6 +98,9 @@ const IPV4_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
 // The desktop app's own origin (Wails); it names no business.
 const DESKTOP_HOST = "wails.localhost";
 
+// Tunnel hosts (ngrok): a random name that is not a business code.
+const TUNNEL_HOST = /(^|\.)ngrok(-free)?\.(dev|app|io)$/;
+
 /* subdomainLabel is the shared rule both businessSlugFromHost() below and the
  * desktop fallback use: given a lowercased host, the first label names a
  * business only when there is something real in front of a qualifying
@@ -105,16 +108,16 @@ const DESKTOP_HOST = "wails.localhost";
  * "localhost" alone, a raw IP, or a reserved label — see the two lists
  * above. */
 function subdomainLabel(host: string): string | null {
-  if (!host || IPV4_PATTERN.test(host)) return null;
-  const labels = host.split(".");
-  if (labels.length < 2) return null; // "localhost" alone, or an unqualified host
-  const candidate = labels[0];
-  if (!isValidSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
-  const rest = labels.slice(1).join(".");
-  if (LOCAL_HOST_SUFFIXES.includes(rest)) return candidate;
-  // A bare two-label apex ("cloudhousefinance.com") has no subdomain to
-  // read at all — only three-or-more labels put something in front of it.
-  return labels.length >= 3 ? candidate : null;
+	if (!host || IPV4_PATTERN.test(host)) return null;
+	const labels = host.split(".");
+	if (labels.length < 2) return null; // "localhost" alone, or an unqualified host
+	const candidate = labels[0];
+	if (!isValidSlug(candidate) || RESERVED_HOST_LABELS.has(candidate)) return null;
+	const rest = labels.slice(1).join(".");
+	if (LOCAL_HOST_SUFFIXES.includes(rest)) return candidate;
+	// A bare two-label apex ("cloudhousefinance.com") has no subdomain to
+	// read at all — only three-or-more labels put something in front of it.
+	return labels.length >= 3 ? candidate : null;
 }
 
 /* The desktop app is never served from a tenant subdomain — Wails always
@@ -129,13 +132,19 @@ function subdomainLabel(host: string): string | null {
  * same-origin web/production setup), which is a no-op for every build that
  * isn't desktop-with-a-tenant-URL. */
 function desktopSlugFromApiBase(): string | null {
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE;
-  if (!apiBase) return null;
-  try {
-    return subdomainLabel(new URL(apiBase).hostname.toLowerCase());
-  } catch {
-    return null; // relative path ("/api/v1") — no host to read
-  }
+	// A business named at build time (DESKTOP_TENANT) wins: a localhost or shared API address carries no business of its own.
+	const named = (process.env.NEXT_PUBLIC_DESKTOP_TENANT || "").trim().toLowerCase();
+	if (/^[a-z0-9][a-z0-9-]*$/.test(named)) return named;
+	const apiBase = process.env.NEXT_PUBLIC_API_BASE;
+	if (!apiBase) return null;
+	try {
+		const host = new URL(apiBase).hostname.toLowerCase();
+		// a tunnel address (ngrok) is just a way to reach the backend: its first label names no business
+		if (TUNNEL_HOST.test(host)) return null;
+		return subdomainLabel(host);
+	} catch {
+		return null; // relative path ("/api/v1") — no host to read
+	}
 }
 
 /* businessSlugFromHost reads a subdomain the way production will resolve a
@@ -153,9 +162,9 @@ function desktopSlugFromApiBase(): string | null {
  * desktop app's own host, falls back to desktopSlugFromApiBase() instead,
  * since wails.localhost never names a business itself. */
 export function businessSlugFromHost(hostname?: string): string | null {
-  const host = (hostname ?? (typeof window === "undefined" ? "" : window.location.hostname)).toLowerCase();
-  if (host === DESKTOP_HOST) return desktopSlugFromApiBase();
-  return subdomainLabel(host);
+	const host = (hostname ?? (typeof window === "undefined" ? "" : window.location.hostname)).toLowerCase();
+	if (host === DESKTOP_HOST) return desktopSlugFromApiBase();
+	return subdomainLabel(host);
 }
 
 /* activeBusinessSlug is the business this browser tab is operating as, in
@@ -171,17 +180,17 @@ export function businessSlugFromHost(hostname?: string): string | null {
  * never depend on a shared "current business" value the other could
  * overwrite. */
 export function activeBusinessSlug(): string | null {
-  const fromPath = businessSlugFromPath();
-  if (fromPath) return fromPath;
-  const fromHost = businessSlugFromHost();
-  if (fromHost) return fromHost;
-  if (typeof window === "undefined") return null;
-  // An explicit ?b=<slug> (forgot/reset-password links) beats the remembered
-  // business, or those pages brand as whichever tenant was last used here.
-  const linked = new URLSearchParams(window.location.search).get("b")?.trim().toLowerCase();
-  if (linked && isValidSlug(linked)) return linked;
-  const remembered = window.localStorage.getItem(ACTIVE_BUSINESS_KEY);
-  return remembered && isValidSlug(remembered) ? remembered : null;
+	const fromPath = businessSlugFromPath();
+	if (fromPath) return fromPath;
+	const fromHost = businessSlugFromHost();
+	if (fromHost) return fromHost;
+	if (typeof window === "undefined") return null;
+	// An explicit ?b=<slug> (forgot/reset-password links) beats the remembered
+	// business, or those pages brand as whichever tenant was last used here.
+	const linked = new URLSearchParams(window.location.search).get("b")?.trim().toLowerCase();
+	if (linked && isValidSlug(linked)) return linked;
+	const remembered = window.localStorage.getItem(ACTIVE_BUSINESS_KEY);
+	return remembered && isValidSlug(remembered) ? remembered : null;
 }
 
 /* resolveActiveSlug names the active business AND reports which of the two
@@ -203,59 +212,59 @@ export function activeBusinessSlug(): string | null {
  * itself when this returns a null slug, and decides on its own whether that
  * bare-fallback case should still show a slug in the URL. */
 export function resolveActiveSlug(): { slug: string | null; fromPath: boolean } {
-  const fromPath = businessSlugFromPath();
-  if (fromPath) return { slug: fromPath, fromPath: true };
-  return { slug: businessSlugFromHost(), fromPath: false };
+	const fromPath = businessSlugFromPath();
+	if (fromPath) return { slug: fromPath, fromPath: true };
+	return { slug: businessSlugFromHost(), fromPath: false };
 }
 
 export function rememberActiveBusiness(slug: string | null): void {
-  if (typeof window === "undefined") return;
-  if (slug && isValidSlug(slug)) {
-    window.localStorage.setItem(ACTIVE_BUSINESS_KEY, slug);
-  } else {
-    window.localStorage.removeItem(ACTIVE_BUSINESS_KEY);
-  }
+	if (typeof window === "undefined") return;
+	if (slug && isValidSlug(slug)) {
+		window.localStorage.setItem(ACTIVE_BUSINESS_KEY, slug);
+	} else {
+		window.localStorage.removeItem(ACTIVE_BUSINESS_KEY);
+	}
 }
 
 function bucket(slug?: string | null): string {
-  const s = slug === undefined ? activeBusinessSlug() : slug;
-  return s && isValidSlug(s) ? s : DEFAULT_BUCKET;
+	const s = slug === undefined ? activeBusinessSlug() : slug;
+	return s && isValidSlug(s) ? s : DEFAULT_BUCKET;
 }
 
 /* The storage keys for one business's session. */
 export function sessionKeys(slug?: string | null) {
-  const b = bucket(slug);
-  return {
-    token: `cloudhouse_token::${b}`,
-    employee: `cloudhouse_employee::${b}`,
-    permissions: `cloudhouse_permissions::${b}`,
-  };
+	const b = bucket(slug);
+	return {
+		token: `cloudhouse_token::${b}`,
+		employee: `cloudhouse_employee::${b}`,
+		permissions: `cloudhouse_permissions::${b}`,
+	};
 }
 
 export function readToken(slug?: string | null): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(sessionKeys(slug).token);
+	if (typeof window === "undefined") return null;
+	return window.localStorage.getItem(sessionKeys(slug).token);
 }
 
 export function readEmployeeRaw(slug?: string | null): string | null {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(sessionKeys(slug).employee);
+	if (typeof window === "undefined") return null;
+	return window.localStorage.getItem(sessionKeys(slug).employee);
 }
 
 export function writeSession(slug: string | null, token: string, employeeJson: string): void {
-  if (typeof window === "undefined") return;
-  const keys = sessionKeys(slug);
-  window.localStorage.setItem(keys.token, token);
-  window.localStorage.setItem(keys.employee, employeeJson);
-  rememberActiveBusiness(slug);
+	if (typeof window === "undefined") return;
+	const keys = sessionKeys(slug);
+	window.localStorage.setItem(keys.token, token);
+	window.localStorage.setItem(keys.employee, employeeJson);
+	rememberActiveBusiness(slug);
 }
 
 export function clearSession(slug?: string | null): void {
-  if (typeof window === "undefined") return;
-  const keys = sessionKeys(slug);
-  window.localStorage.removeItem(keys.token);
-  window.localStorage.removeItem(keys.employee);
-  window.sessionStorage.removeItem(keys.permissions);
+	if (typeof window === "undefined") return;
+	const keys = sessionKeys(slug);
+	window.localStorage.removeItem(keys.token);
+	window.localStorage.removeItem(keys.employee);
+	window.sessionStorage.removeItem(keys.permissions);
 }
 
 /* clearSessionsForToken removes every bucket holding THIS EXACT token, and
@@ -278,31 +287,31 @@ export function clearSession(slug?: string | null): void {
  * the whole reason sessions are keyed per business in the first place.
  */
 export function clearSessionsForToken(token: string | null): number {
-  if (typeof window === "undefined" || !token) return 0;
-  const prefix = "cloudhouse_token::";
-  // Collected before mutating: removeItem reindexes localStorage, so removing
-  // inside a key(i) walk skips entries.
-  const buckets: string[] = [];
-  for (let i = 0; i < window.localStorage.length; i++) {
-    const key = window.localStorage.key(i);
-    if (!key || !key.startsWith(prefix)) continue;
-    if (window.localStorage.getItem(key) === token) buckets.push(key.slice(prefix.length));
-  }
-  buckets.forEach((b) => clearSession(b));
-  return buckets.length;
+	if (typeof window === "undefined" || !token) return 0;
+	const prefix = "cloudhouse_token::";
+	// Collected before mutating: removeItem reindexes localStorage, so removing
+	// inside a key(i) walk skips entries.
+	const buckets: string[] = [];
+	for (let i = 0; i < window.localStorage.length; i++) {
+		const key = window.localStorage.key(i);
+		if (!key || !key.startsWith(prefix)) continue;
+		if (window.localStorage.getItem(key) === token) buckets.push(key.slice(prefix.length));
+	}
+	buckets.forEach((b) => clearSession(b));
+	return buckets.length;
 }
 
 /* readPermissions/writePermissions mirror the permission map per business.
  * sessionStorage, so it dies with the tab (the map is a cache, never an
  * authority — see the role-permission standard). */
 export function readPermissionsRaw(slug?: string | null): string | null {
-  if (typeof window === "undefined") return null;
-  return window.sessionStorage.getItem(sessionKeys(slug).permissions);
+	if (typeof window === "undefined") return null;
+	return window.sessionStorage.getItem(sessionKeys(slug).permissions);
 }
 
 export function writePermissionsRaw(slug: string | null, json: string): void {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(sessionKeys(slug).permissions, json);
+	if (typeof window === "undefined") return;
+	window.sessionStorage.setItem(sessionKeys(slug).permissions, json);
 }
 
 /* purgeStaleSession deletes the storage keys this app wrote under its previous
@@ -315,8 +324,8 @@ export function writePermissionsRaw(slug: string | null, json: string): void {
  *
  * Unconditional and idempotent: removeItem on an absent key is a no-op. */
 export function purgeStaleSession(): void {
-  if (typeof window === "undefined") return;
-  for (const key of STALE_KEYS) window.localStorage.removeItem(key);
+	if (typeof window === "undefined") return;
+	for (const key of STALE_KEYS) window.localStorage.removeItem(key);
 }
 
 /* The link builders moved to common/services/appRoutes.ts, which owns the
@@ -335,6 +344,6 @@ export { appPath, loginPath, resetPath } from "@/common/services/appRoutes";
  * — a prompt, not a guess. Guessing here would mean authenticating someone
  * against a business they never named. */
 export function businessCodeForRequest(slug?: string | null): string {
-  const s = slug === undefined ? activeBusinessSlug() : slug;
-  return s && isValidSlug(s) ? s : "";
+	const s = slug === undefined ? activeBusinessSlug() : slug;
+	return s && isValidSlug(s) ? s : "";
 }

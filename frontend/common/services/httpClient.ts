@@ -5,8 +5,15 @@ import {
   readToken,
   resolveActiveSlug,
 } from "@/common/services/tenantSession";
-import { branchHeader } from "@/common/services/branchSelection";
+import { setReachable } from "@/common/offline/network";
+import { branchHeader, SELECTED_BRANCH_HEADER } from "@/common/services/branchSelection";
 import { fromApi, toApi } from "@/common/services/apiContract";
+import { branchScoped, cacheable, recall, remember } from "@/common/offline/readCache";
+import { localGet } from "@/common/offline/localApi";
+import { offlineReady } from "@/common/offline/state";
+import { signHeaders } from "@/common/offline/device";
+import { isDesktop } from "@/common/services/desktopBridge";
+import { markAuthExpired } from "@/common/offline/syncProblem";
 
 // ===== ENVIRONMENT =====
 // Flip this before building. false = production.
@@ -18,6 +25,7 @@ const PROD_URL = process.env.NEXT_PUBLIC_API_BASE || "/api/v1";
 
 // Razorpay's hosted checkout script — the one third-party host the app loads.
 export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.js";
+export const PROVIDER_SITE_URL = "https://cloudhousetechnologies.com";
 
 /* Thin fetch wrapper for the Go backend (Gin, `/api/v1/...`). In production
  * the backend serves the built frontend from the same origin, so requests
@@ -50,31 +58,172 @@ export function resolveAssetUrl(path: string): string {
 
 /* fetch rejects with a TypeError when the server can't be reached at all —
  * surfaced as an ApiError with status 0 so callers show one readable message. */
-async function networkFetch(url: string, init?: RequestInit): Promise<Response> {
+export const UNREACHABLE_EVENT = "app:server-unreachable";
+const QUIET_PATH = /\/(sync\/pull|devices|uploads)(\/|\?|$)/;
+// the offline table copy (see common/offline/mirrorSync.ts): answers keep the server's own field names
+const VERBATIM_PATH = /\/sync\/(tables|table|children)(\/|\?|$)/;
+let quietDepth = 0;
+
+/* Runs background work whose failures must not raise the pop-up. */
+export async function quietly<T>(fn: () => Promise<T>): Promise<T> {
+  quietDepth++;
   try {
-    return await fetch(url, init);
-  } catch (e) {
-    if (e instanceof TypeError) throw new ApiError("Couldn't reach the server. Check your connection and try again.", 0);
-    throw e;
+    return await fn();
+  } finally {
+    quietDepth--;
   }
+}
+
+/* A free ngrok tunnel answers a browser-like request with an HTML "visitor warning" page instead of the API. This header
+ * skips that page. Only sent when the API address is an ngrok one, so a real host never sees it (and never needs it
+ * in its CORS list). */
+const VIA_NGROK = (() => {
+  try {
+    return /(^|[.])ngrok(-free)?[.](dev|app|io)$/i.test(new URL(API_BASE).hostname);
+  } catch {
+    return false; // a relative "/api/v1"
+  }
+})();
+
+/* An <img> tag cannot send that header, so through a free ngrok tunnel the logo (and any other picture) would come back as
+ * the warning page and show as a broken image. Such a picture is fetched with the header and handed to the page as a
+ * data: address instead. Anywhere else the address is returned as it is. */
+export async function loadableAssetUrl(url: string): Promise<string> {
+  if (!VIA_NGROK || !url || /^(data:|blob:)/i.test(url)) return url;
+  try {
+    const res = await fetch(url, { headers: { "ngrok-skip-browser-warning": "true" }, cache: "no-store" });
+    if (!res.ok) return url;
+    const blob = await res.blob();
+    if (!blob.type.startsWith("image/")) return url;
+    return await new Promise<string>((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => resolve(url);
+      r.readAsDataURL(blob);
+    });
+  } catch {
+    return url;
+  }
+}
+
+// Desktop only: a request with no answer is given up on after this long, so a half-dead network never stalls the app until
+// the OS gives up (the web build keeps the browser's own behaviour). Uploads are exempt: a large photo may take longer.
+const DESKTOP_TIMEOUT_MS = 20_000;
+
+async function networkFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (VIA_NGROK) {
+    init = { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers).entries()), "ngrok-skip-browser-warning": "true" } };
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (isDesktop() && !init?.signal && !(typeof FormData !== "undefined" && init?.body instanceof FormData)) {
+    const ctl = new AbortController();
+    timer = setTimeout(() => ctl.abort(), DESKTOP_TIMEOUT_MS);
+    init = { ...init, signal: ctl.signal };
+  }
+  try {
+    const res = await fetch(url, init);
+    setReachable(true); // any answer, even an error status, means the server is there
+    return res;
+  } catch (e) {
+    // a TypeError is "no connection"; an AbortError here is only our own timeout
+    if (e instanceof TypeError || (e instanceof DOMException && e.name === "AbortError" && timer !== undefined)) {
+      setReachable(false);
+      throw new ApiError("Couldn't reach the server. Check your connection and try again.", 0);
+    }
+    throw e;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+// Paths that are always the network's business, never answered from this PC's copy: the sync itself, sign-in and uploads.
+const NETWORK_ONLY_PATH = /\/(sync|auth|uploads|devices)(\/|\?|$)/;
+
+/* What this PC already holds for a read: the last kept answer, else the PC's own copy of the business (with the changes
+ * still waiting to be sent applied). null when it has nothing. */
+async function localAnswer(
+  req: { method: string; path: string },
+  keep: boolean,
+  view: string,
+  sentBranch: string | null,
+  signed: boolean,
+): Promise<Response | null> {
+  if (keep) {
+    const hit = await recall(req.path, view);
+    if (hit !== null) return new Response(hit, { status: 200, headers: { "content-type": "application/json", "X-From-Cache": "true" } });
+  }
+  if (req.method === "GET" && !signed && offlineReady()) {
+    const local = await localGet(req.path, sentBranch);
+    if (local !== null) {
+      let adapted = local;
+      try {
+        adapted = JSON.stringify(fromApi(JSON.parse(local), req as Parameters<typeof fromApi>[1]));
+      } catch {
+        /* an answer that is not JSON is passed on as it is */
+      }
+      return new Response(adapted, { status: 200, headers: { "content-type": "application/json", "X-From-Local": "true" } });
+    }
+  }
+  return null;
 }
 
 /* Every request goes through the backend contract adapter (common/services/apiContract.ts):
  * paths, verbs, query and body move to the current API, and JSON responses come back
  * in the shapes the screens already read. */
-async function contractFetch(path: string, init?: RequestInit): Promise<Response> {
+async function contractFetch(path: string, init?: RequestInit, signed = false, refreshing = false): Promise<Response> {
   // the identity in the path is the principal of the token this request actually carries (staff or superadmin)
   const sent = new Headers(init?.headers).get("Authorization")?.replace(/^Bearer\s+/i, "") || null;
   const req = toApi(init?.method ?? "GET", path, init?.body ?? undefined, sent ?? readToken());
-  const res = await networkFetch(`${API_BASE}${req.path}`, { ...init, method: req.method, body: req.body as BodyInit | undefined });
+  if (signed) {
+    // entries replayed from the outbox prove which PC sent them: HMAC of the exact bytes that go on the wire
+    const proof = await signHeaders(typeof req.body === "string" ? req.body : "");
+    init = { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers).entries()), ...proof } };
+  }
+  const keep = cacheable(req.method, req.path);
+  // the branch the request is for is the one it actually carries (the warm-up asks for each branch in turn)
+  const sentBranch = new Headers(init?.headers).get(SELECTED_BRANCH_HEADER);
+  const view = keep ? JSON.stringify(sentBranch && branchScoped(req.path) ? { [SELECTED_BRANCH_HEADER]: sentBranch } : {}) : "";
+  // Desktop with offline mode running: a read is answered from this PC first and never waits on the network. Only what the
+  // PC does not hold yet goes to the server. The sync, the warm-up and other background reads (`refreshing`, or inside
+  // quietly()) skip this, since their whole job is to bring the server's newer data into the PC's copy.
+  if (req.method === "GET" && !signed && !refreshing && quietDepth === 0 && isDesktop() && offlineReady() && !NETWORK_ONLY_PATH.test(req.path)) {
+    const mine = await localAnswer(req, keep, view, sentBranch, signed);
+    if (mine) return mine;
+  }
+  let res: Response;
+  try {
+    res = await networkFetch(`${API_BASE}${req.path}`, { ...init, method: req.method, body: req.body as BodyInit | undefined });
+  } catch (e) {
+    // No answer at all (offline mode only): show what this PC last saw for the same request, else its own copy.
+    if (e instanceof ApiError && e.status === 0) {
+      const mine = await localAnswer(req, keep, view, sentBranch, signed);
+      if (mine) return mine;
+    }
+    // A read with nothing kept for it while offline mode is running fails without the "couldn't reach" wording, so
+    // no page shows that warning: the PC is expected to be offline and the page simply has nothing to list.
+    if (e instanceof ApiError && e.status === 0 && offlineReady() && req.method === "GET" && !signed) throw new ApiError("", 0);
+    // Nothing to show instead: a pop-up as well as the text in the page, except for reads while offline mode is running (the
+    // PC is expected to be offline then, so the page's own text is enough; a save that cannot be queued still warns). Background work (the sync, the warm-up)
+    // never raises it, and a screen answered from the PC's own copy never reaches here.
+    // On the desktop with offline mode running there is no pop-up at all: the PC keeps working from its own copy and the
+    // network status is shown by the indicator only.
+    if (e instanceof ApiError && e.status === 0 && !signed && quietDepth === 0 && !(offlineReady() && isDesktop()) && !(offlineReady() && req.method === "GET") && !QUIET_PATH.test(req.path) && typeof window !== "undefined") {
+      window.dispatchEvent(new Event(UNREACHABLE_EVENT));
+      // The toast carries the wording; an empty message keeps forms from printing the same text inline as well.
+      throw new ApiError("", 0);
+    }
+    throw e;
+  }
   if (!(res.headers.get("content-type") ?? "").includes("application/json")) return res;
   const text = await res.text();
   let adapted = text;
   try {
-    adapted = text ? JSON.stringify(fromApi(JSON.parse(text), req)) : text;
+    // the table copy is stored under the server's own column names, so those answers are not reshaped for the screens
+    adapted = text && !VERBATIM_PATH.test(req.path) ? JSON.stringify(fromApi(JSON.parse(text), req)) : text;
   } catch {
     /* not valid JSON despite the header: hand it back untouched */
   }
+  if (keep && res.ok) remember(req.path, view, adapted);
   const headers = new Headers(res.headers);
   headers.delete("content-length");
   return new Response(res.status === 204 ? null : adapted, { status: res.status, statusText: res.statusText, headers });
@@ -155,6 +304,12 @@ export function fetchWithSession(url: string): Promise<Response> {
 function handleUnauthorized(path: string) {
   if (typeof window === "undefined") return;
   if (path.startsWith("/auth/")) return;
+  // Desktop with offline mode running: the person keeps working from this PC's own copy and is asked (banner) to sign in
+  // again so the waiting changes can go out. They are signed out when the app is closed (see syncProblem.ts).
+  if (isDesktop() && offlineReady()) {
+    markAuthExpired();
+    return;
+  }
   const slug = activeBusinessSlug();
   clearSession(slug);
   // A host-resolved tenant's address bar never had the slug in it — don't
@@ -248,6 +403,123 @@ export async function apiFetchEnvelope<T extends { success: boolean; error?: str
     throw new ApiError(body?.error || res.statusText, res.status, body && typeof body === "object" ? body : undefined);
   }
   return body as T;
+}
+
+/* Fetches a path only so its answer is kept for offline use (see common/offline/readCache.ts). It never
+ * reports a failure and never triggers the sign-in or "forbidden" handling: a role that may not see a list
+ * just has nothing to keep. */
+export async function warmGet(path: string, branch?: number | null): Promise<void> {
+  try {
+    await contractFetch(path, { headers: warmHeaders(branch) }, false, true);
+  } catch {
+    /* nothing to keep */
+  }
+}
+
+/* The headers for a warm-up request: the current branch view, or, when `branch` is given, that branch (null = all
+ * branches), so each branch gets its own copy without touching what the person is looking at. */
+function warmHeaders(branch?: number | null): Record<string, string> {
+  const h = jsonHeaders();
+  if (branch === undefined) return h;
+  delete h[SELECTED_BRANCH_HEADER];
+  if (branch) h[SELECTED_BRANCH_HEADER] = String(branch);
+  return h;
+}
+
+/* Like warmGet, but hands back the parsed answer (null when there is none). */
+export async function warmJson(path: string, branch?: number | null): Promise<unknown | null> {
+  try {
+    const res = await contractFetch(path, { headers: warmHeaders(branch) }, false, true);
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/* Keeps a whole paged list on this PC, however long it is. The server answers at most 500 rows at a time, so every page is fetched
+ * and the rows are joined into ONE answer kept as the "big" copy of the list: offline, any page, search or filter of that list is
+ * cut from it (readCache.ts). A path that is not a paged {items, hasMore} list is simply kept as the single answer it gives. */
+export async function warmAllPages(path: string, branch?: number | null): Promise<unknown[] | null> {
+  const PAGE = 500;
+  const [base, query = ""] = path.split("?");
+  const qs = new URLSearchParams(query);
+  qs.delete("limit");
+  qs.delete("offset");
+  const at = (offset: number, limit: number) => {
+    const p = new URLSearchParams(qs);
+    p.set("limit", String(limit));
+    p.set("offset", String(offset));
+    return `${base}?${p}`;
+  };
+  const headers = warmHeaders(branch);
+  type PagedAnswer = { data?: { items?: unknown[]; hasMore?: boolean } } | null;
+  let env: PagedAnswer = null;
+  const all: unknown[] = [];
+  let firstOfPrev = "";
+  try {
+    for (let offset = 0; offset < 2_000_000; offset += PAGE) {
+      const res = await contractFetch(at(offset, PAGE), { headers }, false, true);
+      if (!res.ok) return null;
+      const json = (await res.json()) as PagedAnswer;
+      const data = json?.data;
+      if (!data || !Array.isArray(data.items)) return null; // not a paged list: the single answer is already kept
+      // a server that ignores the offset would answer the same page for ever
+      const first = data.items.length ? JSON.stringify(data.items[0]) : "";
+      if (offset > 0 && first && first === firstOfPrev) break;
+      firstOfPrev = first;
+      env = json;
+      all.push(...data.items);
+      if (!data.hasMore || data.items.length === 0) break;
+    }
+  } catch {
+    return null;
+  }
+  if (!env?.data) return null;
+  const merged = JSON.stringify({ ...env, data: { ...env.data, items: all, hasMore: false, total: all.length, limit: 100000, offset: 0 } });
+  const req = toApi("GET", at(0, 100000), undefined, readToken());
+  if (!cacheable(req.method, req.path)) return all;
+  const sentBranch = new Headers(headers).get(SELECTED_BRANCH_HEADER);
+  remember(req.path, JSON.stringify(sentBranch && branchScoped(req.path) ? { [SELECTED_BRANCH_HEADER]: sentBranch } : {}), merged);
+  return all;
+}
+
+/* One queued offline entry sent to the server as the same request the app makes today, plus the
+ * entry's UUID and the moment the user clicked. "saved" and "duplicate" both mean the server has it, so the
+ * line can go; anything else (no answer, timeout, a server error) means keep the line and try again.
+ * A rejected session never bounces to the login page here: a replay is background work. */
+export type ReplayOutcome = "saved" | "duplicate" | "retry";
+export type ReplayResult = { outcome: ReplayOutcome; status: number; body?: unknown; message?: string };
+
+export async function replayRequest(req: {
+  method: string;
+  path: string;
+  body?: unknown;
+  clientUuid: string;
+  occurredAt: string;
+}): Promise<ReplayResult> {
+  let res: Response;
+  try {
+    res = await contractFetch(
+      req.path,
+      {
+        method: req.method,
+        headers: { ...jsonHeaders(), "X-Client-Uuid": req.clientUuid, "X-Occurred-At": req.occurredAt },
+        body: req.body === undefined ? undefined : JSON.stringify(req.body),
+      },
+      true,
+    );
+  } catch (e) {
+    return { outcome: "retry", status: e instanceof ApiError ? e.status : 0, message: e instanceof Error ? e.message : String(e) };
+  }
+  let body: unknown;
+  try {
+    body = res.status === 204 ? undefined : await res.json();
+  } catch {
+    /* an empty or non-JSON body still carries the status */
+  }
+  if (res.ok) return { outcome: res.headers.get("X-Sync-Duplicate") === "true" ? "duplicate" : "saved", status: res.status, body };
+  const message = (body as { error?: string } | undefined)?.error || res.statusText;
+  return { outcome: "retry", status: res.status, body, message };
 }
 
 /* Like apiFetch, but for multipart file uploads — deliberately does NOT set

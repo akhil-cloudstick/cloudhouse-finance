@@ -61,7 +61,7 @@ func costPayment(cost float64, mode string, bankID *uint) (string, *uint, error)
 		return mode, nil, nil
 	}
 	if bankID == nil || *bankID == 0 {
-		return "", nil, common.NewBadRequest("cost bank is required when the cost mode is UPI or Bank Transfer")
+		return "", nil, common.NewBadRequest("cost bank is required")
 	}
 	return mode, bankID, nil
 }

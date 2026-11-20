@@ -114,7 +114,7 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 		return nil, common.NewNotFound("loan not found")
 	}
 	if l.Status == models.StatusPendingApproval {
-		return nil, common.NewBadRequest("this loan is still pending approval — extension or release can only be requested once it is approved and disbursed")
+		return nil, common.NewBadRequest("loan is not approved yet")
 	}
 	if isGoldSold(l.Status) {
 		return nil, common.NewBadRequest("this loan's gold has been auctioned — extension or release can no longer be requested")
@@ -326,7 +326,7 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	pastManagerForDriftTopUp := req.IsPartial && req.Locked &&
 		req.ApprovalStage != models.ApprovalStageApproved && req.ApprovalStage != models.ApprovalStageRejected
 	if req.ApprovalStage != "" && req.ApprovalStage != models.ApprovalStagePendingManager && !pastManagerForDriftTopUp {
-		return nil, common.NewBadRequest("payment can only be recorded while the release request is at the Manager review stage")
+		return nil, common.NewBadRequest("payment is only taken at manager review")
 	}
 	if !checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
 		return nil, common.NewPermissionDenied("Access denied", "can verify release checklist")
@@ -432,7 +432,7 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 		req.PaymentDueDate = nil
 	} else if in.Discount <= 0 && paymentAmount <= 0 {
 	} else if in.DueDate == nil {
-		return nil, common.NewBadRequest("a due date is required when the recorded amount doesn't cover the full settlement")
+		return nil, common.NewBadRequest("due date is required")
 	} else {
 		req.PaymentDueDate = in.DueDate
 	}
@@ -469,7 +469,7 @@ func ApproveReleaseRequest(ctx context.Context, requestID uint, branchID *uint, 
 		}
 	}
 	if in.Action == models.ApprovalStageRejected && req.Locked {
-		return nil, common.NewConflict("this release request is locked after payment — it can no longer be rejected or have its checklist changed")
+		return nil, common.NewConflict("release request is locked after payment")
 	}
 	if in.Action == models.ApprovalStageApproved && !req.CustomerSawGold {
 		return nil, common.NewBadRequest("\"Customer has seen the gold\" must be ticked and a payment recorded before this can be approved")
@@ -502,10 +502,10 @@ func ApproveReleaseRequest(ctx context.Context, requestID uint, branchID *uint, 
 	}
 	step, ok := chain.ByPending(stage)
 	if !ok || in.Stage != step.Key {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if !common.CanAct(ctx, in.ActorRoleID, common.FlowLoanRelease, step.Key) {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	audit := &models.RequestApproval{
 		RequestID:       requestID,
@@ -552,7 +552,7 @@ func advanceReleaseRequestStage(ctx context.Context, req *models.LoanRequest, ac
 	}
 	cur, ok := chain.ByPending(stage)
 	if !ok && !chain.Off() {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	next, hasNext := chain.Next(cur.Key)
 	finalApproval := false
@@ -572,7 +572,7 @@ func advanceReleaseRequestStage(ctx context.Context, req *models.LoanRequest, ac
 			}
 			drift := partialReleaseDrift(l.TotalOutstandingBalance, remainingGoldValue, l.SchemeLTVPercent)
 			if drift > 0.01 {
-				return nil, common.NewConflict("outstanding balance has drifted above what the remaining collateral supports — record a top-up payment before approving")
+				return nil, common.NewConflict("balance is above the collateral — record a top-up")
 			}
 		}
 		req.ApprovalStage = models.ApprovalStageApproved

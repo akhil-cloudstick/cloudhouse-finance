@@ -1,0 +1,4583 @@
+[
+  {
+    "name": "branches",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "code",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "address",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "phone",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "is_active",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view branch module"
+  },
+  {
+    "name": "schemes",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "uuid",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "code",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "interest_rate",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "duration_months",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "ltv_percent",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_method",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "penal_rate",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "accrual_basis",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "rate_tiers",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "minimum_days",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "conditions",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "is_active",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "service_charge_type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "service_charge_value",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "service_charge_mode",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view scheme module"
+  },
+  {
+    "name": "gold_rates",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "k24",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "k22",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "k18",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "fineness22",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "fineness18",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "set_by",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "set_by_designation",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "whole",
+    "permission": "can view gold rate module"
+  },
+  {
+    "name": "employees",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "code",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "role",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "role_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "phone",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "loans_processed",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "collections",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "followups",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "pending",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "username",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "email",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view employee module"
+  },
+  {
+    "name": "banks",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "branch",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "ifsc",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "account_no",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "phone",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view bank module"
+  },
+  {
+    "name": "customers",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "uuid",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "code",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "phone",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "dob",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "address",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "photo_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "identity_proof_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "address_proof_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "kyc_document_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "pan",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "aadhaar_last4",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "nominee_name",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "nominee_relation",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "nominee_phone",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "father_name",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "district",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "taluk",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "village",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "place",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "pin_code",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "age",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "customer_type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "bank_account_name",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "bank_account_number",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "bank_ifsc",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "kyc_status",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "pan_status",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "aadhaar_status",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view customer module"
+  },
+  {
+    "name": "ornament_types",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view ornament type module"
+  },
+  {
+    "name": "purity_standards",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "karat",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "fineness_percent",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "label",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "is_active",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view purity standard module"
+  },
+  {
+    "name": "roles",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "description",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "is_active",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "is_system",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view role and permission module"
+  },
+  {
+    "name": "role_permissions",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "role_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "permission_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "permission",
+        "type": "INTEGER",
+        "nullable": false
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "whole",
+    "permission": "can view role and permission module"
+  },
+  {
+    "name": "permissions",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "description",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "module_name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "is_active",
+        "type": "INTEGER",
+        "nullable": false
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "whole",
+    "permission": "can view role and permission module"
+  },
+  {
+    "name": "approval_actions",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "flow",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "entity_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "stage",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "action",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "actor_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "actor_role",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view loan module"
+  },
+  {
+    "name": "approval_category_modes",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "category",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "shared",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view loan module"
+  },
+  {
+    "name": "approval_chains",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "scope",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "role_ids",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view loan module"
+  },
+  {
+    "name": "approval_stage_settings",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "flow",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "stage",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "enabled",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view loan module"
+  },
+  {
+    "name": "cash_movements",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "source",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "purpose",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "mode",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "bank",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "occurred_on",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "transaction_group_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "to_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "counter_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "party_customer_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "expense_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "receipt_image",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "source_type",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "source_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "is_manual",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view cash module"
+  },
+  {
+    "name": "categories",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "is_common",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_number",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "principal_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "loan_opened_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "whole",
+    "permission": "can view cash module"
+  },
+  {
+    "name": "expenses",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "occurred_on",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "category",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "mode",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "payee",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "from_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "to_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "approval_stage",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "approved_by",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "approved_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "receipt_image",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "cash_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "group_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view cash module"
+  },
+  {
+    "name": "gold_sales",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "ornament_type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "sold_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cost_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "profit",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "sold_on",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "cash_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "cost_cash_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "mode",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "cost_mode",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "cost_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "receipt_image",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view cash module"
+  },
+  {
+    "name": "loan_cash_sources",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "cash_movement_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_number",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "principal_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_rate",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "duration_months",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view cash module",
+    "visible_via": {
+      "table": "cash_movements",
+      "column": "cash_movement_id"
+    }
+  },
+  {
+    "name": "opening_cash_balances",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "balance_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "mode",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "from_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view cash module"
+  },
+  {
+    "name": "investments",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "investment_number",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "customer_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "plan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "principal_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_rate_type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "interest_rate_percent",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "payout_frequency",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "tenure_months",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "engine",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "outstanding_principal",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "accrued_interest",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_withdrawn",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "last_accrual_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "start_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "maturity_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "total_interest_paid",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "closed_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "renewed_from_investment_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "renewed_to_investment_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view investment module"
+  },
+  {
+    "name": "investment_payouts",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "investment_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "sequence_no",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "due_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "is_principal_return",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "cash_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "upi_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "bank_transfer_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cheque_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "paid_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "paid_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "cash_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view investment module",
+    "visible_via": {
+      "table": "investments",
+      "column": "investment_id"
+    }
+  },
+  {
+    "name": "investment_plans",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "interest_rate_type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "interest_rate_percent",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "payout_frequency",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "tenure_months",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "engine",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "product_type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "min_principal",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "is_active",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view investment module"
+  },
+  {
+    "name": "investment_transactions",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "investment_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "principal_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cash_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "upi_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "bank_transfer_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cheque_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "principal_before",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "principal_after",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_before",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_after",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "occurred_on",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "recorded_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "reference",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "cash_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view investment module",
+    "visible_via": {
+      "table": "investments",
+      "column": "investment_id"
+    }
+  },
+  {
+    "name": "loans",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "uuid",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "loan_number",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "customer_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "scheme_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "scheme_code",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "scheme_interest_rate",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "scheme_duration_months",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "scheme_ltv_percent",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "scheme_interest_method",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "scheme_penal_rate",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "scheme_rate_tiers",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "scheme_minimum_days",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "scheme_accrual_basis",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "rate_tier_level",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "arrears_since",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "service_charge_type",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "service_charge_value",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "service_charge_mode",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "service_charge_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "created_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_by_name",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "opened_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "due_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "closed_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "additional_info",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "overall_photo_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "total_net_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "total_gold_value",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "eligible_loan_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "principal_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "outstanding_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "outstanding_processing_fee",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "accrued_interest",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "interest_paid",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "accrued_penal_interest",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "penal_interest_paid",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "last_accrual_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "due_soon_notified_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "overdue_notified_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "interest_reminded_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "approval_stage",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "rejected_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "rejected_by_name",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "rejected_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "rejection_remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "sanctioned_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "disbursed_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "disbursement_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "bank_pledge_status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "auction_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "auction_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "indemnity_bond_document_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "indemnity_bond_sign_request_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "indemnity_bond_sign_status",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "indemnity_bond_signed_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "indemnity_bond_signed_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "pledge_slip_sign_request_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "pledge_slip_sign_status",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "pledge_slip_signed_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "pledge_slip_signed_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view loan module",
+    "children": [
+      {
+        "table": "ornaments",
+        "column": "loan_id"
+      },
+      {
+        "table": "loan_payments",
+        "column": "loan_id"
+      },
+      {
+        "table": "loan_top_ups",
+        "column": "loan_id"
+      },
+      {
+        "table": "loan_accruals",
+        "column": "loan_id"
+      },
+      {
+        "table": "loan_approvals",
+        "column": "loan_id"
+      },
+      {
+        "table": "loan_requests",
+        "column": "loan_id"
+      },
+      {
+        "table": "auction_records",
+        "column": "loan_id"
+      },
+      {
+        "table": "auction_decision_requests",
+        "column": "loan_id"
+      },
+      {
+        "table": "bank_pledge_records",
+        "column": "loan_id"
+      },
+      {
+        "table": "packets",
+        "column": "loan_id"
+      }
+    ]
+  },
+  {
+    "name": "ornaments",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "purity",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "gross_weight",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "deduction_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "net_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "quantity",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "gold_value",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "released_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view loan module",
+    "children": [
+      {
+        "table": "ornament_images",
+        "column": "ornament_id"
+      },
+      {
+        "table": "ornament_purity_tests",
+        "column": "ornament_id"
+      }
+    ]
+  },
+  {
+    "name": "ornament_images",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "ornament_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "image_url",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "ornaments",
+      "column": "ornament_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "ornament_purity_tests",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "ornament_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "tested_purity",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "tested_gross_weight",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "tested_deduction_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "tested_net_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "testing_remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "tested_by",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "tested_at",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "ornaments",
+      "column": "ornament_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "loan_payments",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "paid_on",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "received_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "description",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "method",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "reference",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "cash_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "upi_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "bank_transfer_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cheque_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "needs_mode_review",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "processing_fee_applied",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "penal_interest_applied",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "interest_applied",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "principal_applied",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "running_balance",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "processing_fee",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "interest_override",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "discount_kind",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "linked_payment_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "cash_transaction_group_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "loan_top_ups",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "eligible_amount_at_top_up",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cash_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "upi_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "bank_transfer_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cheque_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "occurred_on",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "received_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "reference",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "approval_stage",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "settle_interest",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "reversal_of_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "cash_transaction_group_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "loan_accruals",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "accrued_on",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "interest",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "penal_interest",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "loan_approvals",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "stage",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "action",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "actor_employee_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "actor_role",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "loan_requests",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "requested_by",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "detail",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "requested_extension_months",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "new_due_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "approval_stage",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "is_partial",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "payment_verified",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "packet_verified",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "bank_pledge_verified",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "customer_confirmed",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "verification_notes",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "customer_saw_gold",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "payment_recorded",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "quote_met",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "locked",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "recorded_discount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "recorded_payment",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "payment_due_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "charges",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "charges_applied",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "settlement_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "requested_at",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "decided_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "decided_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view loan module",
+    "children": [
+      {
+        "table": "loan_request_ornaments",
+        "column": "request_id"
+      },
+      {
+        "table": "request_approvals",
+        "column": "request_id"
+      }
+    ]
+  },
+  {
+    "name": "loan_request_ornaments",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "request_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "ornament_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loan_requests",
+      "column": "request_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "request_approvals",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "request_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "stage",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "action",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "actor_employee_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loan_requests",
+      "column": "request_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "auction_records",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "stage",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "auction_eligible_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "auction_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "auction_reference_number",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "sale_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "auction_expenses",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "surplus_shortfall",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "final_settlement_status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "surplus_payable_amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "surplus_disposition",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "surplus_paid_out_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "surplus_remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view auction module",
+    "children": [
+      {
+        "table": "auction_notices",
+        "column": "auction_record_id"
+      },
+      {
+        "table": "auction_events",
+        "column": "auction_record_id"
+      }
+    ]
+  },
+  {
+    "name": "auction_notices",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "auction_record_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "issued_at",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "method",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "auction_records",
+      "column": "auction_record_id"
+    },
+    "permission": "can view auction module"
+  },
+  {
+    "name": "auction_events",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "auction_record_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "action",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "actor_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "actor_role",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "auction_records",
+      "column": "auction_record_id"
+    },
+    "permission": "can view auction module"
+  },
+  {
+    "name": "auction_decision_requests",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "auction_record_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "kind",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "triggered_by_payment_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "amount_paid",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "outstanding_at_request",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "decided_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "decided_by_role",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "decision_remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "decided_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view auction module"
+  },
+  {
+    "name": "bank_pledge_records",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "bank_name",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "pledged_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "pledge_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "release_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "bank_pledge_due_date",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "pledged_gross_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "pledged_net_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "bank_interest_rate",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "reference_number",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "cash_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "expense_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "release_cash_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "release_expense_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "cash_treatment",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "cash_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "upi_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "bank_transfer_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cheque_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "received_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "cash_transaction_group_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "release_cash_transaction_group_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "release_cash_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "release_upi_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "release_bank_transfer_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "release_cheque_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "release_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "ornament_ids",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "voided_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "void_reason",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "void_cash_movement_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view bank pledge module",
+    "children": [
+      {
+        "table": "bank_pledge_events",
+        "column": "bank_pledge_record_id"
+      }
+    ]
+  },
+  {
+    "name": "bank_pledge_events",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "bank_pledge_record_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "action",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "actor_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "actor_role",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "bank_pledge_records",
+      "column": "bank_pledge_record_id"
+    },
+    "permission": "can view bank pledge module"
+  },
+  {
+    "name": "loan_drafts",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_by_employee_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "customer_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "scheme_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "locker_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "principal_override",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "overall_photo_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view loan module",
+    "children": [
+      {
+        "table": "loan_draft_ornaments",
+        "column": "draft_id"
+      }
+    ]
+  },
+  {
+    "name": "loan_draft_ornaments",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "draft_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "name",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "purity",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "gross_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "quantity",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "image_url",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "image_name",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "image_urls",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "position",
+        "type": "INTEGER",
+        "nullable": false
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loan_drafts",
+      "column": "draft_id"
+    },
+    "permission": "can view loan module"
+  },
+  {
+    "name": "lockers",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "code",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "capacity",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "is_active",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view locker module"
+  },
+  {
+    "name": "packets",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "code",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "current_locker_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "total_gross_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "total_net_weight",
+        "type": "REAL",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "loans",
+      "column": "loan_id"
+    },
+    "permission": "can view packet module",
+    "children": [
+      {
+        "table": "packet_movements",
+        "column": "packet_id"
+      }
+    ]
+  },
+  {
+    "name": "packet_movements",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "packet_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "from_status",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "to_status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "locker_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "actor_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "remarks",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": false,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "child",
+    "parent": {
+      "table": "packets",
+      "column": "packet_id"
+    },
+    "permission": "can view packet module"
+  },
+  {
+    "name": "personal_loans",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_number",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "customer_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "principal_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "interest_value",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "disbursed_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "disbursement_cash_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "disbursement_upi_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "disbursement_bank_transfer_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "disbursement_cheque_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "disbursement_bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "disbursement_cash_group_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "full_disbursement",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "frequency",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "tenure_count",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "installment_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "outstanding_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "total_paid",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "approval_stage",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "opened_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "disbursed_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "closed_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "renewed_from_loan_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "renewed_to_loan_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "penal_interest_rate",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "penal_flat_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "grace_period_days",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "penal_cycle_count",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "total_penal_interest_charged",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "last_penal_applied_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view personal loan module"
+  },
+  {
+    "name": "personal_loan_installments",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "personal_loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "sequence_no",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "due_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "paid_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view personal loan module",
+    "visible_via": {
+      "table": "personal_loans",
+      "column": "personal_loan_id"
+    }
+  },
+  {
+    "name": "personal_loan_payments",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "personal_loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "paid_on",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "received_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "method",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "reference",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "description",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "cash_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "upi_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "bank_transfer_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "cheque_amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "bank_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "needs_mode_review",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "running_balance",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "installment_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "cash_transaction_group_id",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view personal loan module",
+    "visible_via": {
+      "table": "personal_loans",
+      "column": "personal_loan_id"
+    }
+  },
+  {
+    "name": "personal_loan_history",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "personal_loan_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "event",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "detail",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "amount",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "related_loan_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "occurred_at",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view personal loan module",
+    "visible_via": {
+      "table": "personal_loans",
+      "column": "personal_loan_id"
+    }
+  },
+  {
+    "name": "reminders",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "customer_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "loan_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "type",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "due_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "note",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "status",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "created_by_employee_id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "deleted_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": true,
+    "loan_key": "loan_id",
+    "branch_key": "",
+    "mode": "incremental",
+    "permission": "can view reminder module",
+    "visible_via": {
+      "table": "customers",
+      "column": "customer_id"
+    }
+  },
+  {
+    "name": "day_book_entries",
+    "columns": [
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "branch_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "entry_date",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "particulars",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "debit",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "credit",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "interest",
+        "type": "REAL",
+        "nullable": false
+      },
+      {
+        "name": "created_by_employee_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "updated_at",
+        "type": "DATETIME",
+        "nullable": true
+      }
+    ],
+    "primary_key": [
+      "id"
+    ],
+    "has_updated_at": true,
+    "has_deleted_at": false,
+    "loan_key": "",
+    "branch_key": "branch_id",
+    "mode": "incremental",
+    "permission": "can view report module"
+  }
+]

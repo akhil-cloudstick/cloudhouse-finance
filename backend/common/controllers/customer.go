@@ -505,6 +505,10 @@ func SaveCustomer(ctx context.Context, in CustomerCreateInput) (*commonModels.Cu
 		PANStatus:         "Pending",
 		AadhaarStatus:     "Pending",
 	}
+	// a customer queued on a PC keeps the id that PC gave them
+	if entry, queued := config.SyncEntryFromContext(ctx); queued {
+		rec.UUID = entry.ClientUUID
+	}
 	if err := insertCustomer(ctx, rec); err != nil {
 		return nil, kycConflict(customerPhoneConflict(err))
 	}
@@ -710,7 +714,7 @@ func startAadhaarVerify(ctx context.Context, id uint, branchID *uint, redirectUR
 		return nil, NewUnavailable("Aadhaar verification is not configured")
 	}
 	if rec.AadhaarLast4 == "" {
-		return nil, NewBadRequest("add the customer's Aadhaar number before verifying via DigiLocker")
+		return nil, NewBadRequest("add the Aadhaar number first")
 	}
 	if tenantID, ok := config.TenantFromContext(ctx); ok {
 		if err := CheckAndRecordUsage(config.BaseDB,

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Gold Loan Statement — {{.LoanNumber}}</title>
+<style>
+:root{--deep:{{.Brand}};--accent:#c9a227;--tint:#efedfb}
+body{font-family:'Inter','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:0;line-height:1.5;font-size:13px;padding:0}
+.head{text-align:center;margin:0 0 16px}
+.head .name{font-family:'Montserrat','Segoe UI',sans-serif;font-size:18px;font-weight:800;letter-spacing:.05em;color:var(--deep)}
+.head .title{font-size:14px;font-weight:600;margin-top:4px}
+.head .meta{font-size:11px;color:#62626f;margin-top:3px}
+.head .rule{height:2px;background:var(--accent);width:96px;margin:10px auto 0}
+h3{font-size:13px;margin:18px 0 6px;padding:5px 8px;background:var(--tint);color:var(--deep);break-after:avoid}
+table{width:100%;border-collapse:collapse;margin:6px 0}
+th,td{border:1px solid #d9d8df;padding:5px 7px;font-size:12px;text-align:left;vertical-align:middle}
+th{background:var(--tint);color:var(--deep);font-weight:600}
+tr{break-inside:avoid}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.kv{width:auto;margin:0}
+.kv td{border:0;padding:2px 24px 2px 0;font-size:12.5px}
+.kv td:first-child{color:#62626f;width:170px}
+.kv td:last-child{font-weight:600}
+.total td{background:var(--tint);font-weight:700;font-size:13.5px}
+.empty{font-style:italic;color:#62626f}
+.foot{margin-top:22px;font-size:10.5px;font-style:italic;color:#6e6e6e;line-height:1.45}
+</style></head><body>
+<header class="head">
+  <div class="name">{{.Business}}</div>
+  <div class="title">Gold Loan Statement</div>
+  <div class="meta">Generated {{.Generated}}{{if .Branch}} &nbsp;·&nbsp; Branch: {{.Branch}}{{end}}</div>
+  <div class="rule"></div>
+</header>
+
+<h3>Loan Details</h3>
+<table class="kv">
+  <tr><td>Loan Number</td><td>{{.LoanNumber}}</td></tr>
+  <tr><td>Status</td><td>{{.Status}}</td></tr>
+  <tr><td>Customer</td><td>{{.Customer}}</td></tr>
+  <tr><td>Phone</td><td>{{.Phone}}</td></tr>
+  <tr><td>Scheme</td><td>{{.Scheme}}</td></tr>
+  <tr><td>Interest Rate</td><td>{{.Rate}}</td></tr>
+  <tr><td>Opened On</td><td>{{.Opened}}</td></tr>
+  <tr><td>Due On</td><td>{{.Due}}</td></tr>
+</table>
+
+<h3>Pledged Ornaments</h3>
+{{if .Ornaments}}<table>
+  <thead><tr><th>Item</th><th>Purity</th><th class="num">Gross (g)</th><th class="num">Net (g)</th><th class="num">Qty</th><th class="num">Value</th></tr></thead>
+  <tbody>
+    {{range .Ornaments}}<tr><td>{{.Name}}</td><td>{{.Purity}}</td><td class="num">{{.Gross}}</td><td class="num">{{.Net}}</td><td class="num">{{.Qty}}</td><td class="num">{{.Value}}</td></tr>
+    {{end}}<tr><th colspan="2">Total</th><th class="num">{{.TotalGross}}</th><th class="num">{{.TotalNet}}</th><th></th><th class="num">{{.TotalValue}}</th></tr>
+  </tbody>
+</table>{{else}}<p class="empty">No ornaments recorded.</p>{{end}}
+
+<h3>Payment History</h3>
+{{if .Payments}}<table>
+  <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th class="num">Interest</th><th class="num">Penal</th><th class="num">Principal</th><th class="num">Balance</th></tr></thead>
+  <tbody>
+    {{range .Payments}}<tr><td>{{.Date}}</td><td>{{.Type}}</td><td class="num">{{.Amount}}</td><td class="num">{{.Interest}}</td><td class="num">{{.Penal}}</td><td class="num">{{.Principal}}</td><td class="num">{{.Balance}}</td></tr>
+    {{end}}<tr><th colspan="2">Total Paid</th><th class="num">{{.TotalPaid}}</th><th colspan="4"></th></tr>
+  </tbody>
+</table>{{else}}<p class="empty">No payments recorded against this loan yet.</p>{{end}}
+
+<h3>Balance as of {{.BalanceDate}}</h3>
+<table class="kv">
+  {{range .Balance}}<tr><td>{{.Label}}</td><td>{{.Value}}</td></tr>
+  {{end}}
+</table>
+<table style="width:auto;min-width:320px">
+  <tr class="total"><td>Total Outstanding</td><td class="num">{{.TotalOutstanding}}</td></tr>
+  {{if .Settlement}}<tr><th>Settlement Amount Today</th><th class="num">{{.Settlement}}</th></tr>{{end}}
+</table>
+
+<p class="foot">This is a computer-generated statement and does not require a signature. Interest is accrued up to the generation date shown above and will continue to accrue until the loan is settled. For any discrepancy, please contact your branch.</p>
+</body></html>

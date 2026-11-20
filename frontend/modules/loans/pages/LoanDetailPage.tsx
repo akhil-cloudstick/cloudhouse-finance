@@ -12,13 +12,13 @@ import { OrnamentPhotoSlider } from "@/modules/loans/components/OrnamentPhotoSli
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth, useApprovalWorkflow } from "@/common/providers/AuthProvider";
 import {
-  canActAtStage,
-  chainFor,
-  isFinalStage,
-  nextStage,
-  stageByPending,
+	canActAtStage,
+	chainFor,
+	isFinalStage,
+	nextStage,
+	stageByPending,
   stageTag,
-  trackerLabels,
+	trackerLabels,
 } from "@/common/services/approvalWorkflowService";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
@@ -30,6 +30,7 @@ import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { FooterTotals } from "@/common/components/ui/FooterTotals";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { ledgerFocusTarget, useLedgerFocus } from "@/common/hooks/use-ledger-focus";
+import { canRenderOffline } from "@/common/offline/documents";
 import { loanDisplayStatus, getLoanByNumber, linkedDiscountOf, approveLoan, listTopUps, approveTopUp, getLoanLedger, releaseBankPledge, completeRelease, startIndemnityBondEsign, checkIndemnityBondEsign, canAcceptBankPledge, downloadLoanStatement, hardDeleteLoan, downloadIndemnityBondPDF, downloadTmlStatementReceipt, downloadPledgeSlipPDF, fetchPledgeSlipParts, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF, listLoanRequests, startPledgeSlipEsign, checkPledgeSlipEsign } from "@/modules/loans/services/loanService";
 import { type LoanTopUpView, type LoanLedgerEntry, type LoanLedgerPage, type AuctionRecordView, type LoanView, type RequestView, type EsignWitnessInput } from "@/modules/loans/types/loan-types";
 import { getCustomer } from "@/modules/customers/services/customerService";
@@ -75,7 +76,7 @@ const PLEDGE_PAGE_SIZE = 5;
 /* An auction case's sale/expense breakdown, shown under its Payment Ledger
  * row (the backend ties each Auction Sale payment to its case). */
 function auctionBreakdown(a: AuctionRecordView) {
-  return `Sold ${fmt(a.saleAmount)} · Expenses ${fmt(a.auctionExpenses)} · Net ${fmt(a.saleAmount - a.auctionExpenses)}`;
+	return `Sold ${fmt(a.saleAmount)} · Expenses ${fmt(a.auctionExpenses)} · Net ${fmt(a.saleAmount - a.auctionExpenses)}`;
 }
 
 type LoanDetailPageProps = { id?: string };
@@ -84,680 +85,696 @@ type LoanDetailPageProps = { id?: string };
  * real loan API instead of the mock db. `id` is the loan's loanNumber
  * (e.g. "LN-00001"), matching how LoanRow/Loans link to #loan/<loanNumber>. */
 export function LoanDetailPage({ id }: LoanDetailPageProps) {
-  const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
-  // Links off this page only to pages the role can open.
-  const canOpen = useCanOpenRoute();
-  const showBranch = useShowBranch();
-  const toast = useToast();
-  // Approving/paying/repledging updates this page's own `loan` state
-  // directly from the API response, but Loans.modules/dashboard/pages/DashboardPage.tsx/
-  // CustomerDetail.tsx/etc. all read the *shared* LoansProvider list —
-  // without also refreshing that, those pages kept showing the
-  // pre-change status until a full page reload re-fetched everything.
-  const { refresh: refreshLoans } = useLoans();
-  const { can, role, isSystem } = useAuth();
-  const { policy } = useBranding();
-  const canExport = can("Ledger_Export", "can_export_ledger");
-  // Which sanction/top-up stages apply is per-business configuration — see
-  // approvalWorkflowService.ts.
-  const { config: workflow } = useApprovalWorkflow();
-  // Every action on this page is hidden, not disabled, when the role lacks
-  // the grant behind it (see Customers.tsx). The print/export buttons are
-  // deliberately not gated — they only render what the viewer can already
-  // see. Bank pledging is its own module, so it takes its own grants.
-  const canUpdateLoans = can("Loan_Management", "can_update_loan");
-  const canTopUpLoans = can("Loan_Management", "can_top_up_loan");
-  const canCreateBankPledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
-  const canUpdateBankPledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
-  // Independent from "can_update_loan"/"can_delete_loan" — locking down the
-  // irreversible full-cascade delete separately from ordinary edit/soft
-  // delete rights is deliberate (see internal/authz/catalogue.go's own
-  // comment on this permission).
-  const canHardDeleteLoans = can("Loan_Management", "can_hard_delete_loan");
-  // Editing/deleting a ledger entry recalculates the loan from its first day, so each has its own grant.
-  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
-  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
-  // An editor saved from an entry's info popup closes the popup too and reloads the ledger.
-  const savedEdit = () => { void load(); closeAllModals(); };
-  const openAuctionEdit = (kind: AuctionEditKind, mode: "edit" | "delete") =>
-    openChildModal(<AuctionEditModalContent loanId={l.numericId} kind={kind} mode={mode} minDate={l.opened?.slice(0, 10) || undefined} onSaved={savedEdit} />, true);
-  // The info icon every Payment Ledger row carries: its popup shows the entry in full and offers Edit / Delete.
-  const infoIcon = (info: React.ComponentProps<typeof LoanLedgerInfoModalContent>) => (
-    <span className="ledger-info">
-      <button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}
-        onClick={() => openModal(<LoanLedgerInfoModalContent {...info} />)}><Icon name="info" /></button>
-    </span>
-  );
-  // The loan's packet (locker status, label code) is only looked up with
-  // packet view — without it the lookup would just 403.
-  const canViewPackets = can("Packet_Management", "can_view_packet_module");
+	const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
+	// Links off this page only to pages the role can open.
+	const canOpen = useCanOpenRoute();
+	const showBranch = useShowBranch();
+	const toast = useToast();
+	// Approving/paying/repledging updates this page's own `loan` state
+	// directly from the API response, but Loans.modules/dashboard/pages/DashboardPage.tsx/
+	// CustomerDetail.tsx/etc. all read the *shared* LoansProvider list —
+	// without also refreshing that, those pages kept showing the
+	// pre-change status until a full page reload re-fetched everything.
+	const { refresh: refreshLoans } = useLoans();
+	const { can, role, isSystem } = useAuth();
+	const { policy } = useBranding();
+	const canExport = can("Ledger_Export", "can_export_ledger");
+	// Which sanction/top-up stages apply is per-business configuration — see
+	// approvalWorkflowService.ts.
+	const { config: workflow } = useApprovalWorkflow();
+	// Every action on this page is hidden, not disabled, when the role lacks
+	// the grant behind it (see Customers.tsx). The print/export buttons are
+	// deliberately not gated — they only render what the viewer can already
+	// see. Bank pledging is its own module, so it takes its own grants.
+	const canUpdateLoans = can("Loan_Management", "can_update_loan");
+	const canTopUpLoans = can("Loan_Management", "can_top_up_loan");
+	const canCreateBankPledges = can("Bank_Pledge_Management", "can_create_bank_pledge");
+	const canUpdateBankPledges = can("Bank_Pledge_Management", "can_update_bank_pledge");
+	// Independent from "can_update_loan"/"can_delete_loan" — locking down the
+	// irreversible full-cascade delete separately from ordinary edit/soft
+	// delete rights is deliberate (see internal/authz/catalogue.go's own
+	// comment on this permission).
+	const canHardDeleteLoans = can("Loan_Management", "can_hard_delete_loan");
+	// Editing/deleting a ledger entry recalculates the loan from its first day, so each has its own grant.
+	const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+	const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
+	// An editor saved from an entry's info popup closes the popup too and reloads the ledger.
+	const savedEdit = () => { void load(); closeAllModals(); };
+	const openAuctionEdit = (kind: AuctionEditKind, mode: "edit" | "delete") =>
+		openChildModal(<AuctionEditModalContent loanId={l.numericId} kind={kind} mode={mode} minDate={l.opened?.slice(0, 10) || undefined} onSaved={savedEdit} />, true);
+	// The info icon every Payment Ledger row carries: its popup shows the entry in full and offers Edit / Delete.
+	const infoIcon = (info: React.ComponentProps<typeof LoanLedgerInfoModalContent>) => (
+		<span className="ledger-info">
+			<button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}
+				onClick={() => openModal(<LoanLedgerInfoModalContent {...info} />)}><Icon name="info" /></button>
+		</span>
+	);
+	// The loan's packet (locker status, label code) is only looked up with
+	// packet view — without it the lookup would just 403.
+	const canViewPackets = can("Packet_Management", "can_view_packet_module");
 
-  const [loan, setLoan] = useState<LoanView | null>(null);
-  const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
-  // Bumped after a top-up is submitted/decided — a top-up submitted into the
-  // loan_topup approval chain leaves the loan itself unchanged, so the
-  // outstanding-keyed refetch below wouldn't notice it.
-  const [topUpsVersion, setTopUpsVersion] = useState(0);
-  const [decidingTopUp, setDecidingTopUp] = useState(false);
-  // This loan's tracking packet — small, separate fetch (LoanView itself
-  // carries no packet/locker info), used only to drive the "Gold Pledge /
-  // Locker" release warning below.
-  const [packet, setPacket] = useState<PacketView | null>(null);
-  const [error, setError] = useState("");
-  // Pledged Ornaments / Bank Pledge and Locker share one card, one tab at a time.
-  const [pledgeTab, setPledgeTab] = useState<"ornaments" | "bank">("ornaments");
-  const [ornamentsPage, setOrnamentsPage] = useState(1);
-  const [pledgeHistoryPage, setPledgeHistoryPage] = useState(1);
-  const [approving, setApproving] = useState(false);
-  const [releasing, setReleasing] = useState(false);
-  const [completing, setCompleting] = useState(false);
-  const [statementBusy, setStatementBusy] = useState(false);
-  // Payment Ledger — filtered and paged by the backend (getLoanLedger), one
-  // page held at a time. A date filter change goes back to page 1.
-  // One grouped filter: entry Type and Date.
-  const [ledgerFilters, setLedgerFilters] = usePersistedState<FilterValue>("loan-ledger:filters", {});
-  const ledgerFromDate = ledgerFilters.__dateFrom || "";
-  const ledgerToDate = ledgerFilters.__dateTo || "";
-  const ledgerKinds = Array.isArray(ledgerFilters.kind) ? ledgerFilters.kind : [];
-  const ledgerCategories: FilterCategory[] = [
-    {
-      key: "kind", label: "Type", kind: "static",
-      options: [
-        { value: "sanction", label: "Sanction" },
-        { value: "payment", label: "Payment" },
-        { value: "topup", label: "Top-Up" },
-        { value: "interest", label: "Interest" },
-        { value: "penal", label: "Penal Interest" },
-        { value: "service-charge", label: "Service Charge" },
-        { value: "auction", label: "Auction" },
-      ],
-    },
-    { key: "__date", label: "Date", kind: "date" },
-  ];
-  const [ledgerExporting, setLedgerExporting] = useState(false);
-  const [ledgerPage, setLedgerPage] = useState(1);
-  const [ledger, setLedger] = useState<LoanLedgerPage | null>(null);
-  const [ledgerError, setLedgerError] = useState(false);
-  // Opened from (or back from) another ledger, the first fetch asks for the
-  // page holding that row; the page it answers with is adopted, not refetched.
-  const ledgerFocusPending = useRef(true);
-  const ledgerAdoptedPage = useRef<number | null>(null);
-  useLedgerFocus("loan-ledger", !!ledger, [ledger]);
-  // A filter change goes back to page 1.
-  useEffect(() => { setLedgerPage(1); }, [ledgerFromDate, ledgerToDate, JSON.stringify(ledgerKinds)]);
-  const [printingLabel, setPrintingLabel] = useState(false);
-  const [printingSlip, setPrintingSlip] = useState(false);
-  const [printingSlipAndLabel, setPrintingSlipAndLabel] = useState(false);
-  const [printingBond, setPrintingBond] = useState(false);
-  const [printingStatement, setPrintingStatement] = useState(false);
-  const [printingReleaseAgreement, setPrintingReleaseAgreement] = useState(false);
-  // Approved partial releases of this loan — each has its own receipt, listed in the Documents menu.
-  const [partialReleases, setPartialReleases] = useState<RequestView[]>([]);
-  const [printingPartialId, setPrintingPartialId] = useState<number | null>(null);
-  // Indemnity bond Aadhaar eSign (Setu) — same "started, then poll" shape
-  // CustomerDetail.tsx's DigiLocker Aadhaar-verify flow uses: "started"
-  // means the customer's been sent the eSign URL and we're waiting for
-  // them to complete Aadhaar+OTP on their own device, so a "Check Status"
-  // button replaces "Send for Aadhaar eSign" until they confirm.
-  const [esigning, setEsigning] = useState(false);
-  const [esignStarted, setEsignStarted] = useState(false);
-  // GML pledge slip eSign — same started/poll shape as the bond's, kept separate because the two
-  // documents are signed independently.
-  const [slipEsignStarted, setSlipEsignStarted] = useState(false);
-  // Signers (and, in link mode, their links) of the eSign just started — the status window rows.
-  const bondSignersRef = useRef<EsignStatusSigner[]>([]);
-  const slipSignersRef = useRef<EsignStatusSigner[]>([]);
-  // Print Label/Slip/Statement/Bond + the eSign action used to be 5 separate
-  // header buttons — collapsed into one "Documents" dropdown (see the doc
-  // menu below) so the header doesn't outgrow the space next to the loan
-  // title on anything but a very wide screen.
-  const {
-    open: docsMenuOpen,
-    setOpen: setDocsMenuOpen,
-    menuRef: docsMenuRef,
-    triggerRef: docsMenuTriggerRef,
-    onKeyDown: onDocsMenuKeyDown,
-  } = useDropdownMenu<HTMLDivElement>();
-  // Side picker under "Print Slip" (GML): Normal print vs Aadhaar eSign.
-  const [slipSubOpen, setSlipSubOpen] = useState(false);
-  // Same picker under "Print Bond".
-  const [bondSubOpen, setBondSubOpen] = useState(false);
-  // Repledge to Bank / Request Extension / Request Release used to be 3
-  // more separate header buttons alongside Record Payment — collapsed into
-  // one "Loan Actions" dropdown the same way Documents was, for the same
-  // reason (outgrew the header on anything but a very wide screen). Record
-  // Payment stays its own visible button — it's the primary action here
-  // (styled `btn`, not `btn ghost`, unlike the other three), not something
-  // to bury a click deeper for.
-  const {
-    open: loanActionsMenuOpen,
-    setOpen: setLoanActionsMenuOpen,
-    menuRef: loanActionsMenuRef,
-    triggerRef: loanActionsMenuTriggerRef,
-    onKeyDown: onLoanActionsMenuKeyDown,
-  } = useDropdownMenu<HTMLDivElement>();
-  // An outstanding request must survive a page reload: the loan itself
-  // records the Setu status (indemnityBondSignStatus === "sign_initiated"),
-  // so seed the local flag from it. Without this, reloading mid-signing put
-  // the header back to "Send Bond for eSign" — leaving no way to
-  // poll the request already in flight, and inviting staff to start a
-  // second one against the same bond.
-  const numericLoanId = loan?.numericId;
-  const releasedCount = loan?.ornaments?.length;
-  useEffect(() => {
-    if (!numericLoanId) return;
-    let cancelled = false;
-    listLoanRequests({ loanId: numericLoanId, status: "Approved" })
-      .then((rs) => { if (!cancelled) setPartialReleases(rs.filter((r) => r.type === "Release" && r.isPartial)); })
-      .catch(() => { if (!cancelled) setPartialReleases([]); });
-    return () => { cancelled = true; };
-  }, [numericLoanId, releasedCount]);
-  useEffect(() => {
-    if (loan?.indemnityBondSignStatus === "sign_initiated") setEsignStarted(true);
-  }, [loan?.indemnityBondSignStatus]);
-  useEffect(() => {
-    if (loan?.pledgeSlipSignStatus === "sign_initiated") setSlipEsignStarted(true);
-  }, [loan?.pledgeSlipSignStatus]);
-  function load(isBackgroundRefresh = false) {
-    if (!id) return;
-    // Direct, atomic lookup by loan number (GET /loans/by-number/:loanNumber)
-    // — previously this went through listLoans({q: id}) + a client-side
-    // find + getLoan, a racy two-step that could transiently show "Loan
-    // not found" if that list call overlapped with another in-flight
-    // /loans request (e.g. refreshLoans() below, or a stale request from
-    // a just-abandoned page). A single request has nothing to race with.
-    getLoanByNumber(id)
-      // A background poll that finds nothing new keeps the same object, so the
-      // page (and the ledger fetched off `loan`) is not needlessly refreshed.
-      .then((next) => setLoan((cur) => (isBackgroundRefresh && cur && JSON.stringify(cur) === JSON.stringify(next) ? cur : next)))
-      .catch((e) => {
-        // The 20s background poll below shares this function but must never
-        // blank out a page that's already showing a valid loan — e.g. an
-        // approval that just committed successfully, followed moments later
-        // by an unrelated transient failure on this poll's own request. Only
-        // the initial mount fetch (isBackgroundRefresh === false) should
-        // surface "Loan not found".
-        if (isBackgroundRefresh) return;
-        setError(e instanceof Error ? e.message : "Failed to load loan.");
-      });
-    // load() also runs as PaymentModal/RepledgeModal's onSaved after a
-    // payment/repledge — those change this loan's status/outstanding too,
-    // so the shared list other pages read needs the same refresh.
-    refreshLoans();
-  }
+	const [loan, setLoan] = useState<LoanView | null>(null);
+	const [topUps, setTopUps] = useState<LoanTopUpView[]>([]);
+	// Bumped after a top-up is submitted/decided — a top-up submitted into the
+	// loan_topup approval chain leaves the loan itself unchanged, so the
+	// outstanding-keyed refetch below wouldn't notice it.
+	const [topUpsVersion, setTopUpsVersion] = useState(0);
+	const [decidingTopUp, setDecidingTopUp] = useState(false);
+	// This loan's tracking packet — small, separate fetch (LoanView itself
+	// carries no packet/locker info), used only to drive the "Gold Pledge /
+	// Locker" release warning below.
+	const [packet, setPacket] = useState<PacketView | null>(null);
+	const [error, setError] = useState("");
+	// Pledged Ornaments / Bank Pledge and Locker share one card, one tab at a time.
+	const [pledgeTab, setPledgeTab] = useState<"ornaments" | "bank">("ornaments");
+	const [ornamentsPage, setOrnamentsPage] = useState(1);
+	const [pledgeHistoryPage, setPledgeHistoryPage] = useState(1);
+	const [approving, setApproving] = useState(false);
+	const [releasing, setReleasing] = useState(false);
+	const [completing, setCompleting] = useState(false);
+	const [statementBusy, setStatementBusy] = useState(false);
+	// Payment Ledger — filtered and paged by the backend (getLoanLedger), one
+	// page held at a time. A date filter change goes back to page 1.
+	// One grouped filter: entry Type and Date.
+	const [ledgerFilters, setLedgerFilters] = usePersistedState<FilterValue>("loan-ledger:filters", {});
+	const ledgerFromDate = ledgerFilters.__dateFrom || "";
+	const ledgerToDate = ledgerFilters.__dateTo || "";
+	const ledgerKinds = Array.isArray(ledgerFilters.kind) ? ledgerFilters.kind : [];
+	const ledgerCategories: FilterCategory[] = [
+		{
+			key: "kind", label: "Type", kind: "static",
+			options: [
+				{ value: "sanction", label: "Sanction" },
+				{ value: "payment", label: "Payment" },
+				{ value: "topup", label: "Top-Up" },
+				{ value: "interest", label: "Interest" },
+				{ value: "penal", label: "Penal Interest" },
+				{ value: "service-charge", label: "Service Charge" },
+				{ value: "auction", label: "Auction" },
+			],
+		},
+		{ key: "__date", label: "Date", kind: "date" },
+	];
+	const [ledgerExporting, setLedgerExporting] = useState(false);
+	const [ledgerPage, setLedgerPage] = useState(1);
+	const [ledger, setLedger] = useState<LoanLedgerPage | null>(null);
+	const [ledgerError, setLedgerError] = useState(false);
+	// Opened from (or back from) another ledger, the first fetch asks for the
+	// page holding that row; the page it answers with is adopted, not refetched.
+	const ledgerFocusPending = useRef(true);
+	const ledgerAdoptedPage = useRef<number | null>(null);
+	useLedgerFocus("loan-ledger", !!ledger, [ledger]);
+	// A filter change goes back to page 1.
+	useEffect(() => { setLedgerPage(1); }, [ledgerFromDate, ledgerToDate, JSON.stringify(ledgerKinds)]);
+	const [printingLabel, setPrintingLabel] = useState(false);
+	const [printingSlip, setPrintingSlip] = useState(false);
+	const [printingSlipAndLabel, setPrintingSlipAndLabel] = useState(false);
+	const [printingBond, setPrintingBond] = useState(false);
+	const [printingStatement, setPrintingStatement] = useState(false);
+	const [printingReleaseAgreement, setPrintingReleaseAgreement] = useState(false);
+	// Approved partial releases of this loan — each has its own receipt, listed in the Documents menu.
+	const [partialReleases, setPartialReleases] = useState<RequestView[]>([]);
+	const [printingPartialId, setPrintingPartialId] = useState<number | null>(null);
+	// Indemnity bond Aadhaar eSign (Setu) — same "started, then poll" shape
+	// CustomerDetail.tsx's DigiLocker Aadhaar-verify flow uses: "started"
+	// means the customer's been sent the eSign URL and we're waiting for
+	// them to complete Aadhaar+OTP on their own device, so a "Check Status"
+	// button replaces "Send for Aadhaar eSign" until they confirm.
+	const [esigning, setEsigning] = useState(false);
+	const [esignStarted, setEsignStarted] = useState(false);
+	// GML pledge slip eSign — same started/poll shape as the bond's, kept separate because the two
+	// documents are signed independently.
+	const [slipEsignStarted, setSlipEsignStarted] = useState(false);
+	// Signers (and, in link mode, their links) of the eSign just started — the status window rows.
+	const bondSignersRef = useRef<EsignStatusSigner[]>([]);
+	const slipSignersRef = useRef<EsignStatusSigner[]>([]);
+	// Print Label/Slip/Statement/Bond + the eSign action used to be 5 separate
+	// header buttons — collapsed into one "Documents" dropdown (see the doc
+	// menu below) so the header doesn't outgrow the space next to the loan
+	// title on anything but a very wide screen.
+	const {
+		open: docsMenuOpen,
+		setOpen: setDocsMenuOpen,
+		menuRef: docsMenuRef,
+		triggerRef: docsMenuTriggerRef,
+		onKeyDown: onDocsMenuKeyDown,
+	} = useDropdownMenu<HTMLDivElement>();
+	// Side picker under "Print Slip" (GML): Normal print vs Aadhaar eSign.
+	const [slipSubOpen, setSlipSubOpen] = useState(false);
+	// Same picker under "Print Bond".
+	const [bondSubOpen, setBondSubOpen] = useState(false);
+	// Repledge to Bank / Request Extension / Request Release used to be 3
+	// more separate header buttons alongside Record Payment — collapsed into
+	// one "Loan Actions" dropdown the same way Documents was, for the same
+	// reason (outgrew the header on anything but a very wide screen). Record
+	// Payment stays its own visible button — it's the primary action here
+	// (styled `btn`, not `btn ghost`, unlike the other three), not something
+	// to bury a click deeper for.
+	const {
+		open: loanActionsMenuOpen,
+		setOpen: setLoanActionsMenuOpen,
+		menuRef: loanActionsMenuRef,
+		triggerRef: loanActionsMenuTriggerRef,
+		onKeyDown: onLoanActionsMenuKeyDown,
+	} = useDropdownMenu<HTMLDivElement>();
+	// An outstanding request must survive a page reload: the loan itself
+	// records the Setu status (indemnityBondSignStatus === "sign_initiated"),
+	// so seed the local flag from it. Without this, reloading mid-signing put
+	// the header back to "Send Bond for eSign" — leaving no way to
+	// poll the request already in flight, and inviting staff to start a
+	// second one against the same bond.
+	const numericLoanId = loan?.numericId;
+	const releasedCount = loan?.ornaments?.length;
+	useEffect(() => {
+		if (!numericLoanId) return;
+		let cancelled = false;
+		listLoanRequests({ loanId: numericLoanId, status: "Approved" })
+			.then((rs) => { if (!cancelled) setPartialReleases(rs.filter((r) => r.type === "Release" && r.isPartial)); })
+			.catch(() => { if (!cancelled) setPartialReleases([]); });
+		return () => { cancelled = true; };
+	}, [numericLoanId, releasedCount]);
+	useEffect(() => {
+		if (loan?.indemnityBondSignStatus === "sign_initiated") setEsignStarted(true);
+	}, [loan?.indemnityBondSignStatus]);
+	useEffect(() => {
+		if (loan?.pledgeSlipSignStatus === "sign_initiated") setSlipEsignStarted(true);
+	}, [loan?.pledgeSlipSignStatus]);
+	function load(isBackgroundRefresh = false) {
+		if (!id) return;
+		// Direct, atomic lookup by loan number (GET /loans/by-number/:loanNumber)
+		// — previously this went through listLoans({q: id}) + a client-side
+		// find + getLoan, a racy two-step that could transiently show "Loan
+		// not found" if that list call overlapped with another in-flight
+		// /loans request (e.g. refreshLoans() below, or a stale request from
+		// a just-abandoned page). A single request has nothing to race with.
+		getLoanByNumber(id)
+			// A background poll that finds nothing new keeps the same object, so the
+			// page (and the ledger fetched off `loan`) is not needlessly refreshed.
+			.then((next) => setLoan((cur) => (isBackgroundRefresh && cur && JSON.stringify(cur) === JSON.stringify(next) ? cur : next)))
+			.catch((e) => {
+				// The 20s background poll below shares this function but must never
+				// blank out a page that's already showing a valid loan — e.g. an
+				// approval that just committed successfully, followed moments later
+				// by an unrelated transient failure on this poll's own request. Only
+				// the initial mount fetch (isBackgroundRefresh === false) should
+				// surface "Loan not found".
+				if (isBackgroundRefresh) return;
+				setError(e instanceof Error ? e.message : "Failed to load loan.");
+			});
+		// load() also runs as PaymentModal/RepledgeModal's onSaved after a
+		// payment/repledge — those change this loan's status/outstanding too,
+		// so the shared list other pages read needs the same refresh.
+		refreshLoans();
+	}
 
-  useEffect(() => {
-    setLoan(null);
-    setError("");
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+	useEffect(() => {
+		setLoan(null);
+		setError("");
+		load();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [id]);
 
-  // Top-up history — a small, separate fetch (LoanView itself carries
-  // ornaments/payments but not top-ups) refreshed whenever the loan's own
-  // numbers change, e.g. right after a top-up.
-  useEffect(() => {
-    if (!loan) return;
-    listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
-  }, [loan?.numericId, loan?.outstanding, topUpsVersion]);
+	// Top-up history — a small, separate fetch (LoanView itself carries
+	// ornaments/payments but not top-ups) refreshed whenever the loan's own
+	// numbers change, e.g. right after a top-up.
+	useEffect(() => {
+		if (!loan) return;
+		listTopUps(loan.numericId).then(setTopUps).catch(() => setTopUps([]));
+	}, [loan?.numericId, loan?.outstanding, topUpsVersion]);
 
-  // Refetched whenever the loan reloads (after a payment, top-up, auction
-  // step…) or a top-up is decided, as well as on a page/date-filter change.
-  useEffect(() => {
-    if (!loan) return;
-    if (ledgerAdoptedPage.current === ledgerPage) {
-      ledgerAdoptedPage.current = null;
-      return;
-    }
-    ledgerAdoptedPage.current = null;
-    const focus = ledgerFocusPending.current ? ledgerFocusTarget("loan-ledger") : null;
-    let cancelled = false;
-    getLoanLedger(loan.numericId, {
-      from: ledgerFromDate || undefined,
-      to: ledgerToDate || undefined,
-      kinds: ledgerKinds.length ? ledgerKinds : undefined,
-      limit: LEDGER_PAGE_SIZE,
-      offset: (ledgerPage - 1) * LEDGER_PAGE_SIZE,
-      ...(focus ? ("key" in focus ? { focusKey: focus.key } : focus.payment ? { focusKey: `payment-${focus.payment}` } : { focusDate: focus.date, focusAmount: focus.amount }) : {}),
-    })
-      .then((page) => {
-        if (cancelled) return;
-        // Cleared only once a response lands — dev StrictMode cancels the
-        // first run, and the focus must survive into the second.
-        ledgerFocusPending.current = false;
-        setLedger(page);
-        setLedgerError(false);
-        // The server may answer with another page: the focused row's, or the
-        // last real one after the history shrank.
-        const served = Math.floor(page.offset / LEDGER_PAGE_SIZE) + 1;
-        if (served !== ledgerPage) {
-          ledgerAdoptedPage.current = served;
-          setLedgerPage(served);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLedgerError(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loan, topUpsVersion, ledgerFromDate, ledgerToDate, JSON.stringify(ledgerKinds), ledgerPage]);
+	// Refetched whenever the loan reloads (after a payment, top-up, auction
+	// step…) or a top-up is decided, as well as on a page/date-filter change.
+	useEffect(() => {
+		if (!loan) return;
+		if (ledgerAdoptedPage.current === ledgerPage) {
+			ledgerAdoptedPage.current = null;
+			return;
+		}
+		ledgerAdoptedPage.current = null;
+		const focus = ledgerFocusPending.current ? ledgerFocusTarget("loan-ledger") : null;
+		let cancelled = false;
+		getLoanLedger(loan.numericId, {
+			from: ledgerFromDate || undefined,
+			to: ledgerToDate || undefined,
+			kinds: ledgerKinds.length ? ledgerKinds : undefined,
+			limit: LEDGER_PAGE_SIZE,
+			offset: (ledgerPage - 1) * LEDGER_PAGE_SIZE,
+			...(focus ? ("key" in focus ? { focusKey: focus.key } : focus.payment ? { focusKey: `payment-${focus.payment}` } : { focusDate: focus.date, focusAmount: focus.amount }) : {}),
+		}, loan.uuid)
+			.then((page) => {
+				if (cancelled) return;
+				// Cleared only once a response lands — dev StrictMode cancels the
+				// first run, and the focus must survive into the second.
+				ledgerFocusPending.current = false;
+				setLedger(page);
+				setLedgerError(false);
+				// The server may answer with another page: the focused row's, or the
+				// last real one after the history shrank.
+				const served = Math.floor(page.offset / LEDGER_PAGE_SIZE) + 1;
+				if (served !== ledgerPage) {
+					ledgerAdoptedPage.current = served;
+					setLedgerPage(served);
+				}
+			})
+			.catch(() => {
+				if (!cancelled) setLedgerError(true);
+			});
+		return () => {
+			cancelled = true;
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [loan, topUpsVersion, ledgerFromDate, ledgerToDate, JSON.stringify(ledgerKinds), ledgerPage]);
 
-  // Re-fetched whenever bankPledgeStatus/status change, e.g. right after a
-  // locker check-in/out or the bank pledge being released — the "Gold
-  // Pledge / Locker" warning below needs the packet's current stage to
-  // stay in sync with those actions.
-  useEffect(() => {
-    if (!loan || !canViewPackets) return;
-    listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
-  }, [loan?.numericId, loan?.bankPledgeStatus, loan?.status, canViewPackets]);
+	// Re-fetched whenever bankPledgeStatus/status change, e.g. right after a
+	// locker check-in/out or the bank pledge being released — the "Gold
+	// Pledge / Locker" warning below needs the packet's current stage to
+	// stay in sync with those actions.
+	useEffect(() => {
+		if (!loan || !canViewPackets) return;
+		listPackets({ loanId: loan.numericId }).then((ps) => setPacket(ps[0] ?? null)).catch(() => setPacket(null));
+	}, [loan?.numericId, loan?.bankPledgeStatus, loan?.status, canViewPackets]);
 
-  // The viewer who clicks Approve/Reject/Verify sees their own change
-  // immediately (doApprove below calls setLoan(updated) directly) — this
-  // poll is for everyone else who might have this same loan open: the next
-  // approver in the chain, say, sitting on this page waiting for their
-  // turn. Without it, that stage only "came online" for them after a
-  // manual reload, since there's no live-push channel for staff pages
-  // (only customer-mobile has one, over internal/notification's
-  // WebSocket). 20s is frequent enough that a stage change shows up
-  // quickly without a real-time channel, without hammering the loan
-  // endpoint on every open tab.
-  useEffect(() => {
-    if (!id) return;
-    const timer = setInterval(() => load(true), 20000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+	// The viewer who clicks Approve/Reject/Verify sees their own change
+	// immediately (doApprove below calls setLoan(updated) directly) — this
+	// poll is for everyone else who might have this same loan open: the next
+	// approver in the chain, say, sitting on this page waiting for their
+	// turn. Without it, that stage only "came online" for them after a
+	// manual reload, since there's no live-push channel for staff pages
+	// (only customer-mobile has one, over internal/notification's
+	// WebSocket). 20s is frequent enough that a stage change shows up
+	// quickly without a real-time channel, without hammering the loan
+	// endpoint on every open tab.
+	useEffect(() => {
+		if (!id) return;
+		const timer = setInterval(() => load(true), 20000);
+		return () => clearInterval(timer);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [id]);
 
-  // Branch Balance in Hand, fetched only while a sanction stage is pending —
-  // the final stage's Approve & Disburse pays the principal out of it.
-  const balanceInHand = useBalanceInHand(loan?.approvalStage || topUps.some((t) => t.status === "Pending") ? loan?.branchId : undefined);
+	// Branch Balance in Hand, fetched only while a sanction stage is pending —
+	// the final stage's Approve & Disburse pays the principal out of it.
+	const balanceInHand = useBalanceInHand(loan?.approvalStage || topUps.some((t) => t.status === "Pending") ? loan?.branchId : undefined);
 
-  if (error) return <div className="empty">Loan not found — {error}</div>;
-  if (!loan) return <div className="empty">Loading loan…</div>;
-  const l = loan;
-  // Closed (gold released) and Rejected (turned down in the sanction chain,
-  // never disbursed) are both finished — nothing left to pay, extend,
-  // release or edit.
-  const isFinished = l.status === "Closed" || l.status === "Rejected";
-  // Once the gold is auctioned there is nothing left to extend or release.
-  const goldSold = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
-  // Paid off in full and waiting only for the gold to be released: nothing left to record.
+	if (error) return <div className="empty">Loan not found — {error}</div>;
+	if (!loan) return <div className="empty">Loading loan…</div>;
+	const l = loan;
+	// Closed (gold released) and Rejected (turned down in the sanction chain,
+	// never disbursed) are both finished — nothing left to pay, extend,
+	// release or edit.
+	const isFinished = l.status === "Closed" || l.status === "Rejected";
+	// Once the gold is auctioned there is nothing left to extend or release.
+	const goldSold = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
+	// Paid off in full and waiting only for the gold to be released: nothing left to record.
   // A loan cleared by its payments (never put through a release request) reads Active once nothing is owed, whatever
   // it was before, so this is judged on the balance, not on the status.
   const fullyPaid = !isFinished && !goldSold && l.status !== "Pending Approval" && l.totalOutstandingBalance <= 0.01;
 
-  // Opens the slide viewer over every photo of the ornament (one photo just
-  // shows without the arrows/thumbnails).
-  function viewOrnImg(urls: string[], name: string) {
-    openModal(<OrnamentPhotoSlider title={`${name} — ${l.id}`} urls={urls} onClose={closeModal} />, true);
-  }
+	// Opens the slide viewer over every photo of the ornament (one photo just
+	// shows without the arrows/thumbnails).
+	function viewOrnImg(urls: string[], name: string) {
+		openModal(<OrnamentPhotoSlider title={`${name} — ${l.id}`} urls={urls} onClose={closeModal} />, true);
+	}
 
-  async function doApprove(stage: string, action: "Approved" | "Rejected" | "Verified") {
-    setApproving(true);
-    try {
-      // The acting employee/role are derived server-side from the
-      // logged-in user's JWT — never sent from here (see
-      // loansApi.ts's ApprovalInput doc comment).
-      const updated = await approveLoan(l.numericId, { stage, action });
-      setLoan(updated);
-      refreshLoans();
-      // Name the stage the loan moved on to, from this business's own chain
-      // (a stage may have been switched off, so it isn't always the next
-      // one in the catalogue).
-      const next = nextStage(workflow, "loan_sanction", stage);
-      toast(
-        action === "Rejected"
-          ? "Rejected"
-          : `${action === "Verified" ? "Verified" : "Approved"}${next ? ` — sent to ${next.label}` : ""}`
-      );
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Could not record the decision — try again");
-    } finally {
-      setApproving(false);
-    }
-  }
+	async function doApprove(stage: string, action: "Approved" | "Rejected" | "Verified") {
+		setApproving(true);
+		try {
+			// The acting employee/role are derived server-side from the
+			// logged-in user's JWT — never sent from here (see
+			// loansApi.ts's ApprovalInput doc comment).
+			const updated = await approveLoan(l.numericId, { stage, action }, l.uuid);
+			setLoan(updated);
+			refreshLoans();
+			// Name the stage the loan moved on to, from this business's own chain
+			// (a stage may have been switched off, so it isn't always the next
+			// one in the catalogue).
+			const next = nextStage(workflow, "loan_sanction", stage);
+			toast(
+				action === "Rejected"
+					? "Rejected"
+					: `${action === "Verified" ? "Verified" : "Approved"}${next ? ` — sent to ${next.label}` : ""}`
+			);
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : "Could not record the decision — try again");
+		} finally {
+			setApproving(false);
+		}
+	}
 
-  // The pending sanction stage, looked up in this business's configured
-  // chain. stageByPending also maps the retired "AuthorizedManagement" 4th
-  // stage to FinalSanction, so a loan fetched before the backend migrated it
-  // still renders its pending stage instead of silently showing no buttons.
-  // A loan parked on a stage that has since been switched off still finds
-  // it here (and chainFor keeps it on the tracker) — it can still be acted
-  // on there.
-  const pendingStageView = stageByPending(workflow, "loan_sanction", l.approvalStage);
-  const pendingStage = pendingStageView?.key ?? null;
-  const sanctionChain = chainFor(workflow, "loan_sanction", l.approvalStage);
-  const pendingStageIndex = pendingStage ? sanctionChain.findIndex((s) => s.key === pendingStage) : -1;
-  // Each stage is one approver role from the business's configured chain
-  // (Roles & Permissions → Approval Workflow); only that role or
-  // Administrator may act at it. This mirrors the backend's real check
-  // (workflow.Service.CanAct) so someone outside the flow doesn't see
-  // clickable Approve/Reject buttons that would just 403; it's a UX nicety
-  // only — the server enforces it regardless of what the client shows.
-  const requiredRole = pendingStageView?.role ?? null;
-  // A Loan Operator step is a verification, not a sanction — the operator
-  // who made the loan confirms it and it moves on. So the affirmative
-  // action there is "Verified", "Approved" elsewhere (the backend treats
-  // both the same).
-  const isVerifyStage = requiredRole === "Loan Operator";
-  // The last ENABLED stage of the chain disburses — whichever one that is.
-  const isDisburseStage = !!pendingStage && isFinalStage(workflow, "loan_sanction", pendingStage);
-  // The stage permission (from the stage's own config entry) says whose
-  // turn it is; "can update loan" says whether the viewer may act on loans
-  // at all. Both must hold, or they see the "awaiting …" note instead of
-  // clickable buttons.
-  const canActOnStage = !!pendingStage && canUpdateLoans && canActAtStage({ role, isSystem }, pendingStageView);
+	// The pending sanction stage, looked up in this business's configured
+	// chain. stageByPending also maps the retired "AuthorizedManagement" 4th
+	// stage to FinalSanction, so a loan fetched before the backend migrated it
+	// still renders its pending stage instead of silently showing no buttons.
+	// A loan parked on a stage that has since been switched off still finds
+	// it here (and chainFor keeps it on the tracker) — it can still be acted
+	// on there.
+	const pendingStageView = stageByPending(workflow, "loan_sanction", l.approvalStage);
+	const pendingStage = pendingStageView?.key ?? null;
+	const sanctionChain = chainFor(workflow, "loan_sanction", l.approvalStage);
+	const pendingStageIndex = pendingStage ? sanctionChain.findIndex((s) => s.key === pendingStage) : -1;
+	// Each stage is one approver role from the business's configured chain
+	// (Roles & Permissions → Approval Workflow); only that role or
+	// Administrator may act at it. This mirrors the backend's real check
+	// (workflow.Service.CanAct) so someone outside the flow doesn't see
+	// clickable Approve/Reject buttons that would just 403; it's a UX nicety
+	// only — the server enforces it regardless of what the client shows.
+	const requiredRole = pendingStageView?.role ?? null;
+	// A Loan Operator step is a verification, not a sanction — the operator
+	// who made the loan confirms it and it moves on. So the affirmative
+	// action there is "Verified", "Approved" elsewhere (the backend treats
+	// both the same).
+	const isVerifyStage = requiredRole === "Loan Operator";
+	// The last ENABLED stage of the chain disburses — whichever one that is.
+	const isDisburseStage = !!pendingStage && isFinalStage(workflow, "loan_sanction", pendingStage);
+	// The stage permission (from the stage's own config entry) says whose
+	// turn it is; "can update loan" says whether the viewer may act on loans
+	// at all. Both must hold, or they see the "awaiting …" note instead of
+	// clickable buttons.
+	const canActOnStage = !!pendingStage && canUpdateLoans && canActAtStage({ role, isSystem }, pendingStageView);
 
-  // A top-up waiting in the loan_topup approval chain (only one per loan).
-  // Pending/Rejected rows paid nothing out, so the ledger leaves them out.
-  const pendingTopUp = topUps.find((t) => t.status === "Pending") ?? null;
+	// A top-up waiting in the loan_topup approval chain (only one per loan).
+	// Pending/Rejected rows paid nothing out, so the ledger leaves them out.
+	const pendingTopUp = topUps.find((t) => t.status === "Pending") ?? null;
 
-  const ledgerEntries = ledger?.items ?? [];
-  const ledgerTotal = ledger?.total ?? 0;
-  const ledgerTotalPages = Math.max(1, Math.ceil(ledgerTotal / LEDGER_PAGE_SIZE));
-  // The data-ledger-* attributes useLedgerFocus matches rows by.
-  const ledgerRowAttrs = (e: LoanLedgerEntry) => ({
-    "data-ledger-key": e.key,
-    "data-ledger-date": e.date,
-    "data-ledger-amount": e.amount,
+	const ledgerEntries = ledger?.items ?? [];
+	const ledgerTotal = ledger?.total ?? 0;
+	const ledgerTotalPages = Math.max(1, Math.ceil(ledgerTotal / LEDGER_PAGE_SIZE));
+	// The data-ledger-* attributes useLedgerFocus matches rows by.
+	const ledgerRowAttrs = (e: LoanLedgerEntry) => ({
+		"data-ledger-key": e.key,
+		"data-ledger-date": e.date,
+		"data-ledger-amount": e.amount,
     "data-ledger-ref": e.kind === "payment" ? `lp:${e.row.id}` : undefined,
-  });
-  const topUpStageView = pendingTopUp ? stageByPending(workflow, "loan_topup", pendingTopUp.approvalStage) : null;
-  const topUpChain = pendingTopUp ? chainFor(workflow, "loan_topup", pendingTopUp.approvalStage) : [];
-  const topUpStageIndex = topUpStageView ? topUpChain.findIndex((s) => s.key === topUpStageView.key) : topUpChain.length;
-  const canActOnTopUp = canUpdateLoans && canActAtStage({ role, isSystem }, topUpStageView);
-  const topUpIsFinal = !!topUpStageView && isFinalStage(workflow, "loan_topup", topUpStageView.key);
-  // The final top-up stage pays the amount out of the till. With "deduct",
-  // outstanding interest comes off the payout (backend: amount − deducted),
-  // so only the "require" case is checked here — the backend still enforces both.
-  const topUpBlocked = topUpIsFinal && !!pendingTopUp && pendingTopUp.settleInterest !== "deduct" && balanceInHand !== null && pendingTopUp.amount > balanceInHand + 0.005;
+	});
+	const topUpStageView = pendingTopUp ? stageByPending(workflow, "loan_topup", pendingTopUp.approvalStage) : null;
+	const topUpChain = pendingTopUp ? chainFor(workflow, "loan_topup", pendingTopUp.approvalStage) : [];
+	const topUpStageIndex = topUpStageView ? topUpChain.findIndex((s) => s.key === topUpStageView.key) : topUpChain.length;
+	const canActOnTopUp = canUpdateLoans && canActAtStage({ role, isSystem }, topUpStageView);
+	const topUpIsFinal = !!topUpStageView && isFinalStage(workflow, "loan_topup", topUpStageView.key);
+	// The final top-up stage pays the amount out of the till. With "deduct",
+	// outstanding interest comes off the payout (backend: amount − deducted),
+	// so only the "require" case is checked here — the backend still enforces both.
+	const topUpBlocked = topUpIsFinal && !!pendingTopUp && pendingTopUp.settleInterest !== "deduct" && balanceInHand !== null && pendingTopUp.amount > balanceInHand + 0.005;
 
-  async function decideTopUp(action: "Approved" | "Rejected", remarks = "") {
-    if (!pendingTopUp || !topUpStageView) return;
-    setDecidingTopUp(true);
-    try {
-      const updated = await approveTopUp(pendingTopUp.id, { stage: topUpStageView.key, action, remarks: remarks || undefined });
-      const next = nextStage(workflow, "loan_topup", topUpStageView.key);
-      toast(
-        action === "Rejected"
-          ? "Top-up rejected"
-          : updated.status === "Active"
-            ? `Top-up approved — ${fmt(updated.amount)} disbursed`
-            : `Top-up approved${next ? ` — sent to ${next.label}` : ""}`
-      );
-      setTopUpsVersion((v) => v + 1);
-      load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Could not record the decision — try again");
-      // Rethrown so the reject prompt keeps itself open with the message.
-      if (action === "Rejected") throw err;
-    } finally {
-      setDecidingTopUp(false);
-    }
-  }
-  // `sm` matches the other page-header buttons (Print Label, Print Slip,
-  // Record Payment, …) — these used to render at the default, larger size
-  // and towered over the row.
-  // Edit Loan is reachable during sanction review too, not only once a loan
-  // is fully Active — the Loan Officer verifying at the first stage is
-  // exactly who most often needs to correct a scheme/weight typo before it
-  // moves on, and waiting for full sanction just to fix it would mean
-  // re-running the whole chain. Gated the same as the Loan Actions menu's
-  // own Edit Loan entry: plain "can update loan", not the stage-specific
-  // verify/approve/sanction permission.
-  // The edit form picks a scheme and a purity standard, so it can only open
-  // with both modules viewable — disabled with the reason rather than hidden.
-  const editLoanBlocked = !can("Scheme_Management", "can_view_scheme_module")
-    ? "Scheme module is disabled"
-    : !can("Purity_Standard_Management", "can_view_purity_standard_module")
-      ? "Purity standard module is disabled"
-      : "";
-  const editLoanButton = canUpdateLoans && !isFinished && l.status !== "Auctioned" ? (
+	async function decideTopUp(action: "Approved" | "Rejected", remarks = "") {
+		if (!pendingTopUp || !topUpStageView) return;
+		setDecidingTopUp(true);
+		try {
+			const updated = await approveTopUp(pendingTopUp.id, { stage: topUpStageView.key, action, remarks: remarks || undefined });
+			const next = nextStage(workflow, "loan_topup", topUpStageView.key);
+			toast(
+				action === "Rejected"
+					? "Top-up rejected"
+					: updated.status === "Active"
+						? `Top-up approved — ${fmt(updated.amount)} disbursed`
+						: `Top-up approved${next ? ` — sent to ${next.label}` : ""}`
+			);
+			setTopUpsVersion((v) => v + 1);
+			load();
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : "Could not record the decision — try again");
+			// Rethrown so the reject prompt keeps itself open with the message.
+			if (action === "Rejected") throw err;
+		} finally {
+			setDecidingTopUp(false);
+		}
+	}
+	// `sm` matches the other page-header buttons (Print Label, Print Slip,
+	// Record Payment, …) — these used to render at the default, larger size
+	// and towered over the row.
+	// Edit Loan is reachable during sanction review too, not only once a loan
+	// is fully Active — the Loan Officer verifying at the first stage is
+	// exactly who most often needs to correct a scheme/weight typo before it
+	// moves on, and waiting for full sanction just to fix it would mean
+	// re-running the whole chain. Gated the same as the Loan Actions menu's
+	// own Edit Loan entry: plain "can update loan", not the stage-specific
+	// verify/approve/sanction permission.
+	// The edit form picks a scheme and a purity standard, so it can only open
+	// with both modules viewable — disabled with the reason rather than hidden.
+	const editLoanBlocked = !can("Scheme_Management", "can_view_scheme_module")
+		? "Scheme module is disabled"
+		: !can("Purity_Standard_Management", "can_view_purity_standard_module")
+			? "Purity standard module is disabled"
+			: "";
+	const editLoanButton = canUpdateLoans && !isFinished && l.status !== "Auctioned" ? (
     <button className="btn ghost" title={editLoanBlocked || undefined} disabled={!!editLoanBlocked} onClick={() => navigate("editloan", l.id)}>
-      <Icon name="edit" /> Edit Loan
-    </button>
-  ) : null;
+			<Icon name="edit" /> Edit Loan
+		</button>
+	) : null;
 
-  // The final enabled stage's Approve/Verify is also the disbursement
-  // moment (Service.Approve's disbursing branch) — collect the split-mode
-  // breakdown via a modal instead of the earlier stages' plain one-click
-  // Approve/Verify, which move no cash. DisburseLoanModal toasts itself.
-  function onApproveClick() {
-    if (!pendingStage) return;
-    if (isDisburseStage) {
-      openModal(
-        <DisburseLoanModalContent
-          loan={l}
-          stage={pendingStage}
-          onSaved={(updated) => { setLoan(updated); refreshLoans(); }}
-        />,
-        true
-      );
-      return;
-    }
-    doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved");
-  }
+	// The final enabled stage's Approve/Verify is also the disbursement
+	// moment (Service.Approve's disbursing branch) — collect the split-mode
+	// breakdown via a modal instead of the earlier stages' plain one-click
+	// Approve/Verify, which move no cash. DisburseLoanModal toasts itself.
+	function onApproveClick() {
+		if (!pendingStage) return;
+		if (isDisburseStage) {
+			openModal(
+				<DisburseLoanModalContent
+					loan={l}
+					stage={pendingStage}
+					onSaved={(updated) => { setLoan(updated); refreshLoans(); }}
+				/>,
+				true
+			);
+			return;
+		}
+		doApprove(pendingStage, isVerifyStage ? "Verified" : "Approved");
+	}
 
-  // Not gated on balance in hand: the disburse modal always opens, shows the
-  // balance, and disables its own Approve & Disburse until there's enough
-  // cash (the backend's EnsureCashInHand enforces it too).
-  const approvalButtons = pendingStage ? (
-    canActOnStage ? (
-      <>
-        <button
-          className="btn"
-          disabled={approving}
-          onClick={onApproveClick}
-        >
-          <Icon name="check" /> {isDisburseStage ? (isVerifyStage ? "Verify & Disburse" : "Approve & Disburse") : isVerifyStage ? "Verify" : "Approve"}
-        </button>
-        <button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
-          Reject
-        </button>
-        {editLoanButton}
-      </>
-    ) : (
-      <>
-        <span style={{ color: "var(--muted)", fontSize: 13 }}>
-          {isVerifyStage ? `Awaiting ${requiredRole} verification` : `Awaiting ${requiredRole} approval`}
-        </span>
-        {editLoanButton}
-      </>
-    )
-  ) : null;
+	// Not gated on balance in hand: the disburse modal always opens, shows the
+	// balance, and disables its own Approve & Disburse until there's enough
+	// cash (the backend's EnsureCashInHand enforces it too).
+	const approvalButtons = pendingStage ? (
+		canActOnStage ? (
+			<>
+				<button
+					className="btn"
+					disabled={approving}
+					onClick={onApproveClick}
+				>
+					<Icon name="check" /> {isDisburseStage ? (isVerifyStage ? "Verify & Disburse" : "Approve & Disburse") : isVerifyStage ? "Verify" : "Approve"}
+				</button>
+				<button className="btn danger" disabled={approving} onClick={() => doApprove(pendingStage, "Rejected")}>
+					Reject
+				</button>
+				{editLoanButton}
+			</>
+		) : (
+			<>
+				<span style={{ color: "var(--muted)", fontSize: 13 }}>
+					{isVerifyStage ? `Awaiting ${requiredRole} verification` : `Awaiting ${requiredRole} approval`}
+				</span>
+				{editLoanButton}
+			</>
+		)
+	) : null;
 
-  // Was `!p.isReleased` — but isReleased is derived only from releaseDate
-  // (see loanService.ts's toBankPledgeView), which a VOIDED pledge never
-  // sets either (void cancels the entry, it isn't a release). That let a
-  // voided record be picked up here as if it were still the active pledge.
-  // `status` is the reliable field (Active/Released/Voided, always present,
-  // DB-defaulted, never empty) — use that instead.
-  const activePledge = l.bankPledges.find((p) => p.status === "Active");
-  // Every pledge/release/repledge cycle this loan has ever had, most recent
-  // first — the "which bank, when" trail item #14 asked for, distinct from
-  // activePledge above (the one currently in effect, if any). Sorted
-  // client-side since preloadAll's Pledges preload carries no ORDER BY.
-  const pledgeHistory = [...l.bankPledges].sort((a, b) => b.pledgeDate.localeCompare(a.pledgeDate));
+	// Was `!p.isReleased` — but isReleased is derived only from releaseDate
+	// (see loanService.ts's toBankPledgeView), which a VOIDED pledge never
+	// sets either (void cancels the entry, it isn't a release). That let a
+	// voided record be picked up here as if it were still the active pledge.
+	// `status` is the reliable field (Active/Released/Voided, always present,
+	// DB-defaulted, never empty) — use that instead.
+	const activePledge = l.bankPledges.find((p) => p.status === "Active");
+	// Every pledge/release/repledge cycle this loan has ever had, most recent
+	// first — the "which bank, when" trail item #14 asked for, distinct from
+	// activePledge above (the one currently in effect, if any). Sorted
+	// client-side since preloadAll's Pledges preload carries no ORDER BY.
+	const pledgeHistory = [...l.bankPledges].sort((a, b) => b.pledgeDate.localeCompare(a.pledgeDate));
 
-  /* Confirms first: releasing moves cash (for a CashIn pledge) and changes
-   * where the gold physically sits, which is too consequential for a single
-   * unconfirmed click. The wording states the cash effect explicitly, since it
-   * depends on the treatment chosen when the pledge was created. */
-  function doReleasePledge() {
-    if (!activePledge) return;
-    const p = activePledge;
-    openModal(
-      <ReleasePledgeModalContent
-        bankName={p.bankName}
-        amount={p.pledgedAmount}
-        cashTreatment={p.cashTreatment}
-        onConfirm={async (payment) => {
-          setReleasing(true);
-          try {
-            await releaseBankPledge(l.numericId, p.id, payment);
-            toast("Bank pledge released");
-            load();
-          } finally {
-            setReleasing(false);
-          }
-        }}
-      />
-    );
-  }
+	/* Confirms first: releasing moves cash (for a CashIn pledge) and changes
+	 * where the gold physically sits, which is too consequential for a single
+	 * unconfirmed click. The wording states the cash effect explicitly, since it
+	 * depends on the treatment chosen when the pledge was created. */
+	function doReleasePledge() {
+		if (!activePledge) return;
+		const p = activePledge;
+		openModal(
+			<ReleasePledgeModalContent
+				bankName={p.bankName}
+				amount={p.pledgedAmount}
+				cashTreatment={p.cashTreatment}
+				onConfirm={async (payment) => {
+					setReleasing(true);
+					try {
+						await releaseBankPledge(l.numericId, p.id, payment);
+						toast("Bank pledge released");
+						load();
+					} finally {
+						setReleasing(false);
+					}
+				}}
+			/>
+		);
+	}
 
-  /* Downloads the account statement PDF. The button is disabled while this
-   * runs: the request accrues interest server-side before rendering, so a
-   * double-click would otherwise hand the customer two documents whose
-   * figures differ by a few seconds of interest. */
-  async function doStatement() {
-    if (!l) return;
-    setStatementBusy(true);
-    try {
-      await downloadLoanStatement(l.numericId);
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not prepare the statement — try again.");
-    } finally {
-      setStatementBusy(false);
-    }
-  }
+	/* Downloads the account statement PDF. The button is disabled while this
+	 * runs: the request accrues interest server-side before rendering, so a
+	 * double-click would otherwise hand the customer two documents whose
+	 * figures differ by a few seconds of interest. */
+	/* A loan this PC made and the server has not numbered yet has no server copy of its documents: they are made here, from the
+	 * loan this PC holds (desktop, offline mode running). Once the server has the loan, the server makes them as before. */
+	function docsAvailable(): boolean {
+		return !!l && (!!l.numericId || (!!l.uuid && canRenderOffline()));
+	}
 
-  async function onExportLedger() { return singleFlight("loan:ledger-export:"+l.numericId, async () => {
-    if (!l) return;
-    setLedgerExporting(true);
-    try {
-      await downloadLoanStatement(l.numericId);
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not export the ledger — try again.");
-    } finally {
-      setLedgerExporting(false);
-    }
-  }); }
+	async function doStatement() {
+		if (!l) return;
+		setStatementBusy(true);
+		try {
+			await downloadLoanStatement(l.numericId, l.uuid);
+		} catch (e) {
+			toast(e instanceof ApiError ? e.message : "Could not prepare the statement — try again.");
+		} finally {
+			setStatementBusy(false);
+		}
+	}
 
-  async function doCompleteRelease() {
-    // Checked client-side first, with the exact wording staff need to act
-    // on, rather than leaving the button plain `disabled` — a disabled
-    // button fires no click at all, so a person who hadn't noticed why (the
-    // reason was only ever a hover title) got no feedback whatsoever when
-    // they pressed it. The backend still enforces both regardless (see
-    // ErrOutstandingBalanceRemains/ErrBankPledgeStillActive) — this is only
-    // a clearer, more direct front for the same two rules.
-    if (l.totalOutstandingBalance > 0.01) {
-      toast("Final settlement must be fully paid before this loan can be released.");
-      return;
-    }
-    if (l.bankPledgeStatus === "Bank Pledged") {
-      toast("This loan's ornament is still pledged to a bank — release the ornament from the bank pledge before completing the release.");
-      return;
-    }
-    setCompleting(true);
-    try {
-      // The acting employee is derived server-side from the logged-in
-      // user's JWT — no employeeId sent from here.
-      await completeRelease(l.numericId);
-      toast("Gold released to customer — loan closed");
-      load();
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Could not complete the release — try again");
-    } finally {
-      setCompleting(false);
-    }
-  }
+	async function onExportLedger() {
+	if (!docsAvailable()) { toast("Available once the loan has synced."); return; }
+	return singleFlight("loan:ledger-export:"+l.numericId, async () => {
+		if (!l) return;
+		setLedgerExporting(true);
+		try {
+			await downloadLoanStatement(l.numericId, l.uuid);
+		} catch (e) {
+			toast(e instanceof ApiError ? e.message : "Could not export the ledger — try again.");
+		} finally {
+			setLedgerExporting(false);
+		}
+	}); }
 
-  /* Ported from legacy/app.js's `printPledgeSlip()`/`printPacketLabel()`
-   * (legacy/app.js:990-1119) — NewLoan.tsx's versions of these build the
-   * slip/label from an in-progress draft that doesn't exist yet on the
-   * backend, while this page reads the loan's real, already-persisted
-   * data straight from `l`, plus one extra lookup each for details the
-   * loan view alone doesn't carry (customer phone/address, packet code). */
-  /* Paper copy of the same pledge agreement the eSign flow sends, for
-   * offline wet-ink signing — the branch prints it, the customer and two
-   * witnesses sign by hand, and it is filed. Independent of the Aadhaar
-   * eSign status: staff need this whenever eSign is unavailable, declined,
-   * or the customer simply prefers paper.
-   *
-   * Sends the server-rendered PDF (GET /loans/:id/indemnity-bond/pdf)
-   * straight to the print dialog, rather than opening the old client-side
-   * window.print() copy — only the backend's chromedp render can produce
-   * a real per-page header/footer (see loanService.ts's
-   * downloadIndemnityBondPDF doc comment); a browser's own print dialog
-   * has no equivalent a page's CSS can drive. NewLoan.tsx's pre-submission
-   * preview still uses the old client-side copy — there's no saved loan
-   * id yet to render against. */
-  function printBond(lang: BondLang = "en") { void singleFlight("loan:print-bond:"+l.numericId+":"+lang, async () => {
-    setPrintingBond(true);
-    return downloadIndemnityBondPDF(l.numericId, lang)
-      .catch(() => toast("Could not print the pledge agreement — try again."))
-      .finally(() => setPrintingBond(false)); });
-  }
+	async function doCompleteRelease() {
+		// Checked client-side first, with the exact wording staff need to act
+		// on, rather than leaving the button plain `disabled` — a disabled
+		// button fires no click at all, so a person who hadn't noticed why (the
+		// reason was only ever a hover title) got no feedback whatsoever when
+		// they pressed it. The backend still enforces both regardless (see
+		// ErrOutstandingBalanceRemains/ErrBankPledgeStillActive) — this is only
+		// a clearer, more direct front for the same two rules.
+		if (l.totalOutstandingBalance > 0.01) {
+			toast("Final settlement must be fully paid before this loan can be released.");
+			return;
+		}
+		if (l.bankPledgeStatus === "Bank Pledged") {
+			toast("This loan's ornament is still pledged to a bank — release the ornament from the bank pledge before completing the release.");
+			return;
+		}
+		setCompleting(true);
+		try {
+			// The acting employee is derived server-side from the logged-in
+			// user's JWT — no employeeId sent from here.
+			await completeRelease(l.numericId);
+			toast("Gold released to customer — loan closed");
+			load();
+		} catch (err) {
+			toast(err instanceof ApiError ? err.message : "Could not complete the release — try again");
+		} finally {
+			setCompleting(false);
+		}
+	}
 
-  /* The pledge slip is rendered server-side from backend/templates/
-   * pledge-slip.html (GET /loans/:id/pledge-slip) and sent straight to the
-   * print dialog, same as the pledge agreement above. The customer's phone
-   * and address come from their record, the header from the business
-   * profile — both resolved on the server. */
-  async function printPledgeSlip() { return singleFlight("loan:print-pledge-slip:"+l.numericId, async () => {
-    setPrintingSlip(true);
-    return downloadPledgeSlipPDF(l.numericId)
-      .catch(() => toast("Could not print the pledge slip — try again."))
-      .finally(() => setPrintingSlip(false));
-  }); }
+	/* Ported from legacy/app.js's `printPledgeSlip()`/`printPacketLabel()`
+	 * (legacy/app.js:990-1119) — NewLoan.tsx's versions of these build the
+	 * slip/label from an in-progress draft that doesn't exist yet on the
+	 * backend, while this page reads the loan's real, already-persisted
+	 * data straight from `l`, plus one extra lookup each for details the
+	 * loan view alone doesn't carry (customer phone/address, packet code). */
+	/* Paper copy of the same pledge agreement the eSign flow sends, for
+	 * offline wet-ink signing — the branch prints it, the customer and two
+	 * witnesses sign by hand, and it is filed. Independent of the Aadhaar
+	 * eSign status: staff need this whenever eSign is unavailable, declined,
+	 * or the customer simply prefers paper.
+	 *
+	 * Sends the server-rendered PDF (GET /loans/:id/indemnity-bond/pdf)
+	 * straight to the print dialog, rather than opening the old client-side
+	 * window.print() copy — only the backend's chromedp render can produce
+	 * a real per-page header/footer (see loanService.ts's
+	 * downloadIndemnityBondPDF doc comment); a browser's own print dialog
+	 * has no equivalent a page's CSS can drive. NewLoan.tsx's pre-submission
+	 * preview still uses the old client-side copy — there's no saved loan
+	 * id yet to render against. */
+	function printBond(lang: BondLang = "en") {
+	if (!docsAvailable()) { toast("Available once the loan has synced."); return; }
+	void singleFlight("loan:print-bond:"+l.numericId+":"+lang, async () => {
+		setPrintingBond(true);
+		return downloadIndemnityBondPDF(l.numericId, lang, l.uuid)
+			.catch(() => toast("Could not print the pledge agreement — try again."))
+			.finally(() => setPrintingBond(false)); });
+	}
 
-  /* Release Agreement — only reachable once the loan has actually closed
-   * (CompleteRelease already ran), same Documents dropdown as the other
-   * prints. Server-rendered (GET /loans/:id/release-agreement/pdf) — see
-   * downloadReleaseAgreementPDF's doc comment — so there's no more
-   * client-side data assembly here, unlike the old printReleaseAgreement(). */
-  async function printReleaseAgreementDoc(lang: "en" | "ml") { return singleFlight("loan:print-release-agreement:"+l.numericId+":"+lang, async () => {
-    setPrintingReleaseAgreement(true);
-    try {
-      await downloadReleaseAgreementPDF(l.numericId, lang);
-    } catch {
-      toast("Could not generate the release agreement — try again");
-    } finally {
-      setPrintingReleaseAgreement(false);
-    }
-  }); }
+	/* The pledge slip is rendered server-side from backend/templates/
+	 * pledge-slip.html (GET /loans/:id/pledge-slip) and sent straight to the
+	 * print dialog, same as the pledge agreement above. The customer's phone
+	 * and address come from their record, the header from the business
+	 * profile — both resolved on the server. */
+	async function printPledgeSlip() {
+	if (!docsAvailable()) { toast("Available once the loan has synced."); return; }
+	return singleFlight("loan:print-pledge-slip:"+l.numericId, async () => {
+		setPrintingSlip(true);
+		return downloadPledgeSlipPDF(l.numericId, l.uuid)
+			.catch(() => toast("Could not print the pledge slip — try again."))
+			.finally(() => setPrintingSlip(false));
+	}); }
 
-  /* Payment statement — a printable copy of the Payment Ledger card below,
-   * plus the same loan/customer header printPledgeSlip uses, restructured
-   * as a formal Statement of Account carrying the statutory particulars a
-   * moneylender's statement must show: (1) a true account of the
-   * transaction with the debtor — the ledger table itself; (2) the loan
-   * amount in words and figures, and its date; (3) the maturity date; (4)
-   * the nature of the security; (5) the interest rate charged; (6) the
-   * debtor's full name and address. l.additionalInfo is whatever staff
-   * added when the loan was created (NewLoan.tsx) — there's no prompt for
-   * it here, it's just carried through. openPrintWindow opens the
-   * document in its own tab first (the "preview" — the browser's own
-   * print dialog only appears after, and can be cancelled from there
-   * without ever producing a file) rather than silently generating a PDF. */
-  async function printStatement() { return singleFlight("loan:print-statement:"+l.numericId, async () => {
-    setPrintingStatement(true);
-    if (policy === "tml") {
-      /* TML businesses print the server-rendered payment receipt instead. */
-      try {
-        await downloadTmlStatementReceipt(l.numericId);
-      } catch (e) {
-        toast(e instanceof ApiError ? e.message : "Could not print the statement — try again.");
-      } finally {
-        setPrintingStatement(false);
-      }
-      return;
-    }
-    try {
-      const c = await getCustomer(l.customerId);
-      const rows = l.payments.length
-        ? l.payments.map((p) => {
-          const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
-          const breakdown = [
-            p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
-            p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
-            p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
-            p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
-          ].filter(Boolean).join(" · ");
-          return `<tr>
+	/* Release Agreement — only reachable once the loan has actually closed
+	 * (CompleteRelease already ran), same Documents dropdown as the other
+	 * prints. Server-rendered (GET /loans/:id/release-agreement/pdf) — see
+	 * downloadReleaseAgreementPDF's doc comment — so there's no more
+	 * client-side data assembly here, unlike the old printReleaseAgreement(). */
+	async function printReleaseAgreementDoc(lang: "en" | "ml") {
+	if (!docsAvailable()) { toast("Available once the loan has synced."); return; }
+	return singleFlight("loan:print-release-agreement:"+l.numericId+":"+lang, async () => {
+		setPrintingReleaseAgreement(true);
+		try {
+			await downloadReleaseAgreementPDF(l.numericId, lang, l.uuid);
+		} catch {
+			toast("Could not generate the release agreement — try again");
+		} finally {
+			setPrintingReleaseAgreement(false);
+		}
+	}); }
+
+	/* Payment statement — a printable copy of the Payment Ledger card below,
+	 * plus the same loan/customer header printPledgeSlip uses, restructured
+	 * as a formal Statement of Account carrying the statutory particulars a
+	 * moneylender's statement must show: (1) a true account of the
+	 * transaction with the debtor — the ledger table itself; (2) the loan
+	 * amount in words and figures, and its date; (3) the maturity date; (4)
+	 * the nature of the security; (5) the interest rate charged; (6) the
+	 * debtor's full name and address. l.additionalInfo is whatever staff
+	 * added when the loan was created (NewLoan.tsx) — there's no prompt for
+	 * it here, it's just carried through. openPrintWindow opens the
+	 * document in its own tab first (the "preview" — the browser's own
+	 * print dialog only appears after, and can be cancelled from there
+	 * without ever producing a file) rather than silently generating a PDF. */
+	async function printStatement() {
+	if (!docsAvailable()) { toast("Available once the loan has synced."); return; }
+	return singleFlight("loan:print-statement:"+l.numericId, async () => {
+		setPrintingStatement(true);
+		if (policy === "tml") {
+			/* TML businesses print the server-rendered payment receipt instead. */
+			try {
+				await downloadTmlStatementReceipt(l.numericId, l.uuid);
+			} catch (e) {
+				toast(e instanceof ApiError ? e.message : "Could not print the statement — try again.");
+			} finally {
+				setPrintingStatement(false);
+			}
+			return;
+		}
+		try {
+			const c = await getCustomer(l.customerId);
+			const rows = l.payments.length
+				? l.payments.map((p) => {
+					const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
+					const breakdown = [
+						p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
+						p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
+						p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
+						p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
+					].filter(Boolean).join(" · ");
+					return `<tr>
               <td>${fmtDate(p.paidOn)}</td>
               <td>${p.type}${p.description ? " — " + p.description : ""}${breakdown ? `<br><span class="muted">${breakdown}</span>` : ""}</td>
               <td>${isCash ? p.method || "—" : "Non-cash"}</td>
@@ -765,13 +782,13 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               <td class="num">${fmt(p.amount)}</td>
               <td class="num">${fmt(p.runningBalance)}</td>
             </tr>`;
-        }).join("")
-        : `<tr><td colspan="6" style="text-align:center;color:#777">No ledger entries yet.</td></tr>`;
-      const security = l.ornaments.length
-        ? l.ornaments.map((o) => `${o.quantity} × ${o.name} (${o.purity}, net ${o.netWeight.toFixed(1)}g)`).join("; ") +
-        ` — total net weight ${fmtW(l.totalNetWeight)}`
-        : "—";
-      openPrintWindow("Statement — " + l.id, `
+				}).join("")
+				: `<tr><td colspan="6" style="text-align:center;color:#777">No ledger entries yet.</td></tr>`;
+			const security = l.ornaments.length
+				? l.ornaments.map((o) => `${o.quantity} × ${o.name} (${o.purity}, net ${o.netWeight.toFixed(1)}g)`).join("; ") +
+				` — total net weight ${fmtW(l.totalNetWeight)}`
+				: "—";
+			openPrintWindow("Statement — " + l.id, `
         ${brandHeader("Statement of Account")}
         <table style="table-layout:fixed;width:100%;word-break:break-word;overflow-wrap:anywhere"><colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup>
           <tr><th>Loan No</th><td>${l.id}</td><th>Statement Date</th><td>${fmtToday()}</td></tr>
@@ -790,52 +807,52 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
           <tfoot><tr><th colspan="4">Outstanding Principal</th><th class="num">${fmt(l.outstanding)}</th><th></th></tr></tfoot>
         </table>
         <p class="muted">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after each entry.</p>`,
-        toast);
-    } catch {
-      toast("Could not load customer details — try again");
-    } finally {
-      setPrintingStatement(false);
-    }
-  }); }
+				toast);
+		} catch {
+			toast("Could not load customer details — try again");
+		} finally {
+			setPrintingStatement(false);
+		}
+	}); }
 
-  /* Resolves the QR code + packet code shared by printPacketLabel (its own
-   * die-cut-stock print window) and printSlipAndLabel (the label reworked
-   * to sit centered on a normal A4 page instead). Kept separate from the
-   * two functions' own HTML/window logic since only this data-gathering
-   * part is identical between them — the markup around it differs (sticker
-   * page size vs. A4). Returns null (after toasting) on QR failure so
-   * callers can bail the same way the original try/catch did. */
-  async function packetLabelData(): Promise<{ c: Awaited<ReturnType<typeof getCustomer>>; packetLabel: string; url: string; qr: string } | null> {
-    const [c, packets] = await Promise.all([
-      getCustomer(l.customerId),
-      canViewPackets ? listPackets({ loanId: l.numericId }).catch(() => []) : [],
-    ]);
-    const packet = packets[0];
-    const packetLabel = packet?.code || "PKT-" + l.numericId;
-    // routeHref keeps the business slug, so a scanned label opens the right
-    // organisation's app rather than a bare /app that has forgotten which
-    // business the reader belongs to.
-    const url = packet
-      ? location.origin + routeHref(`packet/${packet.code}`)
-      : location.origin + routeHref(`loan/${l.id}`);
-    let qr: string;
-    try {
-      qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
-    } catch {
-      toast("Could not generate QR code");
-      return null;
-    }
-    return { c, packetLabel, url, qr };
-  }
+	/* Resolves the QR code + packet code shared by printPacketLabel (its own
+	 * die-cut-stock print window) and printSlipAndLabel (the label reworked
+	 * to sit centered on a normal A4 page instead). Kept separate from the
+	 * two functions' own HTML/window logic since only this data-gathering
+	 * part is identical between them — the markup around it differs (sticker
+	 * page size vs. A4). Returns null (after toasting) on QR failure so
+	 * callers can bail the same way the original try/catch did. */
+	async function packetLabelData(): Promise<{ c: Awaited<ReturnType<typeof getCustomer>>; packetLabel: string; url: string; qr: string } | null> {
+		const [c, packets] = await Promise.all([
+			getCustomer(l.customerId),
+			canViewPackets ? listPackets({ loanId: l.numericId }).catch(() => []) : [],
+		]);
+		const packet = packets[0];
+		const packetLabel = packet?.code || "PKT-" + l.numericId;
+		// routeHref keeps the business slug, so a scanned label opens the right
+		// organisation's app rather than a bare /app that has forgotten which
+		// business the reader belongs to.
+		const url = packet
+			? location.origin + routeHref(`packet/${packet.code}`)
+			: location.origin + routeHref(`loan/${l.id}`);
+		let qr: string;
+		try {
+			qr = await toDataURL(url, { width: 256, errorCorrectionLevel: "M" });
+		} catch {
+			toast("Could not generate QR code");
+			return null;
+		}
+		return { c, packetLabel, url, qr };
+	}
 
-  /* The label's own CSS + markup, shared by printPacketLabel (label-only,
-   * its own 81mm×12mm die-cut-stock page) and printSlipAndLabel (label
-   * reworked onto a normal A4 page via labelStyleForA4/labelBodyHTML
-   * below). Kept as one source of truth so the two never drift apart —
-   * see printSlipAndLabel's own comment for why the combined print can't
-   * just reuse this page size unchanged. */
-  function labelStyle(): string {
-    return `
+	/* The label's own CSS + markup, shared by printPacketLabel (label-only,
+	 * its own 81mm×12mm die-cut-stock page) and printSlipAndLabel (label
+	 * reworked onto a normal A4 page via labelStyleForA4/labelBodyHTML
+	 * below). Kept as one source of truth so the two never drift apart —
+	 * see printSlipAndLabel's own comment for why the combined print can't
+	 * just reuse this page size unchanged. */
+	function labelStyle(): string {
+		return `
       body{margin:0;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact}
       .label{width:78mm;height:30mm;box-sizing:border-box;padding:1.6mm;display:flex;align-items:center;gap:1.8mm;
         border:0.3mm dashed #aaa;overflow:hidden;page-break-inside:avoid}
@@ -844,11 +861,11 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
       .t .brand{font-size:2mm;letter-spacing:0.3mm;color:${printColors().brand}}
       .t .id{font-size:3.4mm;font-weight:bold}
       .t div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`;
-  }
+	}
 
-  function labelBodyHTML(data: { c: Awaited<ReturnType<typeof getCustomer>>; packetLabel: string; qr: string }): string {
-    const { c, packetLabel, qr } = data;
-    return `<div class="label">
+	function labelBodyHTML(data: { c: Awaited<ReturnType<typeof getCustomer>>; packetLabel: string; qr: string }): string {
+		const { c, packetLabel, qr } = data;
+		return `<div class="label">
       <img src="${qr}" alt="QR">
       <div class="t">
         <div class="brand">${tenantLenderProfile().legalName.toUpperCase()}</div>
@@ -858,21 +875,23 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
         <div>${fmtToday()} · ${l.totalNetWeight.toFixed(1)} g · ${l.ornaments.length} item(s)</div>
       </div>
     </div>`;
-  }
+	}
 
-  async function printPacketLabel() { return singleFlight("loan:print-label:"+l.numericId, async () => {
-    setPrintingLabel(true);
-    try {
-      const data = await packetLabelData();
-      if (!data) return;
-      // Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
-      // at the 28mm midpoint) plus a blank 25mm×3mm strap for wrapping
-      // around/through the item and tearing off. See the approved wire
-      // diagram (packet-flag-tag artifact) — same layout as NewLoan.tsx's
-      // printPacketLabel: first 28mm segment holds the QR, the second (the
-      // half that stays with the item once torn) holds the readable
-      // identifiers, the strap stays blank.
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.id}</title><style>
+	async function printPacketLabel() {
+	if (!docsAvailable()) { toast("Available once the loan has synced."); return; }
+	return singleFlight("loan:print-label:"+l.numericId, async () => {
+		setPrintingLabel(true);
+		try {
+			const data = await packetLabelData();
+			if (!data) return;
+			// Die-cut "flag tag" stock: 81mm total — a 56mm×12mm head (perforated
+			// at the 28mm midpoint) plus a blank 25mm×3mm strap for wrapping
+			// around/through the item and tearing off. See the approved wire
+			// diagram (packet-flag-tag artifact) — same layout as NewLoan.tsx's
+			// printPacketLabel: first 28mm segment holds the QR, the second (the
+			// half that stays with the item once torn) holds the readable
+			// identifiers, the strap stays blank.
+			const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Packet Label — ${l.id}</title><style>
         @page{size:81mm 12mm;margin:0}
         ${labelStyle()}
         .noprint{text-align:center;margin:8mm;font-family:Arial}
@@ -883,339 +902,341 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
           <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print Label</button>
         </div>
       </body></html>`;
-      // Phones/tablets can't print from a popup (and it would be blocked after
-      // the awaited fetch above) — give the user the label as a file instead.
-      if (!canPrintInline()) {
-        downloadBlob(new Blob([html], { type: "text/html" }), `packet-label-${l.id}.html`);
-        return;
-      }
-      openPrintableTab(html);
-    } catch {
-      toast("Could not load customer details — try again");
-    } finally {
-      setPrintingLabel(false);
-    }
-  }); }
+			// Phones/tablets can't print from a popup (and it would be blocked after
+			// the awaited fetch above) — give the user the label as a file instead.
+			if (!canPrintInline()) {
+				downloadBlob(new Blob([html], { type: "text/html" }), `packet-label-${l.id}.html`);
+				return;
+			}
+			openPrintableTab(html);
+		} catch {
+			toast("Could not load customer details — try again");
+		} finally {
+			setPrintingLabel(false);
+		}
+	}); }
 
-  /* Combined "Print Slip + Label" — one print job, one A4 page: the slip's
-   * own content followed directly by the label (a dashed rule separates the
-   * two), NOT a hard page-break onto a second sheet. The label's native
-   * stock is a 81mm×12mm die-cut tag, a different physical size from the
-   * slip's A4, but at natural size it's small enough to sit comfortably
-   * below the slip's table/signature block on a single A4 sheet — same
-   * markup/CSS (labelStyle/labelBodyHTML) as the standalone label print,
-   * just without the 81mm @page override. Order is slip then label, per the
-   * print-format request this was added for. */
-  async function printSlipAndLabel() { return singleFlight("loan:print-slip-label:"+l.numericId, async () => {
-    setPrintingSlipAndLabel(true);
-    try {
-      const [slip, data] = await Promise.all([fetchPledgeSlipParts(l.numericId), packetLabelData()]);
-      if (!data) return;
-      openPrintWindow(
-        "Pledge Slip + Label — " + l.id,
-        `<style>${slip.style}</style>${slip.body}
+	/* Combined "Print Slip + Label" — one print job, one A4 page: the slip's
+	 * own content followed directly by the label (a dashed rule separates the
+	 * two), NOT a hard page-break onto a second sheet. The label's native
+	 * stock is a 81mm×12mm die-cut tag, a different physical size from the
+	 * slip's A4, but at natural size it's small enough to sit comfortably
+	 * below the slip's table/signature block on a single A4 sheet — same
+	 * markup/CSS (labelStyle/labelBodyHTML) as the standalone label print,
+	 * just without the 81mm @page override. Order is slip then label, per the
+	 * print-format request this was added for. */
+	async function printSlipAndLabel() {
+	if (!docsAvailable()) { toast("Available once the loan has synced."); return; }
+	return singleFlight("loan:print-slip-label:"+l.numericId, async () => {
+		setPrintingSlipAndLabel(true);
+		try {
+			const [slip, data] = await Promise.all([fetchPledgeSlipParts(l.numericId, l.uuid), packetLabelData()]);
+			if (!data) return;
+			openPrintWindow(
+				"Pledge Slip + Label — " + l.id,
+				`<style>${slip.style}</style>${slip.body}
         <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
           <style>${labelStyle().replace(/body\{[^}]*\}/, "") /* the label's own body rule would switch the slip to Arial */}</style>
           <div style="display:inline-block">${labelBodyHTML(data)}</div>
         </div>`,
-        toast
-      );
-    } catch {
-      toast("Could not load customer/packet details — try again");
-    } finally {
-      setPrintingSlipAndLabel(false);
-    }
-  }); }
+				toast
+			);
+		} catch {
+			toast("Could not load customer/packet details — try again");
+		} finally {
+			setPrintingSlipAndLabel(false);
+		}
+	}); }
 
-  // Renders the bond server-side in the requested language (see
-  // BondLang/BOND_LANG_OPTIONS in indemnityBond.ts — "en" or "ml", chosen
-  // by the officer in EsignLanguageModal below) and starts the Aadhaar
-  // eSign request. This is an ADDITIONAL path alongside NewLoan.tsx's
-  // print-and-sign-by-hand buttons, not a replacement — eSign needs the
-  // customer's own device and network, so the wet-signature route stays
-  // available regardless.
-  async function startIndemnityEsign(lang: BondLang, deliverBy: EsignDeliverBy = "whatsapp", witnesses?: EsignWitnessInput[]) {
-    setEsigning(true);
-    try {
-      const redirectUrl = `${window.location.origin}/esign-callback`;
-      const started = await startIndemnityBondEsign(l.numericId, lang, redirectUrl, deliverBy, witnesses);
-      // Nothing opens by itself: in link mode staff open or copy each signer's own link from the
-      // status modal. With WhatsApp the system has already messaged the customer and both witnesses.
-      const signers: EsignStatusSigner[] = (started.signers ?? []).map((s, i) => ({
-        label: i === 0 ? "Customer" : `Witness ${i}`,
-        name: s.displayName,
-        url: deliverBy === "open" ? s.url : undefined,
-      }));
-      bondSignersRef.current = signers;
-      setEsignStarted(true);
-      toast(deliverBy === "whatsapp"
-        ? "Pledge agreement eSign links sent via WhatsApp."
-        : "eSign links are ready — open each signer's link from the next window.");
-      // Deferred: the picker modal calls closeModal() right after onConfirm resolves, which would close this one.
-      setTimeout(openBondStatus, 0);
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Could not start indemnity bond eSign.");
-    } finally {
-      setEsigning(false);
-    }
-  }
+	// Renders the bond server-side in the requested language (see
+	// BondLang/BOND_LANG_OPTIONS in indemnityBond.ts — "en" or "ml", chosen
+	// by the officer in EsignLanguageModal below) and starts the Aadhaar
+	// eSign request. This is an ADDITIONAL path alongside NewLoan.tsx's
+	// print-and-sign-by-hand buttons, not a replacement — eSign needs the
+	// customer's own device and network, so the wet-signature route stays
+	// available regardless.
+	async function startIndemnityEsign(lang: BondLang, deliverBy: EsignDeliverBy = "whatsapp", witnesses?: EsignWitnessInput[]) {
+		setEsigning(true);
+		try {
+			const redirectUrl = `${window.location.origin}/esign-callback`;
+			const started = await startIndemnityBondEsign(l.numericId, lang, redirectUrl, deliverBy, witnesses);
+			// Nothing opens by itself: in link mode staff open or copy each signer's own link from the
+			// status modal. With WhatsApp the system has already messaged the customer and both witnesses.
+			const signers: EsignStatusSigner[] = (started.signers ?? []).map((s, i) => ({
+				label: i === 0 ? "Customer" : `Witness ${i}`,
+				name: s.displayName,
+				url: deliverBy === "open" ? s.url : undefined,
+			}));
+			bondSignersRef.current = signers;
+			setEsignStarted(true);
+			toast(deliverBy === "whatsapp"
+				? "Pledge agreement eSign links sent via WhatsApp."
+				: "eSign links are ready — open each signer's link from the next window.");
+			// Deferred: the picker modal calls closeModal() right after onConfirm resolves, which would close this one.
+			setTimeout(openBondStatus, 0);
+		} catch (e) {
+			toast(e instanceof ApiError ? e.message : "Could not start indemnity bond eSign.");
+		} finally {
+			setEsigning(false);
+		}
+	}
 
-  // Customer's phone for the WhatsApp delivery option; the modals still work without it.
-  async function customerPhoneForEsign(): Promise<string | undefined> {
-    try {
-      return (await getCustomer(l.customerId)).phone;
-    } catch {
-      return undefined;
-    }
-  }
+	// Customer's phone for the WhatsApp delivery option; the modals still work without it.
+	async function customerPhoneForEsign(): Promise<string | undefined> {
+		try {
+			return (await getCustomer(l.customerId)).phone;
+		} catch {
+			return undefined;
+		}
+	}
 
-  async function printPartialReceiptDoc(r: RequestView, lang: "en" | "ml") { return singleFlight("loan:partial-receipt:"+r.id+":"+lang, async () => {
-    setPrintingPartialId(r.id);
-    try {
-      await downloadPartialReleaseReceiptPDF(r.id, lang);
-    } catch {
-      toast("Could not generate the partial release receipt — try again");
-    } finally {
-      setPrintingPartialId(null);
-    }
-  }); }
+	async function printPartialReceiptDoc(r: RequestView, lang: "en" | "ml") { return singleFlight("loan:partial-receipt:"+r.id+":"+lang, async () => {
+		setPrintingPartialId(r.id);
+		try {
+			await downloadPartialReleaseReceiptPDF(r.id, lang);
+		} catch {
+			toast("Could not generate the partial release receipt — try again");
+		} finally {
+			setPrintingPartialId(null);
+		}
+	}); }
 
-  function openPartialReceiptPicker() {
-    openModal(
-      <EsignLanguageModalContent
-        loanNumber={l.id}
-        customerName={l.customerName}
-        title="Partial Release Receipt"
-        confirmLabel="🖨 Print Receipt"
-        languageLabel="Language"
-        options={RELEASE_LANG_OPTIONS}
-        choices={partialReleases.map((r, i) => ({ value: r.id, label: `Release ${i + 1} · ${r.requestedAt}` }))}
-        onConfirm={() => undefined}
-        onConfirmChoice={(lang, requestId) => {
-          const r = partialReleases.find((x) => x.id === requestId);
-          return r ? printPartialReceiptDoc(r, lang === "ml" ? "ml" : "en") : undefined;
-        }}
-      />
-    );
-  }
+	function openPartialReceiptPicker() {
+		openModal(
+			<EsignLanguageModalContent
+				loanNumber={l.id}
+				customerName={l.customerName}
+				title="Partial Release Receipt"
+				confirmLabel="🖨 Print Receipt"
+				languageLabel="Language"
+				options={RELEASE_LANG_OPTIONS}
+				choices={partialReleases.map((r, i) => ({ value: r.id, label: `Release ${i + 1} · ${r.requestedAt}` }))}
+				onConfirm={() => undefined}
+				onConfirmChoice={(lang, requestId) => {
+					const r = partialReleases.find((x) => x.id === requestId);
+					return r ? printPartialReceiptDoc(r, lang === "ml" ? "ml" : "en") : undefined;
+				}}
+			/>
+		);
+	}
 
-  // One Release Agreement entry: the language is chosen here, like the bond, instead of two menu items.
-  function openReleaseAgreementPicker() {
-    openModal(
-      <EsignLanguageModalContent
-        loanNumber={l.id}
-        customerName={l.customerName}
-        title="Release Agreement"
-        confirmLabel="🖨 Print Agreement"
-        options={RELEASE_LANG_OPTIONS}
-        onConfirm={(lang) => printReleaseAgreementDoc(lang === "ml" ? "ml" : "en")}
-      />
-    );
-  }
+	// One Release Agreement entry: the language is chosen here, like the bond, instead of two menu items.
+	function openReleaseAgreementPicker() {
+		openModal(
+			<EsignLanguageModalContent
+				loanNumber={l.id}
+				customerName={l.customerName}
+				title="Release Agreement"
+				confirmLabel="🖨 Print Agreement"
+				options={RELEASE_LANG_OPTIONS}
+				onConfirm={(lang) => printReleaseAgreementDoc(lang === "ml" ? "ml" : "en")}
+			/>
+		);
+	}
 
-  // One modal for the bond: pick the language, then either print it or — with the checkbox ticked
-  // — choose the delivery channel and witnesses and send it for eSign. The checkbox is offered only
-  // while the bond can still be sent (not already signed or out for signing).
-  function openBondPrintPicker() {
-    openModal(
-      <EsignLanguageModalContent
-        loanNumber={l.id}
-        customerName={l.customerName}
-        title="Print Pledge Agreement"
-        confirmLabel="🖨 Print Bond"
-        onConfirm={(lang) => printBond(lang)}
-      />
-    );
-  }
+	// One modal for the bond: pick the language, then either print it or — with the checkbox ticked
+	// — choose the delivery channel and witnesses and send it for eSign. The checkbox is offered only
+	// while the bond can still be sent (not already signed or out for signing).
+	function openBondPrintPicker() {
+		openModal(
+			<EsignLanguageModalContent
+				loanNumber={l.id}
+				customerName={l.customerName}
+				title="Print Pledge Agreement"
+				confirmLabel="🖨 Print Bond"
+				onConfirm={(lang) => printBond(lang)}
+			/>
+		);
+	}
 
-  // The page can show a stale loan (another tab or the provider callback may have finished the
-  // signing), and the server refuses a second eSign on a signed document — so re-read it first.
-  // Opens a signed PDF fetched with the session token — a plain link to /uploads/… relies on a
-  // path-scoped cookie that is missing after a restored session, and then answers "file not found".
-  async function openSignedDocument(url: string) {
-    const w = window.open("", "_blank");
-    if (!w) { toast("Popup blocked — please allow popups for this site to view the document"); return; }
-    try {
-      const res = await fetchUploadFile(url);
-      if (!res.ok) throw new Error(String(res.status));
-      w.location.href = URL.createObjectURL(await res.blob());
-    } catch {
-      w.close();
-      toast("Could not open the signed document — try again");
-    }
-  }
+	// The page can show a stale loan (another tab or the provider callback may have finished the
+	// signing), and the server refuses a second eSign on a signed document — so re-read it first.
+	// Opens a signed PDF fetched with the session token — a plain link to /uploads/… relies on a
+	// path-scoped cookie that is missing after a restored session, and then answers "file not found".
+	async function openSignedDocument(url: string) {
+		const w = window.open("", "_blank");
+		if (!w) { toast("Popup blocked — please allow popups for this site to view the document"); return; }
+		try {
+			const res = await fetchUploadFile(url);
+			if (!res.ok) throw new Error(String(res.status));
+			w.location.href = URL.createObjectURL(await res.blob());
+		} catch {
+			w.close();
+			toast("Could not open the signed document — try again");
+		}
+	}
 
-  const signedSlipReady = l.pledgeSlipSignStatus === "sign_complete" && !!l.pledgeSlipSignedUrl;
-  const signedBondReady = l.indemnityBondSignStatus === "sign_complete" && !!l.indemnityBondSignedUrl;
+	const signedSlipReady = l.pledgeSlipSignStatus === "sign_complete" && !!l.pledgeSlipSignedUrl;
+	const signedBondReady = l.indemnityBondSignStatus === "sign_complete" && !!l.indemnityBondSignedUrl;
 
-  async function alreadySigned(doc: "bond" | "slip"): Promise<boolean> {
-    try {
-      const fresh = await getLoanByNumber(l.id);
-      setLoan(fresh);
-      const status = doc === "bond" ? fresh.indemnityBondSignStatus : fresh.pledgeSlipSignStatus;
-      if (status === "sign_complete") {
-        toast(`This loan's ${doc === "bond" ? "pledge agreement" : "pledge slip"} is already signed — see "Signed ${doc === "bond" ? "Bond" : "Slip"}" in Documents.`);
-        return true;
-      }
-    } catch { /* fall through: the server still guards the request */ }
-    return false;
-  }
+	async function alreadySigned(doc: "bond" | "slip"): Promise<boolean> {
+		try {
+			const fresh = await getLoanByNumber(l.id);
+			setLoan(fresh);
+			const status = doc === "bond" ? fresh.indemnityBondSignStatus : fresh.pledgeSlipSignStatus;
+			if (status === "sign_complete") {
+				toast(`This loan's ${doc === "bond" ? "pledge agreement" : "pledge slip"} is already signed — see "Signed ${doc === "bond" ? "Bond" : "Slip"}" in Documents.`);
+				return true;
+			}
+		} catch { /* fall through: the server still guards the request */ }
+		return false;
+	}
 
-  async function openBondEsignPicker() {
-    if (await alreadySigned("bond")) return;
-    const phone = await customerPhoneForEsign();
-    openModal(
-      <EsignLanguageModalContent
-        loanNumber={l.id}
-        customerName={l.customerName}
-        customerPhone={phone}
-        title="Pledge Agreement eSign"
-        showDelivery
-        showWitnesses
-        onConfirm={(lang, deliverBy, witnesses) => startIndemnityEsign(lang, deliverBy, witnesses)}
-      />
-    );
-  }
+	async function openBondEsignPicker() {
+		if (await alreadySigned("bond")) return;
+		const phone = await customerPhoneForEsign();
+		openModal(
+			<EsignLanguageModalContent
+				loanNumber={l.id}
+				customerName={l.customerName}
+				customerPhone={phone}
+				title="Pledge Agreement eSign"
+				showDelivery
+				showWitnesses
+				onConfirm={(lang, deliverBy, witnesses) => startIndemnityEsign(lang, deliverBy, witnesses)}
+			/>
+		);
+	}
 
-  // GML only: the slip can be printed normally or sent to the customer to eSign.
-  async function startSlipEsign(deliverBy: EsignDeliverBy) {
-    const started = await startPledgeSlipEsign(l.numericId, `${window.location.origin}/esign-callback`, deliverBy);
-    slipSignersRef.current = [{ label: "Customer", name: l.customerName, url: deliverBy === "open" ? started.url : undefined }];
-    setSlipEsignStarted(true);
-    toast(deliverBy === "open"
-      ? "eSign link is ready — open it from the next window."
-      : "Pledge slip eSign link sent to the customer via WhatsApp.");
-    setTimeout(openSlipStatus, 0);
-  }
+	// GML only: the slip can be printed normally or sent to the customer to eSign.
+	async function startSlipEsign(deliverBy: EsignDeliverBy) {
+		const started = await startPledgeSlipEsign(l.numericId, `${window.location.origin}/esign-callback`, deliverBy);
+		slipSignersRef.current = [{ label: "Customer", name: l.customerName, url: deliverBy === "open" ? started.url : undefined }];
+		setSlipEsignStarted(true);
+		toast(deliverBy === "open"
+			? "eSign link is ready — open it from the next window."
+			: "Pledge slip eSign link sent to the customer via WhatsApp.");
+		setTimeout(openSlipStatus, 0);
+	}
 
-  // Status windows: one row per signer, flipping to Verified as each completes their Aadhaar eSign.
-  function openBondStatus() {
-    openModal(
-      <EsignStatusModalContent
-        title="Pledge Agreement eSign"
-        loanNumber={l.id}
-        signers={bondSignersRef.current.length ? bondSignersRef.current : [{ label: "Customer" }]}
-        check={() => checkIndemnityBondEsign(l.numericId)}
-        onComplete={() => { setEsignStarted(false); load(); toast("Pledge agreement signed successfully."); }}
-        onFailed={() => setEsignStarted(false)}
-      />
-    );
-  }
+	// Status windows: one row per signer, flipping to Verified as each completes their Aadhaar eSign.
+	function openBondStatus() {
+		openModal(
+			<EsignStatusModalContent
+				title="Pledge Agreement eSign"
+				loanNumber={l.id}
+				signers={bondSignersRef.current.length ? bondSignersRef.current : [{ label: "Customer" }]}
+				check={() => checkIndemnityBondEsign(l.numericId)}
+				onComplete={() => { setEsignStarted(false); load(); toast("Pledge agreement signed successfully."); }}
+				onFailed={() => setEsignStarted(false)}
+			/>
+		);
+	}
 
-  function openSlipStatus() {
-    openModal(
-      <EsignStatusModalContent
-        title="Pledge Slip eSign"
-        loanNumber={l.id}
-        signers={slipSignersRef.current.length ? slipSignersRef.current : [{ label: "Customer" }]}
-        check={() => checkPledgeSlipEsign(l.numericId)}
-        onComplete={() => { setSlipEsignStarted(false); load(); toast("Pledge slip signed successfully."); }}
-        onFailed={() => setSlipEsignStarted(false)}
-      />
-    );
-  }
+	function openSlipStatus() {
+		openModal(
+			<EsignStatusModalContent
+				title="Pledge Slip eSign"
+				loanNumber={l.id}
+				signers={slipSignersRef.current.length ? slipSignersRef.current : [{ label: "Customer" }]}
+				check={() => checkPledgeSlipEsign(l.numericId)}
+				onComplete={() => { setSlipEsignStarted(false); load(); toast("Pledge slip signed successfully."); }}
+				onFailed={() => setSlipEsignStarted(false)}
+			/>
+		);
+	}
 
-  async function openPledgeSlipPicker() {
-    if (await alreadySigned("slip")) return;
-    const phone = await customerPhoneForEsign();
-    openModal(
-      <PledgeSlipModalContent
-        loanNumber={l.id}
-        customerName={l.customerName}
-        customerPhone={phone}
-        onEsign={startSlipEsign}
-      />
-    );
-  }
+	async function openPledgeSlipPicker() {
+		if (await alreadySigned("slip")) return;
+		const phone = await customerPhoneForEsign();
+		openModal(
+			<PledgeSlipModalContent
+				loanNumber={l.id}
+				customerName={l.customerName}
+				customerPhone={phone}
+				onEsign={startSlipEsign}
+			/>
+		);
+	}
 
-  return (
-    <>
-      <div className="page-h">
-        {/* flex:1;min-width:0 (app.css's .page-h-title) lets this block
-         * shrink and truncate its subtitle line instead of holding its
-         * full natural width and forcing `.page-h-actions` below it — the
-         * combined width of a long customer name/scheme/date line plus
-         * Documents/Record Payment/Loan Actions was landing right at
-         * `.page-h`'s own wrap threshold, dropping the whole button
-         * cluster to its own line on anything but a very wide window even
-         * though there was visibly still room for it beside the title. */}
-        <div className="page-h-title"><h1>{l.id} {/* Defaulted is the more specific state — a defaulted loan's own
-              l.status still reads "Overdue" backend-side, so without this
-              guard the title showed both "Overdue" and "Defaulted" chips
-              side by side for the same loan. */}
+	return (
+		<>
+			<div className="page-h">
+				{/* flex:1;min-width:0 (app.css's .page-h-title) lets this block
+				 * shrink and truncate its subtitle line instead of holding its
+				 * full natural width and forcing `.page-h-actions` below it — the
+				 * combined width of a long customer name/scheme/date line plus
+				 * Documents/Record Payment/Loan Actions was landing right at
+				 * `.page-h`'s own wrap threshold, dropping the whole button
+				 * cluster to its own line on anything but a very wide window even
+				 * though there was visibly still room for it beside the title. */}
+				<div className="page-h-title"><h1>{l.loanNumber || "Pending"} {/* Defaulted is the more specific state — a defaulted loan's own
+							l.status still reads "Overdue" backend-side, so without this
+							guard the title showed both "Overdue" and "Defaulted" chips
+							side by side for the same loan. */}
           {/* One status only — loanDisplayStatus picks Defaulted / Overdue / Due Soon / Active / Closure Requested / … */}
           <StatusChip status={loanDisplayStatus(l)} />
-          {/* A past-term loan whose interest is paid off comes back from the
-              backend as "Active" (see refreshServicingStatus in
-              loan/accrual.go). isOverdue stays true — the term really has
-              expired — so suppress the duplicate chip here, or a serviced
-              loan would read "Active" and "Overdue" at the same time. Also
-              suppress when l.status is already "Overdue" (or "Due Soon")
-              itself, or the title would show two identical chips. */}
-          {/* An auctioned loan's own status already says where it stands — no
-              extra Overdue / Due Soon chip beside it. */}
-          </h1>
-        </div>
-        {/* Everything from here down is one right-aligned group rather than
-         * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
-         * only right-aligns this whole cluster while it fits on the title's
-         * line; once it wraps to its own line(s) (a narrow window, or the
-         * approval stage growing the button count), a plain sibling wrap
-         * starts flush at the container's LEFT edge instead, so a lone
-         * wrapped button (e.g. "Loan Actions") stranded left of empty space
-         * read as misplaced. `.page-h-actions` wraps internally with its
-         * own `justify-content:flex-end` (app.css), so every wrapped line
-         * — including a single leftover button — stays right-aligned. */}
-        {/* Order: Record Payment, Complete Release, Loan Actions, Documents
-         * (left to right) — Documents sits last since it's read-only
-         * paperwork (print/eSign), while the other three all change the
-         * loan's own state and read more naturally leading. */}
-        <div className="page-h-actions">
-          {approvalButtons ? approvalButtons : (
-            !isFinished && l.status !== "Pending Approval" && !fullyPaid && canUpdateLoans && (
+					{/* A past-term loan whose interest is paid off comes back from the
+							backend as "Active" (see refreshServicingStatus in
+							loan/accrual.go). isOverdue stays true — the term really has
+							expired — so suppress the duplicate chip here, or a serviced
+							loan would read "Active" and "Overdue" at the same time. Also
+							suppress when l.status is already "Overdue" (or "Due Soon")
+							itself, or the title would show two identical chips. */}
+					{/* An auctioned loan's own status already says where it stands — no
+							extra Overdue / Due Soon chip beside it. */}
+					</h1>
+				</div>
+				{/* Everything from here down is one right-aligned group rather than
+				 * flat siblings of `.page-h` itself — `.page-h`'s own flex-wrap
+				 * only right-aligns this whole cluster while it fits on the title's
+				 * line; once it wraps to its own line(s) (a narrow window, or the
+				 * approval stage growing the button count), a plain sibling wrap
+				 * starts flush at the container's LEFT edge instead, so a lone
+				 * wrapped button (e.g. "Loan Actions") stranded left of empty space
+				 * read as misplaced. `.page-h-actions` wraps internally with its
+				 * own `justify-content:flex-end` (app.css), so every wrapped line
+				 * — including a single leftover button — stays right-aligned. */}
+				{/* Order: Record Payment, Complete Release, Loan Actions, Documents
+				 * (left to right) — Documents sits last since it's read-only
+				 * paperwork (print/eSign), while the other three all change the
+				 * loan's own state and read more naturally leading. */}
+				<div className="page-h-actions">
+					{approvalButtons ? approvalButtons : (
+						!isFinished && l.status !== "Pending Approval" && !fullyPaid && canUpdateLoans && (
               <button className="btn" disabled={goldSold && l.totalOutstandingBalance <= 0.01} title={goldSold && l.totalOutstandingBalance <= 0.01 ? "Nothing outstanding on this auctioned loan" : undefined} onClick={() => openModal(<PaymentModalContent loan={l} onSaved={load} />, true)}><Icon name="coin" /> Record Payment</button>
-            )
-          )}
+						)
+					)}
           {(l.status === "Closure Requested" || fullyPaid) && canUpdateLoans && (
-            // Only actually disabled while the request is in flight — the
-            // settlement/pledge gates below are enforced (and explained) by
-            // doCompleteRelease itself via a toast, since a plain `disabled`
-            // button never fires a click at all, leaving a hover-only title
-            // as the sole explanation. The title stays as a bonus hint for
-            // anyone who hovers before clicking.
-            <button className="btn" disabled={completing} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
-              <Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
-            </button>
-          )}
-          {!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (!isFinished && canUpdateLoans) || canHardDeleteLoans) && (
-            <div className="docs-dd" ref={loanActionsMenuRef} onKeyDown={onLoanActionsMenuKeyDown}>
-              <button
-              ref={loanActionsMenuTriggerRef}
-              className="btn ghost"
-              onClick={() => setLoanActionsMenuOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={loanActionsMenuOpen}
-            >
-                <Icon name="gear" /> Loan Actions <Icon name="chevronDown" className="docs-dd-chev" />
-              </button>
-              {loanActionsMenuOpen && (
-                <div className="docs-dd-menu" role="menu">
-                  {canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
-                    <a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />, true); }}>
-                      <Icon name="bank" /><span className="tx">Repledge to Bank</span>
-                    </a>
-                  )}
-                  {!isFinished && !goldSold && canUpdateLoans && (
-                    <a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />, true); }}>
-                      <Icon name="clock" /><span className="tx">Request Extension</span>
-                    </a>
-                  )}
-                  {!isFinished && !goldSold && canUpdateLoans && (
-                    <a href="#" title="Request Release" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestReleaseModalContent loan={l} onSaved={load} />); }}>
-                      <Icon name="unlock" /><span className="tx">Request Release</span>
-                    </a>
-                  )}
-                {!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
+						// Only actually disabled while the request is in flight — the
+						// settlement/pledge gates below are enforced (and explained) by
+						// doCompleteRelease itself via a toast, since a plain `disabled`
+						// button never fires a click at all, leaving a hover-only title
+						// as the sole explanation. The title stays as a bonus hint for
+						// anyone who hovers before clicking.
+						<button className="btn" disabled={completing} onClick={doCompleteRelease} title={l.totalOutstandingBalance > 0.01 ? "Final settlement must be fully paid first" : l.bankPledgeStatus === "Bank Pledged" ? "Release the bank pledge first" : undefined}>
+							<Icon name="unlock" /> {completing ? "Releasing…" : "Complete Release"}
+						</button>
+					)}
+					{!approvalButtons && ((canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges) || (!isFinished && canUpdateLoans) || canHardDeleteLoans) && (
+						<div className="docs-dd" ref={loanActionsMenuRef} onKeyDown={onLoanActionsMenuKeyDown}>
+							<button
+							ref={loanActionsMenuTriggerRef}
+							className="btn ghost"
+							onClick={() => setLoanActionsMenuOpen((v) => !v)}
+							aria-haspopup="menu"
+							aria-expanded={loanActionsMenuOpen}
+						>
+								<Icon name="gear" /> Loan Actions <Icon name="chevronDown" className="docs-dd-chev" />
+							</button>
+							{loanActionsMenuOpen && (
+								<div className="docs-dd-menu" role="menu">
+									{canAcceptBankPledge(l.status, l.bankPledgeStatus) && !activePledge && canCreateBankPledges && (
+										<a href="#" title="Repledge to Bank" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RepledgeModalContent loan={l} onSaved={load} />, true); }}>
+											<Icon name="bank" /><span className="tx">Repledge to Bank</span>
+										</a>
+									)}
+									{!isFinished && !goldSold && canUpdateLoans && (
+										<a href="#" title="Request Extension" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestExtensionModalContent loan={l} onSaved={load} />, true); }}>
+											<Icon name="clock" /><span className="tx">Request Extension</span>
+										</a>
+									)}
+									{!isFinished && !goldSold && canUpdateLoans && (
+										<a href="#" title="Request Release" onClick={(e) => { e.preventDefault(); setLoanActionsMenuOpen(false); openModal(<RequestReleaseModalContent loan={l} onSaved={load} />); }}>
+											<Icon name="unlock" /><span className="tx">Request Release</span>
+										</a>
+									)}
+								{!isFinished && l.status !== "Auctioned" && canUpdateLoans && (
                   <a href="#" title={editLoanBlocked || "Edit Loan"} aria-disabled={!!editLoanBlocked} style={editLoanBlocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined} onClick={(e) => { e.preventDefault(); if (editLoanBlocked) return; setLoanActionsMenuOpen(false); navigate("editloan", l.id); }}>
                     <Icon name="edit" /><span className="tx">Edit Loan</span>
                   </a>
@@ -1284,7 +1305,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
               <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
             {docsMenuOpen && (
-              <div className="docs-dd-menu docs-dd-fit" role="menu">
+              <div className="docs-dd-menu" role="menu">
                 <a href="#" title="Print Label" className={printingLabel ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingLabel) return; setDocsMenuOpen(false); printPacketLabel(); }}>
                   <Icon name="box" /><span className="tx">{printingLabel ? "Preparing…" : "Print Label"}</span>
                 </a>
@@ -1451,157 +1472,157 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
       )}
       <hr className="gold-rule" />
 
-      <div className="grid loan-detail-c3">
-        <div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
-            <div className="bd"><div className="kv">
-              <div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
-              {l.serviceChargeAmount > 0 && <>
-                <div className="i"><div className="k">Service Charge</div><div className="v">{fmt(l.serviceChargeAmount)}</div></div>
-                <div className="i"><div className="k">Charge Mode</div><div className="v">{l.serviceChargeMode === "WithheldFromPayout" ? "Deducted from payout" : "Added to principal"}</div></div>
-                {l.serviceChargeMode === "WithheldFromPayout" && (
-                  <div className="i"><div className="k">Net Payout</div><div className="v">{fmt(l.principal - l.serviceChargeAmount)}</div></div>
-                )}
-              </>}
-              <div className="i"><div className="k">Remaining</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
-              {/* Nothing accrues until disbursement, so a pending loan would
-                  read ₹0 here — show the monthly interest it will carry instead. */}
-              {l.disbursementDate
-                ? <div className="i"><div className="k">Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
-                : l.schemeMethod === "Compound monthly"
-                  ? <div className="i"><div className="k">Interest / Month</div><div className="v">{fmt((l.principal * l.schemeRate) / 100 / 12)}</div></div>
-                  : <div className="i"><div className="k">Interest / Day </div><div className="v">{fmt((l.principal * l.schemeRate) / 100 / 365)}</div></div>}
-              <div className="i"><div className="k">Interest Paid</div><div className="v">{fmt(l.interestPaid)}</div></div>
-              <div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(l.outstandingInterest)}</div></div>
-              {l.accruedPenalInterest > 0 && <>
-                <div className="i"><div className="k">Accrued Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.accruedPenalInterest)}</div></div>
-                <div className="i"><div className="k">Outstanding Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingPenalInterest)}</div></div>
-              </>}
-              {l.outstandingProcessingFee > 0 && (
-                <div className="i"><div className="k">Outstanding Processing Fee</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingProcessingFee)}</div></div>
-              )}
-              <div className="i"><div className="k">Total Paid</div><div className="v">{fmt(l.totalPaid)}</div></div>
-              <div className="i"><div className="k">Scheme Rate</div><div className="v">{l.schemeRate}% p.a.</div></div>
-              <div className="i"><div className="k">LTV</div><div className="v">{l.schemeLtv}%</div></div>
+			<div className="grid loan-detail-c3">
+				<div className="card gtop"><div className="hd"><h3>Financial Summary</h3></div>
+						<div className="bd"><div className="kv">
+							<div className="i"><div className="k">Principal</div><div className="v">{fmt(l.principal)}</div></div>
+							{l.serviceChargeAmount > 0 && <>
+								<div className="i"><div className="k">Service Charge</div><div className="v">{fmt(l.serviceChargeAmount)}</div></div>
+								<div className="i"><div className="k">Charge Mode</div><div className="v">{l.serviceChargeMode === "WithheldFromPayout" ? "Deducted from payout" : "Added to principal"}</div></div>
+								{l.serviceChargeMode === "WithheldFromPayout" && (
+									<div className="i"><div className="k">Net Payout</div><div className="v">{fmt(l.principal - l.serviceChargeAmount)}</div></div>
+								)}
+							</>}
+							<div className="i"><div className="k">Remaining</div><div className="v" style={{ color: "var(--brand-deep)", fontWeight: 600 }}>{fmt(l.outstanding)}</div></div>
+							{/* Nothing accrues until disbursement, so a pending loan would
+									read ₹0 here — show the monthly interest it will carry instead. */}
+							{l.disbursementDate
+								? <div className="i"><div className="k">Interest</div><div className="v">{fmt(l.accruedInterest)}</div></div>
+								: l.schemeMethod === "Compound monthly"
+									? <div className="i"><div className="k">Interest / Month</div><div className="v">{fmt((l.principal * l.schemeRate) / 100 / 12)}</div></div>
+									: <div className="i"><div className="k">Interest / Day </div><div className="v">{fmt((l.principal * l.schemeRate) / 100 / 365)}</div></div>}
+							<div className="i"><div className="k">Interest Paid</div><div className="v">{fmt(l.interestPaid)}</div></div>
+							<div className="i"><div className="k">Outstanding Interest</div><div className="v">{fmt(l.outstandingInterest)}</div></div>
+							{l.accruedPenalInterest > 0 && <>
+								<div className="i"><div className="k">Accrued Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.accruedPenalInterest)}</div></div>
+								<div className="i"><div className="k">Outstanding Penal Interest</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingPenalInterest)}</div></div>
+							</>}
+							{l.outstandingProcessingFee > 0 && (
+								<div className="i"><div className="k">Outstanding Processing Fee</div><div className="v" style={{ color: "var(--red)" }}>{fmt(l.outstandingProcessingFee)}</div></div>
+							)}
+							<div className="i"><div className="k">Total Paid</div><div className="v">{fmt(l.totalPaid)}</div></div>
+							<div className="i"><div className="k">Scheme Rate</div><div className="v">{l.schemeRate}% p.a.</div></div>
+							<div className="i"><div className="k">LTV</div><div className="v">{l.schemeLtv}%</div></div>
               
-              <div className="i"><div className="k">Penal Rate</div><div className="v">{l.schemePenal != null ? l.schemePenal + "% p.a." : "—"}</div></div>
-              <div className="i"><div className="k">Interest Method</div><div className="v">{l.schemeMethod}</div></div>
-            </div></div></div>
+							<div className="i"><div className="k">Penal Rate</div><div className="v">{l.schemePenal != null ? l.schemePenal + "% p.a." : "—"}</div></div>
+							<div className="i"><div className="k">Interest Method</div><div className="v">{l.schemeMethod}</div></div>
+						</div></div></div>
 
-        <div className="card gtop"><div className="hd"><h3>Settlement Preview</h3></div>
-            <div className="bd" style={{ fontSize: 13.5 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding principal</span><b>{fmt(l.outstanding)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding interest</span><b>{fmt(l.outstandingInterest)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding penal interest</span><b>{fmt(l.outstandingPenalInterest)}</b></div>
-              {l.outstandingProcessingFee > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding processing fee</span><b>{fmt(l.outstandingProcessingFee)}</b></div>
-              )}
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 6 }}>
-                <span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--brand-deep)" }}>{fmt(l.settlementAmount)}</b></div>
-            </div>
-            <div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
+				<div className="card gtop"><div className="hd"><h3>Settlement Preview</h3></div>
+						<div className="bd" style={{ fontSize: 13.5 }}>
+							<div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding principal</span><b>{fmt(l.outstanding)}</b></div>
+							<div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding interest</span><b>{fmt(l.outstandingInterest)}</b></div>
+							<div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding penal interest</span><b>{fmt(l.outstandingPenalInterest)}</b></div>
+							{l.outstandingProcessingFee > 0 && (
+								<div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span>Outstanding processing fee</span><b>{fmt(l.outstandingProcessingFee)}</b></div>
+							)}
+							<div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", borderTop: "1px dashed var(--line)", marginTop: 6 }}>
+								<span style={{ fontWeight: 600 }}>Final settlement</span><b style={{ color: "var(--brand-deep)" }}>{fmt(l.settlementAmount)}</b></div>
+						</div>
+						<div className="ft">Principal + Interest + Penal Interest + Processing Fee − Payments/Waivers = Final Settlement Amount</div></div>
 
-        <div className="card gtop"><div className="hd"><h3>Loan Details</h3></div>
-            <div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-              <div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Customer</div><div className="v">{canOpen("customer") ? <a href={routeHref(`customer/${l.customerCode || l.customerId}`)} style={{ fontWeight: 600 }}>{l.customerName}</a> : l.customerName}</div></div>
-              <div className="i" style={showBranch ? undefined : { gridColumn: "1 / -1" }}><div className="k">Gold Scheme</div><div className="v">{l.schemeName}</div></div>
-              {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>}
-              <div className="i"><div className="k">Opening Date</div><div className="v">{fmtDate(l.opened)}</div></div>
-              <div className="i"><div className="k">Due Date</div><div className="v" style={l.isOverdue ? { color: "var(--red)" } : undefined}>{fmtDate(l.due)}{l.isOverdue ? ` · ${l.daysOverdue}d overdue` : ""}</div></div>
-              {l.status === "Closed" && l.closed && (
-                <div className="i"><div className="k">Closed On</div><div className="v">{fmtDate(l.closed)}</div></div>
-              )}
+				<div className="card gtop"><div className="hd"><h3>Loan Details</h3></div>
+						<div className="bd"><div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+							<div className="i" style={{ gridColumn: "1 / -1" }}><div className="k">Customer</div><div className="v">{canOpen("customer") ? <a href={routeHref(`customer/${l.customerCode || l.customerId}`)} style={{ fontWeight: 600 }}>{l.customerName}</a> : l.customerName}</div></div>
+							<div className="i" style={showBranch ? undefined : { gridColumn: "1 / -1" }}><div className="k">Gold Scheme</div><div className="v">{l.schemeName}</div></div>
+							{showBranch && <div className="i"><div className="k">Branch</div><div className="v">{l.branchName || "—"}</div></div>}
+							<div className="i"><div className="k">Opening Date</div><div className="v">{fmtDate(l.opened)}</div></div>
+							<div className="i"><div className="k">Due Date</div><div className="v" style={l.isOverdue ? { color: "var(--red)" } : undefined}>{fmtDate(l.due)}{l.isOverdue ? ` · ${l.daysOverdue}d overdue` : ""}</div></div>
+							{l.status === "Closed" && l.closed && (
+								<div className="i"><div className="k">Closed On</div><div className="v">{fmtDate(l.closed)}</div></div>
+							)}
               {l.approvals.length > 0 && l.approvals.map((a, i) => (
                 <div className="i" key={i}><div className="k">{a.action === "Verified" ? "Verified by" : "Approved by"} · {stageTag(workflow, "loan_sanction", a.stage) ?? a.stage}</div><div className="v">{a.actorName}</div></div>
               ))}
-              {l.additionalInfo && (
-                <div className="i" style={{ gridColumn: "1 / -1" }}>
-                  <div className="k">Additional Information</div>
+							{l.additionalInfo && (
+								<div className="i" style={{ gridColumn: "1 / -1" }}>
+									<div className="k">Additional Information</div>
                   <div className="v"><AdditionalInfoView text={l.additionalInfo} /></div>
-                </div>
-              )}
-              {l.overallPhotoUrl && (
-                <div className="i" style={{ gridColumn: "1 / -1" }}>
-                  <div className="k">Overall Photo</div>
-                  <div className="v">
-                    <SafeImage src={l.overallPhotoUrl} style={{ width: "100%", maxHeight: 150, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)", cursor: "pointer" }} title="View overall photo" alt="Overall photo of pledged ornaments" onClick={() => viewOrnImg([l.overallPhotoUrl], "Overall photo")} />
-                  </div>
-                </div>
-              )}
-            </div></div></div>
-      </div>
+								</div>
+							)}
+							{l.overallPhotoUrl && (
+								<div className="i" style={{ gridColumn: "1 / -1" }}>
+									<div className="k">Overall Photo</div>
+									<div className="v">
+										<SafeImage src={l.overallPhotoUrl} style={{ width: "100%", maxHeight: 150, objectFit: "cover", borderRadius: 8, border: "1px solid var(--line)", cursor: "pointer" }} title="View overall photo" alt="Overall photo of pledged ornaments" onClick={() => viewOrnImg([l.overallPhotoUrl], "Overall photo")} />
+									</div>
+								</div>
+							)}
+						</div></div></div>
+			</div>
 
-      <div className="card gtop ld-card" style={{ marginTop: 16 }}>
-            <div className="hd">
-              <h3>Payment Ledger</h3>
-              <div className="sp" />
-              <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips hideClearAll />
-              {canExport && <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>}
-            </div>
-            <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
-              <TableCols widths={[11, 11, 30, 9, null, null, null]} />
-              <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
-              <tbody>
-                {ledgerError ? (
-                  <tr><td colSpan={7} className="empty">Couldn&apos;t load the ledger — refresh the page to try again.</td></tr>
-                ) : !ledger ? (
-                  <tr><td colSpan={7} className="empty">Loading ledger…</td></tr>
-                ) : ledgerEntries.length === 0 ? (
-                  <tr><td colSpan={7} className="empty">{ledgerFromDate || ledgerToDate || ledgerKinds.length ? "No ledger entries match these filters." : "No ledger entries yet."}</td></tr>
-                ) : (
-                  ledgerEntries.map((entry) => {
-                      if (entry.kind === "sanction") {
-                        const part = entry.part;
-                        return (
-                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                            <td data-label="Date">{fmtDate(entry.date)}</td>
-                            <td data-label="Ref No">{l.loanNumber}</td>
-                            <td data-label="Particulars">Loan Sanctioned</td>
-                            <td data-label="Method">{modeCellFor(part ? part.mode : entry.payment?.method)}</td>
-                            <td className="num" style={{ color: "var(--red)" }} data-label="Debit">{fmt(part ? part.amount : l.disbursedAmount)}</td>
-                            <td className="num" data-label="Credit">—</td>
-                            <td className="num" data-label="Balance">
-                              {fmt(entry.balance)}
-                              {infoIcon({
-                                title: "Loan Sanctioned", kind: "Debit · Sanction",
-                                rows: [["Date", fmtDate(entry.date)], ["Loan", l.loanNumber], ["Sanctioned", fmt(l.sanctionedAmount)], ["Service charge withheld", fmt(l.sanctionedAmount - l.disbursedAmount)], ["Paid out", fmt(part ? part.amount : l.disbursedAmount)], ["Mode", part ? part.mode : (entry.payment?.method || "—")], ["Balance", fmt(entry.balance)]],
+			<div className="card gtop ld-card" style={{ marginTop: 16 }}>
+						<div className="hd">
+							<h3>Payment Ledger</h3>
+							<div className="sp" />
+							<FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips hideClearAll />
+							{canExport && <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}><Icon name="download" /> {ledgerExporting ? "Exporting…" : "Download"}</button>}
+						</div>
+						<div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="loan-ledger" data-ledger-page={ledgerPage}>
+							<TableCols widths={[11, 11, 30, 9, null, null, null]} />
+							<thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
+							<tbody>
+								{ledgerError ? (
+									<tr><td colSpan={7} className="empty">Couldn&apos;t load the ledger — refresh the page to try again.</td></tr>
+								) : !ledger ? (
+									<tr><td colSpan={7} className="empty">Loading ledger…</td></tr>
+								) : ledgerEntries.length === 0 ? (
+									<tr><td colSpan={7} className="empty">{ledgerFromDate || ledgerToDate || ledgerKinds.length ? "No ledger entries match these filters." : "No ledger entries yet."}</td></tr>
+								) : (
+									ledgerEntries.map((entry) => {
+											if (entry.kind === "sanction") {
+												const part = entry.part;
+												return (
+													<tr key={entry.key} {...ledgerRowAttrs(entry)}>
+														<td data-label="Date">{fmtDate(entry.date)}</td>
+														<td data-label="Ref No">{l.loanNumber}</td>
+														<td data-label="Particulars">Loan Sanctioned</td>
+														<td data-label="Method">{modeCellFor(part ? part.mode : entry.payment?.method)}</td>
+														<td className="num" style={{ color: "var(--red)" }} data-label="Debit">{fmt(part ? part.amount : l.disbursedAmount)}</td>
+														<td className="num" data-label="Credit">—</td>
+														<td className="num" data-label="Balance">
+															{fmt(entry.balance)}
+															{infoIcon({
+																title: "Loan Sanctioned", kind: "Debit · Sanction",
+																rows: [["Date", fmtDate(entry.date)], ["Loan", l.loanNumber], ["Sanctioned", fmt(l.sanctionedAmount)], ["Service charge withheld", fmt(l.sanctionedAmount - l.disbursedAmount)], ["Paid out", fmt(part ? part.amount : l.disbursedAmount)], ["Mode", part ? part.mode : (entry.payment?.method || "—")], ["Balance", fmt(entry.balance)]],
                                 description: <>Loan Sanctioned{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(l.disbursedAmount)}</>}{l.sanctionedAmount !== l.disbursedAmount && <><br />Sanctioned {fmt(l.sanctionedAmount)} · {fmt(l.sanctionedAmount - l.disbursedAmount)} withheld as service charge</>}</>,
-                                actions: [],
-                              })}
-                            </td>
-                          </tr>
-                        );
-                      }
+																actions: [],
+															})}
+														</td>
+													</tr>
+												);
+											}
 
-                      if (entry.kind === "interest" || entry.kind === "penal" || entry.kind === "service-charge") {
-                        const penal = entry.kind === "penal";
-                        return (
-                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                            <td data-label="Date">{fmtDate(entry.date)}</td>
-                            <td data-label="Ref No">{l.loanNumber}</td>
-                            <td data-label="Particulars">{entry.kind === "service-charge" ? "Service Charge" : penal ? (entry.accruing ? "Penal Interest" : "Penal Interest Charged") : (entry.accruing ? "Interest" : "Interest Charged")}</td>
-                            <td data-label="Method">—</td>
-                            <td className="num" style={{ color: "var(--red)" }} data-label="Debit">{fmt(entry.amount)}</td>
-                            <td className="num" data-label="Credit">—</td>
-                            <td className="num" data-label="Balance">
-                              {fmt(entry.balance)}
-                              {infoIcon({
-                                title: entry.kind === "service-charge" ? "Service Charge" : penal ? "Penal Interest" : "Interest",
-                                kind: "Debit · " + (entry.kind === "service-charge" ? "Service charge" : penal ? "Penal interest" : "Interest"),
-                                rows: [["Date", fmtDate(entry.date)], ["Loan", l.loanNumber], ["Amount", fmt(entry.amount)], ["Balance", fmt(entry.balance)]],
-                                description: <>{entry.kind === "service-charge" ? "Service charge withheld at sanction." : penal ? "Penal interest charged on the overdue amount." : "Interest charged on the principal."} It is calculated from the loan&apos;s sanction and rate.</>,
-                                actions: [],
-                              })}
-                            </td>
-                          </tr>
-                        );
-                      }
+											if (entry.kind === "interest" || entry.kind === "penal" || entry.kind === "service-charge") {
+												const penal = entry.kind === "penal";
+												return (
+													<tr key={entry.key} {...ledgerRowAttrs(entry)}>
+														<td data-label="Date">{fmtDate(entry.date)}</td>
+														<td data-label="Ref No">{l.loanNumber}</td>
+														<td data-label="Particulars">{entry.kind === "service-charge" ? "Service Charge" : penal ? (entry.accruing ? "Penal Interest" : "Penal Interest Charged") : (entry.accruing ? "Interest" : "Interest Charged")}</td>
+														<td data-label="Method">—</td>
+														<td className="num" style={{ color: "var(--red)" }} data-label="Debit">{fmt(entry.amount)}</td>
+														<td className="num" data-label="Credit">—</td>
+														<td className="num" data-label="Balance">
+															{fmt(entry.balance)}
+															{infoIcon({
+																title: entry.kind === "service-charge" ? "Service Charge" : penal ? "Penal Interest" : "Interest",
+																kind: "Debit · " + (entry.kind === "service-charge" ? "Service charge" : penal ? "Penal interest" : "Interest"),
+																rows: [["Date", fmtDate(entry.date)], ["Loan", l.loanNumber], ["Amount", fmt(entry.amount)], ["Balance", fmt(entry.balance)]],
+																description: <>{entry.kind === "service-charge" ? "Service charge withheld at sanction." : penal ? "Penal interest charged on the overdue amount." : "Interest charged on the principal."} It is calculated from the loan&apos;s sanction and rate.</>,
+																actions: [],
+															})}
+														</td>
+													</tr>
+												);
+											}
 
                       if (entry.kind === "auction-sale") {
                         const a = entry.row;
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td data-label="Date">{fmtDate(entry.date)}</td>
-                            <td data-label="Ref No"><TruncText text={a.auctionReferenceNumber} maxWidth={120} /></td>
+                            <td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
                             <td data-label="Particulars">Auction Sale</td>
                             <td data-label="Method">Auction</td>
                             <td className="num" data-label="Debit">—</td>
@@ -1609,7 +1630,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                             <td className="num" data-label="Balance">—
                               {infoIcon({
                                 title: "Auction Sale", kind: "Auction · Sale",
-                                rows: [["Date", fmtDate(entry.date)], ["Reference", <TruncText key="ref" text={a.auctionReferenceNumber} maxWidth="100%" />], ["Sale amount", fmt(a.saleAmount)], ["Auction expenses", fmt(a.auctionExpenses)]],
+                                rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Sale amount", fmt(a.saleAmount)], ["Auction expenses", fmt(a.auctionExpenses)]],
                                 description: <>Auction Sale<br />{auctionBreakdown(a)}</>,
                                 actions: [
                                   ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("sale", "edit") }] : []),
@@ -1631,7 +1652,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                         return (
                           <tr key={entry.key} {...ledgerRowAttrs(entry)}>
                             <td data-label="Date">{fmtDate(entry.date)}</td>
-                            <td data-label="Ref No"><TruncText text={a.auctionReferenceNumber} maxWidth={120} /></td>
+                            <td data-label="Ref No">{a.auctionReferenceNumber || "—"}</td>
                             <td data-label="Particulars">Auction Surplus {fmt(a.surplusPayableAmount)}{a.surplusRemarks && <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{a.surplusRemarks}</span>}</td>
                             <td data-label="Method">{refunded ? "—" : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
                             <td className="num" style={{ color: refunded ? "var(--red)" : undefined }} data-label="Debit">{refunded ? fmt(a.surplusPayableAmount) : "—"}</td>
@@ -1639,7 +1660,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                             <td className="num" data-label="Balance">—
                               {infoIcon({
                                 title: "Auction Surplus", kind: "Auction · Surplus",
-                                rows: [["Date", fmtDate(entry.date)], ["Reference", <TruncText key="ref" text={a.auctionReferenceNumber} maxWidth="100%" />], ["Surplus", fmt(a.surplusPayableAmount)], ["Status", baseNote], ...(a.surplusRemarks ? [["Remarks", a.surplusRemarks] as [string, string]] : [])],
+                                rows: [["Date", fmtDate(entry.date)], ["Reference", a.auctionReferenceNumber || "—"], ["Surplus", fmt(a.surplusPayableAmount)], ["Status", baseNote], ...(a.surplusRemarks ? [["Remarks", a.surplusRemarks] as [string, string]] : [])],
                                 description: <>Auction Surplus {fmt(a.surplusPayableAmount)}<br />{note}</>,
                                 actions: [
                                   ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("surplus", "edit") }] : []),
@@ -1651,285 +1672,287 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                         );
                       }
 
-                      if (entry.kind === "topup") {
-                        const t = entry.row;
-                        const part = entry.part;
-                        // Each mode links to its own ledger, same as every other row.
-                        const modeParts = part ? [[part.mode, 0] as const] : ([
-                          ["Cash", t.cashAmount],
-                          ["UPI", t.upiAmount],
-                          ["Bank Transfer", t.bankTransferAmount],
-                          ["Cheque", t.chequeAmount],
-                        ] as const).filter(([, v]) => v > 0);
-                        return (
-                          <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                            <td data-label="Date">{fmtDate(entry.date)}</td>
-                            <td data-label="Ref No">{t.reference || l.loanNumber}</td>
-                            <td data-label="Particulars">Loan Top-Up</td>
-                            <td data-label="Method">
-                              {modeParts.length === 0 ? "—" : modeParts.map(([m, v], i) => (
+											if (entry.kind === "topup") {
+												const t = entry.row;
+												const part = entry.part;
+												// Each mode links to its own ledger, same as every other row.
+												const modeParts = part ? [[part.mode, 0] as const] : ([
+													["Cash", t.cashAmount],
+													["UPI", t.upiAmount],
+													["Bank Transfer", t.bankTransferAmount],
+													["Cheque", t.chequeAmount],
+												] as const).filter(([, v]) => v > 0);
+												return (
+													<tr key={entry.key} {...ledgerRowAttrs(entry)}>
+														<td data-label="Date">{fmtDate(entry.date)}</td>
+														<td data-label="Ref No">{t.reference || l.loanNumber}</td>
+														<td data-label="Particulars">Loan Top-Up</td>
+														<td data-label="Method">
+															{modeParts.length === 0 ? "—" : modeParts.map(([m, v], i) => (
                                 <Fragment key={m}>{i > 0 && " · "}{modeCellFor(m)}</Fragment>
-                              ))}
-                            </td>
-                            <td className="num" style={{ color: "var(--red)" }} data-label="Debit">{fmt(part ? part.amount : t.amount)}</td>
-                            <td className="num" data-label="Credit">—</td>
-                            <td className="num" data-label="Balance">
-                              {fmt(entry.balance)}
-                              {infoIcon({
-                                title: "Loan Top-Up", kind: "Debit · Top-up",
+															))}
+														</td>
+														<td className="num" style={{ color: "var(--red)" }} data-label="Debit">{fmt(part ? part.amount : t.amount)}</td>
+														<td className="num" data-label="Credit">—</td>
+														<td className="num" data-label="Balance">
+															{fmt(entry.balance)}
+															{infoIcon({
+																title: "Loan Top-Up", kind: "Debit · Top-up",
                                 rows: [["Date", fmtDate(entry.date)], ["Reference", t.reference || "—"], ["Amount", fmt(part ? part.amount : t.amount)], ["Eligible at top-up", fmt(t.eligibleAmountAtTopUp)], ["Mode", modeParts.length === 0 ? "—" : modeParts.map(([m]) => m).join(" · ")], ["Balance", fmt(entry.balance)]],
-                                description: <>Loan Top-Up of {fmt(t.amount)}{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(t.amount)}</>}<br />Eligible at top-up {fmt(t.eligibleAmountAtTopUp)}</>,
-                                actions: (!part || part.index === 0) && t.status === "Active" ? [
-                                  ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openChildModal(<TopUpEditModalContent loanId={l.numericId} topUp={t} mode="edit" minDate={l.opened?.slice(0, 10) || undefined} onSaved={savedEdit} />, true) }] : []),
-                                  ...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openChildModal(<TopUpEditModalContent loanId={l.numericId} topUp={t} mode="delete" onSaved={savedEdit} />, true) }] : []),
-                                ] : [],
-                              })}
-                            </td>
-                          </tr>
-                        );
-                      }
+																description: <>Loan Top-Up of {fmt(t.amount)}{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(t.amount)}</>}<br />Eligible at top-up {fmt(t.eligibleAmountAtTopUp)}</>,
+																actions: (!part || part.index === 0) && t.status === "Active" ? [
+																	...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openChildModal(<TopUpEditModalContent loanId={l.numericId} topUp={t} mode="edit" minDate={l.opened?.slice(0, 10) || undefined} onSaved={savedEdit} />, true) }] : []),
+																	...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openChildModal(<TopUpEditModalContent loanId={l.numericId} topUp={t} mode="delete" onSaved={savedEdit} />, true) }] : []),
+																] : [],
+															})}
+														</td>
+													</tr>
+												);
+											}
 
-                      const p = entry.row;
-                      const part = entry.part;
-                      // The allocation breakdown is the whole payment's —
-                      // shown once, on its first part.
-                      const firstPart = !part || part.index === 0;
-                      // A repayment row split by what it paid (auction proceeds): this row is one component.
-                      const component = entry.component;
-                      // the first line of a payment shown as one line per part carries its actions and breakdown
-                      const firstRow = firstPart && (!component || /-0$/.test(entry.key));
-                      const rowLabel = component && component !== p.type ? `${component} — ${p.type}` : (component || p.type);
-                      // Interest/Principal/Partial/Full Settlement/Waiver all
-                      // reduce what's owed (credit); an Adjustment can go
-                      // either way depending on what it corrected — shown as a
-                      // credit here since today's only use is reducing
-                      // principal (see loan.allocatePayment's Adjustment case).
-                      const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
-                      // Fee-applied (from allocatePayment's waterfall) shows
-                      // alongside the other buckets; a newly-charged fee this
-                      // entry (p.processingFee) is noted separately since it's
-                      // not part of what Amount paid down — it's what got
-                      // added to the balance in the first place.
-                      const breakdown = [
-                        p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
-                        p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
-                        p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
-                        p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
-                      ].filter(Boolean).join(" · ");
-                      return (
-                        <tr key={entry.key} {...ledgerRowAttrs(entry)}>
-                          <td data-label="Date">{fmtDate(p.paidOn)}</td>
-                          <td data-label="Ref No">{p.reference || l.loanNumber}</td>
-                          <td data-label="Particulars">
-                            {rowLabel}
-                            {p.bankId && part?.mode !== "Cash" && (
-                              <div style={{ marginTop: 4 }}>
-                                <LedgerRefLink kind="bank" id={p.bankId} label={p.bankName || "Bank"} />
-                              </div>
-                            )}
-                          </td>
-                          <td data-label="Method">{isCash ? modeCellFor(entry.mode || part?.mode || p.method) : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
-                          <td className="num" data-label="Debit">—</td>
-                          <td className="num" style={{ color: "var(--green)" }} data-label="Credit">{fmt(part ? part.amount : component ? entry.amount : p.amount)}</td>
-                          <td className="num" data-label="Balance">
-                            {fmt(entry.balance)}
-                            {infoIcon({
-                              title: rowLabel,
-                              kind: "Credit · " + p.type,
-                              rows: [["Date", fmtDate(p.paidOn)], ["Amount", fmt(part ? part.amount : component ? entry.amount : p.amount)], ...(entry.paidThrough ? [["Interest paid up to", fmtDate(entry.paidThrough)] as [string, React.ReactNode]] : []), ["Mode", isCash ? (entry.mode || part?.mode || p.method || "—") : "Non-cash"], ...(p.reference ? [["Reference", p.reference] as [string, React.ReactNode]] : []), ...(p.bankName ? [["Bank", p.bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(entry.balance)]],
-                              description: <>
-                                {rowLabel}
-                                {part && <><br />Split {part.index + 1} of {part.count} · total {fmt(p.amount)}</>}
-      {firstRow && p.type !== "Auction Sale" && breakdown && <><br />{breakdown}</>}
-                                {firstRow && p.processingFee > 0 && <><br /><span style={{ color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</span></>}
-                                {firstPart && p.type === "Auction Sale" && entry.auction && <><br />{auctionBreakdown(entry.auction)}</>}
-                                {p.description && p.type !== "Discount" ? <><br />{p.description}</> : null}
-                              </>,
-                              actions: firstRow ? (
-                                p.type === "Auction Write-Off" ? [
-                                  ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("write-off", "edit") }] : []),
-                                  ...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openAuctionEdit("write-off", "delete") }] : []),
-                                ] : ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement", "Discount"].includes(p.type) ? [
-                                  ...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openChildModal(<LedgerPaymentEditModalContent loanId={l.numericId} payment={p} linkedDiscount={linkedDiscountOf(l.payments, p)} mode="edit" minDate={l.opened?.slice(0, 10) || undefined} onSaved={savedEdit} />, true) }] : []),
-                                  ...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openChildModal(<LedgerPaymentEditModalContent loanId={l.numericId} payment={p} mode="delete" onSaved={savedEdit} />, true) }] : []),
-                                ] : []
-                              ) : [],
-                            })}
-                          </td>
-                        </tr>
-                      );
-                    })
-                )}
-              </tbody>
-            </table></div>
-            <PageBar page={ledgerPage} total={ledgerTotal} pageSize={LEDGER_PAGE_SIZE} onChange={setLedgerPage}>
-              <FooterTotals aligned items={[
-                { value: ledger?.totalDebit ?? 0, color: "var(--red)" },
-                { value: ledger?.totalCredit ?? 0, color: "var(--green)" },
-              ]} />
-            </PageBar>
-            {/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
-            </div>
-      <div className="card gtop ld-card" style={{ marginTop: 16 }}>
-            <div className="hd">
-              <div className="tabs" style={{ border: 0, padding: "4px 8px 10px 4px", margin: 0 }}>
-                <button className={pledgeTab === "ornaments" ? "on" : ""} onClick={() => setPledgeTab("ornaments")}>Pledged Ornaments</button>
-                <button className={pledgeTab === "bank" ? "on" : ""} onClick={() => setPledgeTab("bank")}>Bank Pledge and Locker</button>
-              </div>
-              <div className="sp" />
-              {pledgeTab === "ornaments" && <span className="chip brand">{l.ornaments.length} item{l.ornaments.length === 1 ? "" : "s"} · {fmtW(l.totalNetWeight)} net</span>}
-            </div>
-            {pledgeTab === "ornaments" && (
-            <div className="tbl-wrap"><table className="tbl">
-              <TableCols widths={[24, 9, 8, 10, 10, 12, 9, 10]} />
-              <thead><tr><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Gross</th><th className="num">Net</th><th className="num">Gold Value</th><th>Photo</th><th>Status</th></tr></thead>
-              <tbody>
-                {l.ornaments.slice((ornamentsPage - 1) * PLEDGE_PAGE_SIZE, ornamentsPage * PLEDGE_PAGE_SIZE).map((o) => (
-                  <tr key={o.id}>
-                    <td>{o.name}</td>
-                    <td><span className="chip brand">{o.purity}</span></td>
-                    <td className="num">{o.quantity}</td>
-                    <td className="num">{o.grossWeight.toFixed(3)} g</td>
-                    <td className="num">{o.netWeight.toFixed(3)} g</td>
-                    <td className="num">{fmt(o.goldValue)}</td>
-                    <td>
-                      {o.photoUrl ? (
-                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <SafeImage src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={o.photoUrls.length > 1 ? `View all ${o.photoUrls.length} photos` : "View photo"} onClick={() => viewOrnImg(o.photoUrls, o.name)} />
-                        </span>
-                      ) : (
-                        <span style={{ color: "var(--muted)" }}>—</span>
-                      )}
-                    </td>
-                    <td>{o.releasedAt ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title={`Released on ${fmtDateTime(o.releasedAt)}`}>Released {fmtDate(o.releasedAt)}</span>
-                      /* Only a partial release stamps releasedAt on an ornament — a full release closes the loan and an auction
-                       * marks it Auctioned without touching the ornaments — so for those the loan's status is the truth. */
-                      : l.status === "Closed" ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title="Gold handed back to the customer when the loan closed">Released</span>
-                      : l.status === "Auctioned" || l.status === "Auctioned - Balance Due" ? <span className="chip" style={{ color: "var(--red)" }} title="Sold in the auction">Auctioned</span>
+											const p = entry.row;
+											const part = entry.part;
+											// The allocation breakdown is the whole payment's —
+											// shown once, on its first part.
+											const firstPart = !part || part.index === 0;
+											// A repayment row split by what it paid (auction proceeds): this row is one component.
+											const component = entry.component;
+											// the first line of a payment shown as one line per part carries its actions and breakdown
+											const firstRow = firstPart && (!component || /-0$/.test(entry.key));
+											const rowLabel = component && component !== p.type ? `${component} — ${p.type}` : (component || p.type);
+											// Interest/Principal/Partial/Full Settlement/Waiver all
+											// reduce what's owed (credit); an Adjustment can go
+											// either way depending on what it corrected — shown as a
+											// credit here since today's only use is reducing
+											// principal (see loan.allocatePayment's Adjustment case).
+											const isCash = p.type !== "Adjustment" && p.type !== "Waiver";
+											// Fee-applied (from allocatePayment's waterfall) shows
+											// alongside the other buckets; a newly-charged fee this
+											// entry (p.processingFee) is noted separately since it's
+											// not part of what Amount paid down — it's what got
+											// added to the balance in the first place.
+											const breakdown = [
+												p.processingFeeApplied > 0 && `Fee ${fmt(p.processingFeeApplied)}`,
+												p.penalInterestApplied > 0 && `Penal ${fmt(p.penalInterestApplied)}`,
+												p.interestApplied > 0 && `Interest ${fmt(p.interestApplied)}`,
+												p.principalApplied > 0 && `Principal ${fmt(p.principalApplied)}`,
+											].filter(Boolean).join(" · ");
+											return (
+												<tr key={entry.key} {...ledgerRowAttrs(entry)}>
+													<td data-label="Date">{fmtDate(p.paidOn)}</td>
+													<td data-label="Ref No">{p.reference || l.loanNumber}</td>
+													<td data-label="Particulars">
+														{rowLabel}
+														{p.bankId && part?.mode !== "Cash" && (
+															<div style={{ marginTop: 4 }}>
+																<LedgerRefLink kind="bank" id={p.bankId} label={p.bankName || "Bank"} />
+															</div>
+														)}
+													</td>
+													<td data-label="Method">{isCash ? modeCellFor(entry.mode || part?.mode || p.method) : <span style={{ color: "var(--muted)" }}>Non-cash</span>}</td>
+													<td className="num" data-label="Debit">—</td>
+													<td className="num" style={{ color: "var(--green)" }} data-label="Credit">{fmt(part ? part.amount : component ? entry.amount : p.amount)}</td>
+													<td className="num" data-label="Balance">
+														{fmt(entry.balance)}
+														{infoIcon({
+															title: rowLabel,
+															kind: "Credit · " + p.type,
+															rows: [["Date", fmtDate(p.paidOn)], ["Amount", fmt(part ? part.amount : component ? entry.amount : p.amount)], ...(entry.paidThrough ? [["Interest paid up to", fmtDate(entry.paidThrough)] as [string, React.ReactNode]] : []), ["Mode", isCash ? (entry.mode || part?.mode || p.method || "—") : "Non-cash"], ...(p.reference ? [["Reference", p.reference] as [string, React.ReactNode]] : []), ...(p.bankName ? [["Bank", p.bankName] as [string, React.ReactNode]] : []), ["Balance", fmt(entry.balance)]],
+															description: <>
+																{rowLabel}
+																{part && <><br />Split {part.index + 1} of {part.count} · total {fmt(p.amount)}</>}
+			{firstRow && p.type !== "Auction Sale" && breakdown && <><br />{breakdown}</>}
+																{firstRow && p.processingFee > 0 && <><br /><span style={{ color: "var(--red)" }}>+{fmt(p.processingFee)} fee charged</span></>}
+																{firstPart && p.type === "Auction Sale" && entry.auction && <><br />{auctionBreakdown(entry.auction)}</>}
+																{p.description && p.type !== "Discount" ? <><br />{p.description}</> : null}
+															</>,
+															actions: firstRow ? (
+																p.type === "Auction Write-Off" ? [
+																	...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openAuctionEdit("write-off", "edit") }] : []),
+																	...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openAuctionEdit("write-off", "delete") }] : []),
+																] : ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement", "Discount"].includes(p.type) ? [
+																	...(canEditLedger ? [{ label: "Edit", icon: "edit" as const, run: () => openChildModal(<LedgerPaymentEditModalContent loanId={l.numericId} payment={p} linkedDiscount={linkedDiscountOf(l.payments, p)} mode="edit" minDate={l.opened?.slice(0, 10) || undefined} onSaved={savedEdit} />, true) }] : []),
+																	...(canDeleteLedger ? [{ label: "Delete", icon: "trash" as const, danger: true, run: () => openChildModal(<LedgerPaymentEditModalContent loanId={l.numericId} payment={p} mode="delete" onSaved={savedEdit} />, true) }] : []),
+																] : []
+															) : [],
+														})}
+													</td>
+												</tr>
+											);
+										})
+								)}
+							</tbody>
+						</table></div>
+						<PageBar page={ledgerPage} total={ledgerTotal} pageSize={LEDGER_PAGE_SIZE} onChange={setLedgerPage}>
+							<FooterTotals aligned items={[
+								{ value: ledger?.totalDebit ?? 0, color: "var(--red)" },
+								{ value: ledger?.totalCredit ?? 0, color: "var(--green)" },
+							]} />
+						</PageBar>
+						{/* <div className="ft">Running balance = outstanding principal + outstanding interest + outstanding penal interest, immediately after this entry</div> */}
+						</div>
+			<div className="card gtop ld-card" style={{ marginTop: 16 }}>
+						<div className="hd">
+							<div className="tabs" style={{ border: 0, padding: "4px 8px 10px 4px", margin: 0 }}>
+								<button className={pledgeTab === "ornaments" ? "on" : ""} onClick={() => setPledgeTab("ornaments")}>Pledged Ornaments</button>
+								<button className={pledgeTab === "bank" ? "on" : ""} onClick={() => setPledgeTab("bank")}>Bank Pledge and Locker</button>
+							</div>
+							<div className="sp" />
+							{pledgeTab === "ornaments" && <span className="chip brand">{l.ornaments.length} item{l.ornaments.length === 1 ? "" : "s"} · {fmtW(l.totalNetWeight)} net</span>}
+						</div>
+						{pledgeTab === "ornaments" && (
+						<div className="tbl-wrap"><table className="tbl">
+							<TableCols widths={[24, 9, 8, 10, 10, 12, 9, 10]} />
+							<thead><tr><th>Ornament</th><th>Purity</th><th className="num">Qty</th><th className="num">Gross</th><th className="num">Net</th><th className="num">Gold Value</th><th>Photo</th><th>Status</th></tr></thead>
+							<tbody>
+								{l.ornaments.slice((ornamentsPage - 1) * PLEDGE_PAGE_SIZE, ornamentsPage * PLEDGE_PAGE_SIZE).map((o) => (
+									<tr key={o.id}>
+										<td>{o.name}</td>
+										<td><span className="chip brand">{o.purity}</span></td>
+										<td className="num">{o.quantity}</td>
+										<td className="num">{o.grossWeight.toFixed(3)} g</td>
+										<td className="num">{o.netWeight.toFixed(3)} g</td>
+										<td className="num">{fmt(o.goldValue)}</td>
+										<td>
+											{o.photoUrl ? (
+												<span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+													<SafeImage src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={o.photoUrls.length > 1 ? `View all ${o.photoUrls.length} photos` : "View photo"} onClick={() => viewOrnImg(o.photoUrls, o.name)} />
+													<button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrls, o.name)}>{o.photoUrls.length > 1 ? `View all (${o.photoUrls.length})` : "View"}</button>
+												</span>
+											) : (
+												<span style={{ color: "var(--muted)" }}>—</span>
+											)}
+										</td>
+										<td>{o.releasedAt ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title={`Released on ${fmtDateTime(o.releasedAt)}`}>Released {fmtDate(o.releasedAt)}</span>
+											/* Only a partial release stamps releasedAt on an ornament — a full release closes the loan and an auction
+											 * marks it Auctioned without touching the ornaments — so for those the loan's status is the truth. */
+											: l.status === "Closed" ? <span className="chip" style={{ color: "var(--green, #1a7f37)" }} title="Gold handed back to the customer when the loan closed">Released</span>
+											: l.status === "Auctioned" || l.status === "Auctioned - Balance Due" ? <span className="chip" style={{ color: "var(--red)" }} title="Sold in the auction">Auctioned</span>
                       : l.bankPledges.some((p) => p.status === "Active" && (!p.ornamentIds || p.ornamentIds.length === 0 || p.ornamentIds.includes(o.id))) ? <span className="chip" title="Pledged to a bank">Pledged to Bank</span>
-                      : <span className="chip">Held</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-            )}
-            {pledgeTab === "ornaments" && (
-              <PageBar page={ornamentsPage} total={l.ornaments.length} pageSize={PLEDGE_PAGE_SIZE} onChange={setOrnamentsPage} />
-            )}
-            {pledgeTab === "bank" && (
-            <div className="bd">
-              {activePledge ? (
-                <>
-                  <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                    <div className="i"><div className="k">Bank</div><div className="v">{activePledge.bankName}</div></div>
-                    <div className="i"><div className="k">Pledged On</div><div className="v">{fmtDate(activePledge.pledgeDate)}</div></div>
-                    <div className="i"><div className="k">Pledged Amount</div><div className="v">{fmt(activePledge.pledgedAmount)}</div></div>
-                    <div className="i"><div className="k">Bank Interest Rate</div><div className="v">{activePledge.bankInterestRate ? `${activePledge.bankInterestRate}% p.a.` : "—"}</div></div>
-                    <div className="i"><div className="k">Reference Number</div><div className="v">{activePledge.referenceNumber || "—"}</div></div>
-                    <div className="i"><div className="k">Gold Covered</div><div className="v">{fmtW(l.totalNetWeight)}</div></div>
-                    {/* Whether this pledge put money in the till decides whether
-                      * releasing it books cash back out — worth seeing here
-                      * rather than having to guess. */}
-                    <div className="i"><div className="k">Cash Treatment</div><div className="v">
-                      {activePledge.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect"}
-                    </div></div>
-                    <div className="i"><div className="k">Status</div><div className="v"><StatusChip status="Bank Pledged" /></div></div>
-                  </div>
-                  {/* One combined warning names everything still standing between
-                    * this loan and closure — the bank pledge, and a locker if the
-                    * gold is also checked into one (see CompleteRelease's guards
-                    * on the backend) — instead of leaving staff to guess why
-                    * "Complete Release" won't go through. */}
-                  <div className="notice" style={{ marginTop: 12 }}>
-                    <Icon name="shield" />
-                    {packet?.status === "Locker Stored" ? " Release pledge and check out locker first." : " Release bank pledge first."}
-                  </div>
-                  {canUpdateBankPledges && (
-                    <button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
-                      {releasing ? "Releasing…" : "Release from Bank"}
-                    </button>
-                  )}
-                  {packet?.status === "Locker Stored" && canOpen("packet") && (
-                    <a className="btn ghost sm" style={{ marginTop: 12, marginLeft: 8, display: "inline-flex" }} href={routeHref(`packet/${packet.code}`)}>
-                      Go to Packet
-                    </a>
-                  )}
-                </>
-              ) : (
-                <>
-                  <p style={{ fontSize: 13.5, color: "var(--muted)" }}>
-                    Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"} — <StatusChip status={l.bankPledgeStatus} />
-                  </p>
-                  {packet?.status === "Locker Stored" && (
-                    <>
-                      {l.totalOutstandingBalance <= 0.01 ? (
-                        <div className="notice" style={{ color: "var(--red)", marginTop: 12 }}>
-                          <Icon name="shield" /> Fully paid. Check gold out of locker.
-                        </div>
-                      ) : (
-                        <p style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 8 }}>Gold is currently held in a locker.</p>
-                      )}
-                      {canOpen("packet") && (
-                        <a className="btn ghost sm" style={{ marginTop: 12, display: "inline-flex" }} href={routeHref(`packet/${packet.code}`)}>
-                          Go to Packet
-                        </a>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-              {/* Folded into this same Bank Pledge and Locker card rather
-                * than a separate one — the history is every past pledge/
-                * release/repledge cycle for this loan, which reads more
-                * naturally right below the current pledge status than as
-                * its own standalone card. */}
-              {pledgeHistory.length > 0 && (
-                <>
-                  <h4 style={{ marginTop: 16, marginBottom: 8, fontSize: 13 }}>Pledge History</h4>
-                  <div className="tbl-wrap">
-                    <table className="tbl">
-                      <TableCols widths={[26, 18, 18, 14, 14, ...((canEditLedger || canDeleteLedger) && canUpdateBankPledges ? [10] : [])]} />
-                      <thead>
-                        <tr><th>Bank</th><th>Pledged On</th><th>Released On</th><th className="num">Amount</th><th>Status</th>{(canEditLedger || canDeleteLedger) && canUpdateBankPledges && <th></th>}</tr>
-                      </thead>
-                      <tbody>
-                        {pledgeHistory.slice((pledgeHistoryPage - 1) * PLEDGE_PAGE_SIZE, pledgeHistoryPage * PLEDGE_PAGE_SIZE).map((p) => (
-                          <tr key={p.id}>
-                            <td>{p.bankName}</td>
-                            <td>{fmtDate(p.pledgeDate)}</td>
-                            <td>{fmtDate(p.releaseDate)}</td>
-                            <td className="num">{fmt(p.pledgedAmount)}</td>
-                            <td>
-                              {/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see
-                                * BankPledge.tsx's own comment on this same relabel (item #13). */}
-                              <StatusChip status={p.status === "Voided" ? "Deleted" : p.status} />
-                              {p.status === "Voided" && p.voidReason && (
-                                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{p.voidReason}</div>
-                              )}
-                            </td>
-                            {(canEditLedger || canDeleteLedger) && canUpdateBankPledges && (
-                              <td style={{ whiteSpace: "nowrap" }}>
-                                {p.status !== "Voided" && canEditLedger && (
-                                  <button type="button" title="Edit this pledge and its ledger lines" aria-label="Edit this pledge" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)" }}
-                                    onClick={() => openModal(<BankPledgeEditModalContent loanId={l.numericId} pledge={p} mode="edit" onSaved={load} />, true)}><Icon name="edit" /></button>
-                                )}
-                                {p.status !== "Voided" && canDeleteLedger && (
-                                  <button type="button" title="Remove this pledge and its ledger lines" aria-label="Remove this pledge" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, marginLeft: 8, color: "var(--red)" }}
-                                    onClick={() => openModal(<BankPledgeEditModalContent loanId={l.numericId} pledge={p} mode="delete" onSaved={load} />, true)}><Icon name="trash" /></button>
-                                )}
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <PageBar page={pledgeHistoryPage} total={pledgeHistory.length} pageSize={PLEDGE_PAGE_SIZE} onChange={setPledgeHistoryPage} />
-                </>
-              )}
-            </div>
-            )}
-      </div>
-    </>
-  );
+											: <span className="chip">Held</span>}</td>
+									</tr>
+								))}
+							</tbody>
+						</table></div>
+						)}
+						{pledgeTab === "ornaments" && (
+							<PageBar page={ornamentsPage} total={l.ornaments.length} pageSize={PLEDGE_PAGE_SIZE} onChange={setOrnamentsPage} />
+						)}
+						{pledgeTab === "bank" && (
+						<div className="bd">
+							{activePledge ? (
+								<>
+									<div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
+										<div className="i"><div className="k">Bank</div><div className="v">{activePledge.bankName}</div></div>
+										<div className="i"><div className="k">Pledged On</div><div className="v">{fmtDate(activePledge.pledgeDate)}</div></div>
+										<div className="i"><div className="k">Pledged Amount</div><div className="v">{fmt(activePledge.pledgedAmount)}</div></div>
+										<div className="i"><div className="k">Bank Interest Rate</div><div className="v">{activePledge.bankInterestRate ? `${activePledge.bankInterestRate}% p.a.` : "—"}</div></div>
+										<div className="i"><div className="k">Reference Number</div><div className="v">{activePledge.referenceNumber || "—"}</div></div>
+										<div className="i"><div className="k">Gold Covered</div><div className="v">{fmtW(l.totalNetWeight)}</div></div>
+										{/* Whether this pledge put money in the till decides whether
+											* releasing it books cash back out — worth seeing here
+											* rather than having to guess. */}
+										<div className="i"><div className="k">Cash Treatment</div><div className="v">
+											{activePledge.cashTreatment === "CashIn" ? "Added to Cash-in-Hand" : "Record only — no cash effect"}
+										</div></div>
+										<div className="i"><div className="k">Status</div><div className="v"><StatusChip status="Bank Pledged" /></div></div>
+									</div>
+									{/* One combined warning names everything still standing between
+										* this loan and closure — the bank pledge, and a locker if the
+										* gold is also checked into one (see CompleteRelease's guards
+										* on the backend) — instead of leaving staff to guess why
+										* "Complete Release" won't go through. */}
+									<div className="notice" style={{ marginTop: 12 }}>
+										<Icon name="shield" />
+										{" Closure requires releasing this bank pledge first"}
+										{packet?.status === "Locker Stored" ? ", and checking the gold out of its locker." : "."}
+									</div>
+									{canUpdateBankPledges && (
+										<button className="btn ghost sm" style={{ marginTop: 12 }} disabled={releasing} onClick={doReleasePledge}>
+											{releasing ? "Releasing…" : "Release from Bank"}
+										</button>
+									)}
+									{packet?.status === "Locker Stored" && canOpen("packet") && (
+										<a className="btn ghost sm" style={{ marginTop: 12, marginLeft: 8, display: "inline-flex" }} href={routeHref(`packet/${packet.code}`)}>
+											Go to Packet
+										</a>
+									)}
+								</>
+							) : (
+								<>
+									<p style={{ fontSize: 13.5, color: "var(--muted)" }}>
+										Gold is {l.bankPledgeStatus === "Released" ? "released to customer" : "held in-house"} — <StatusChip status={l.bankPledgeStatus} />
+									</p>
+									{packet?.status === "Locker Stored" && (
+										<>
+											{l.totalOutstandingBalance <= 0.01 ? (
+												<div className="notice" style={{ color: "var(--red)", marginTop: 12 }}>
+													<Icon name="shield" /> This loan is fully paid, but its gold is still checked into a locker — check it out before this loan can be closed.
+												</div>
+											) : (
+												<p style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 8 }}>Gold is currently held in a locker.</p>
+											)}
+											{canOpen("packet") && (
+												<a className="btn ghost sm" style={{ marginTop: 12, display: "inline-flex" }} href={routeHref(`packet/${packet.code}`)}>
+													Go to Packet
+												</a>
+											)}
+										</>
+									)}
+								</>
+							)}
+							{/* Folded into this same Bank Pledge and Locker card rather
+								* than a separate one — the history is every past pledge/
+								* release/repledge cycle for this loan, which reads more
+								* naturally right below the current pledge status than as
+								* its own standalone card. */}
+							{pledgeHistory.length > 0 && (
+								<>
+									<h4 style={{ marginTop: 16, marginBottom: 8, fontSize: 13 }}>Pledge History</h4>
+									<div className="tbl-wrap">
+										<table className="tbl">
+											<TableCols widths={[26, 18, 18, 14, 14, ...((canEditLedger || canDeleteLedger) && canUpdateBankPledges ? [10] : [])]} />
+											<thead>
+												<tr><th>Bank</th><th>Pledged On</th><th>Released On</th><th className="num">Amount</th><th>Status</th>{(canEditLedger || canDeleteLedger) && canUpdateBankPledges && <th></th>}</tr>
+											</thead>
+											<tbody>
+												{pledgeHistory.slice((pledgeHistoryPage - 1) * PLEDGE_PAGE_SIZE, pledgeHistoryPage * PLEDGE_PAGE_SIZE).map((p) => (
+													<tr key={p.id}>
+														<td>{p.bankName}</td>
+														<td>{fmtDate(p.pledgeDate)}</td>
+														<td>{fmtDate(p.releaseDate)}</td>
+														<td className="num">{fmt(p.pledgedAmount)}</td>
+														<td>
+															{/* Wire value stays "Voided" (backend status), only the displayed label is "Deleted" — see
+																* BankPledge.tsx's own comment on this same relabel (item #13). */}
+															<StatusChip status={p.status === "Voided" ? "Deleted" : p.status} />
+															{p.status === "Voided" && p.voidReason && (
+																<div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{p.voidReason}</div>
+															)}
+														</td>
+														{(canEditLedger || canDeleteLedger) && canUpdateBankPledges && (
+															<td style={{ whiteSpace: "nowrap" }}>
+																{p.status !== "Voided" && canEditLedger && (
+																	<button type="button" title="Edit this pledge and its ledger lines" aria-label="Edit this pledge" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)" }}
+																		onClick={() => openModal(<BankPledgeEditModalContent loanId={l.numericId} pledge={p} mode="edit" onSaved={load} />, true)}><Icon name="edit" /></button>
+																)}
+																{p.status !== "Voided" && canDeleteLedger && (
+																	<button type="button" title="Remove this pledge and its ledger lines" aria-label="Remove this pledge" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, marginLeft: 8, color: "var(--red)" }}
+																		onClick={() => openModal(<BankPledgeEditModalContent loanId={l.numericId} pledge={p} mode="delete" onSaved={load} />, true)}><Icon name="trash" /></button>
+																)}
+															</td>
+														)}
+													</tr>
+												))}
+											</tbody>
+										</table>
+									</div>
+									<PageBar page={pledgeHistoryPage} total={pledgeHistory.length} pageSize={PLEDGE_PAGE_SIZE} onChange={setPledgeHistoryPage} />
+								</>
+							)}
+						</div>
+						)}
+			</div>
+		</>
+	);
 }

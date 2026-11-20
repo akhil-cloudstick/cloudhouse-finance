@@ -2,12 +2,12 @@ package controllers
 
 import (
 	"bytes"
+	"cloudhouse/backend/config"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -18,10 +18,10 @@ type githubClient struct {
 }
 
 func newGitHubClient() (*githubClient, error) {
-	owner := strings.TrimSpace(os.Getenv("GITHUB_REPO_OWNER"))
-	repo := strings.TrimSpace(os.Getenv("GITHUB_REPO_NAME"))
-	token := strings.TrimSpace(os.Getenv("GITHUB_RELEASE_TOKEN"))
-	workflow := strings.TrimSpace(os.Getenv("GITHUB_RELEASE_WORKFLOW_FILE"))
+	owner := config.EnvTrimmed("GITHUB_REPO_OWNER")
+	repo := config.EnvTrimmed("GITHUB_REPO_NAME")
+	token := config.EnvTrimmed("GITHUB_RELEASE_TOKEN")
+	workflow := config.EnvTrimmed("GITHUB_RELEASE_WORKFLOW_FILE")
 	if workflow == "" {
 		workflow = "release.yml"
 	}

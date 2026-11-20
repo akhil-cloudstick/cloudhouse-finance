@@ -26,4 +26,5 @@ type InvestmentTransaction struct {
 	Reference            string    `json:"reference" gorm:"size:80"`
 	CashMovementID       *uint     `json:"cash_movement_id"`
 	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }

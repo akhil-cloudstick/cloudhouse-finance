@@ -25,6 +25,10 @@ function contentUrl() {
 // Tenant subdomain from NEXT_PUBLIC_API_BASE's host; falls back to "default"
 // (e.g. localhost) so local testing still refreshes the icon.
 function slugFromApiBase(apiBase) {
+  // DESKTOP_TENANT names the business directly (its code, e.g. "default"), for when the API address does not carry it:
+  // a localhost or shared address would otherwise give "default", and an address with another subdomain that business.
+  const forced = (process.env.DESKTOP_TENANT || "").trim().toLowerCase();
+  if (forced) return forced;
   try {
     const host = new URL(apiBase).hostname.toLowerCase();
     const labels = host.split(".");
@@ -42,13 +46,27 @@ async function fetchTenantBranding(apiBase) {
   const slug = slugFromApiBase(apiBase);
   if (!slug) return null;
   try {
-    const res = await fetch(`${apiBase.replace(/\/+$/, "")}/public/branding/${encodeURIComponent(slug)}`);
-    if (!res.ok) return null;
-    const body = await res.json();
-    const data = body && body.data;
+    const base = apiBase.replace(/\/+$/, "");
+    // The host-resolved lookup is what the sign-in page uses (the subdomain is matched to the business); the by-code
+    // one only matches when the subdomain equals the business code. An unknown code answers with the platform default
+    // (no logo), which is why the exe got the plain "C" icon, so ask by host first and take the first answer with a logo.
+    let data = null;
+    const byCode = `${base}/public/branding/${encodeURIComponent(slug)}`;
+    // a business named explicitly is looked up by its code only: the host-resolved answer is for whatever the address maps to
+    const urls = (process.env.DESKTOP_TENANT || "").trim() ? [byCode] : [`${base}/public/branding`, byCode];
+    for (const url of urls) {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const body = await res.json();
+      const found = body && body.data;
+      if (!found) continue;
+      data = data && !found.logo_url ? data : found;
+      if (found.logo_url) break;
+    }
     if (!data) return null;
     const origin = new URL(apiBase).origin;
     const logoUrl = data.logo_url ? new URL(data.logo_url, origin).toString() : "";
+    if (!logoUrl) console.warn(`Branding for "${slug}" has no logo (logo_url empty) — the exe gets an initials icon. Upload a logo for this business, or check that "${slug}" is its code/subdomain.`);
     const name = data.name || data.legal_name || data.short_name || slug;
     const brandColor = /^#[0-9a-f]{6}$/i.test(data.brand_color || "") ? data.brand_color : "#6054bf";
     return { slug, name, logoUrl, brandColor };
@@ -59,10 +77,18 @@ async function fetchTenantBranding(apiBase) {
 
 // Logo trimmed of its empty margins and centred full-size on a transparent square.
 async function generateIconFromLogo(logoUrl, root) {
-  const sharp = require("sharp");
   const res = await fetch(logoUrl);
   if (!res.ok) throw new Error(`logo fetch failed: ${res.status}`);
-  const logoBuffer = Buffer.from(await res.arrayBuffer());
+  await generateIconFromBuffer(Buffer.from(await res.arrayBuffer()), root);
+}
+
+// The default logo (public/cloudhouse-icon.png), for a business that has no logo of its own.
+async function generateDefaultIcon(root) {
+  await generateIconFromBuffer(fs.readFileSync(path.join(root, "public", "cloudhouse-icon.png")), root);
+}
+
+async function generateIconFromBuffer(logoBuffer, root) {
+  const sharp = require("sharp");
 
   const trimmed = await sharp(logoBuffer).ensureAlpha().trim().png().toBuffer();
   const meta = await sharp(trimmed).metadata();
@@ -107,10 +133,31 @@ async function generateIconFromInitials(name, brandColor, root) {
 /* Regenerates desktop/rsrc_windows_amd64.syso from the (now tenant-branded)
  * PNGs in build/windows/ — Go's build tool links whatever .syso sits next to
  * main.go automatically, no further wiring needed. */
-function regenerateWindowsResource(root, run) {
-  run("go", ["run", "github.com/tc-hib/go-winres@latest", "make", "--in", "winres.json", "--out", "../rsrc", "--arch", "amd64"], {
-    cwd: path.join(root, "desktop", "winres"),
-  });
+function regenerateWindowsResource(root, run, name) {
+  const dir = path.join(root, "desktop", "winres");
+  let input = "winres.json";
+  let generated = null;
+  // The business's own name goes into the exe's properties (Task Manager, the file's Details tab, the manifest), not only the title.
+  if (name) {
+    const base = JSON.parse(fs.readFileSync(path.join(dir, "winres.json"), "utf8"));
+    base.RT_MANIFEST["#1"]["0409"].description = name;
+    base.RT_VERSION = {
+      "#1": {
+        "0000": {
+          fixed: { file_version: "0.1.0.0", product_version: "0.1.0.0" },
+          info: { "0409": { CompanyName: name, FileDescription: name, ProductName: name, InternalName: name, LegalCopyright: name } },
+        },
+      },
+    };
+    generated = "winres.tenant.json";
+    fs.writeFileSync(path.join(dir, generated), JSON.stringify(base, null, 2));
+    input = generated;
+  }
+  try {
+    run("go", ["run", "github.com/tc-hib/go-winres@latest", "make", "--in", input, "--out", "../rsrc", "--arch", "amd64"], { cwd: dir });
+  } finally {
+    if (generated) fs.rmSync(path.join(dir, generated), { force: true });
+  }
 }
 
 /* Writes (or removes) the generated file that overrides main.go's default
@@ -133,6 +180,7 @@ function writeWindowTitleOverride(root, name) {
 module.exports = {
   fetchTenantBranding,
   generateIconFromLogo,
+  generateDefaultIcon,
   generateIconFromInitials,
   regenerateWindowsResource,
   writeWindowTitleOverride,

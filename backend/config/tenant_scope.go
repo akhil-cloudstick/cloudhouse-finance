@@ -46,8 +46,12 @@ var tenantScopedTables = map[string]bool{
 	"approval_stage_settings": true, "approval_actions": true,
 	"approval_chains": true, "approval_category_modes": true,
 	"whatsapp_sessions": true,
-	"day_book_entries":  true,
+	"sync_receipts":     true, "sync_flags": true, "sync_aliases": true, "devices": true,
+	"day_book_entries": true,
 }
+
+// IsTenantScoped says whether queries on the table are limited to the caller's business.
+func IsTenantScoped(table string) bool { return tenantScopedTables[table] }
 
 type Conn interface {
 	WithContext(ctx context.Context) *gorm.DB

@@ -87,7 +87,7 @@ func subscribe(ctx context.Context, tenantID uint) (*SubscribeResult, error) {
 	}
 	tier := t.Tier
 	if tier.PriceInPaise <= 0 {
-		return nil, common.NewConflict("this business's plan has no billing price configured — contact support")
+		return nil, common.NewConflict("no billing price set — contact support")
 	}
 	if tier.RazorpayPlanID == "" {
 		plan, err := config.Razorpay.
@@ -281,7 +281,7 @@ func ConfirmSubscription(c echo.Context) error {
 	}
 	var req confirmRequest
 	if err := common.BindJSON(c, &req); err != nil {
-		return common.FailErr(c, common.NewBadRequest("razorpay_subscription_id, razorpay_payment_id and razorpay_signature are required"))
+		return common.FailErr(c, common.NewBadRequest("payment details are required"))
 	}
 	if err := confirmSubscription(ctx, tenantID, req.RazorpaySubscriptionID, req.RazorpayPaymentID, req.RazorpaySignature); err != nil {
 		return common.FailErr(c, err)

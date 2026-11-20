@@ -11,12 +11,12 @@ const MENU_H = 92;
 const MENU_MIN_W = 210;
 
 type PhotoSourceMenuProps = {
-  onFile: (f: File) => void;
-  accept?: string;
-  /** Lets "Upload from system" pick several files — onFile then fires once per file. */
-  multiple?: boolean;
-  webcamTitle?: string;
-  trigger: (t: { ref: RefObject<HTMLButtonElement | null>; toggle: () => void; open: boolean }) => ReactNode;
+	onFile: (f: File) => void;
+	accept?: string;
+	/** Lets "Upload from system" pick several files — onFile then fires once per file. */
+	multiple?: boolean;
+	webcamTitle?: string;
+	trigger: (t: { ref: RefObject<HTMLButtonElement | null>; toggle: () => void; open: boolean }) => ReactNode;
 };
 
 /**
@@ -33,11 +33,11 @@ type PhotoSourceMenuProps = {
  * instead of trying to follow its trigger.
  */
 export function PhotoSourceMenu({
-  onFile,
-  accept = "image/*",
-  multiple = false,
-  webcamTitle,
-  trigger,
+	onFile,
+	accept = "image/*",
+	multiple = false,
+	webcamTitle,
+	trigger,
 }: PhotoSourceMenuProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [webcamOpen, setWebcamOpen] = useState(false);
@@ -59,16 +59,16 @@ export function PhotoSourceMenu({
     setOpen(true);
   }
 
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [open, setOpen]);
+	useEffect(() => {
+		if (!open) return;
+		const close = () => setOpen(false);
+		window.addEventListener("scroll", close, true);
+		window.addEventListener("resize", close);
+		return () => {
+			window.removeEventListener("scroll", close, true);
+			window.removeEventListener("resize", close);
+		};
+	}, [open, setOpen]);
 
   return (
     <>
