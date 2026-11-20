@@ -15,22 +15,22 @@ type DataProviderProps = { children: React.ReactNode };
  * same keys, same behavior as the legacy prototype.
  */
 export function DataProvider({ children }: DataProviderProps) {
-	const [db, setDb] = useState<DB>(() => createDB(false));
+  const [db, setDb] = useState<DB>(() => createDB(false));
 
-	const refresh = useCallback(() => {
-		setDb(createDB(true));
-	}, []);
+  const refresh = useCallback(() => {
+    setDb(createDB(true));
+  }, []);
 
-	useEffect(() => {
-		refresh();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-	return <DataContext.Provider value={{ db, refresh }}>{children}</DataContext.Provider>;
+  return <DataContext.Provider value={{ db, refresh }}>{children}</DataContext.Provider>;
 }
 
 export function useData() {
-	const ctx = useContext(DataContext);
-	if (!ctx) throw new Error("useData must be used within a DataProvider");
-	return ctx;
+  const ctx = useContext(DataContext);
+  if (!ctx) throw new Error("useData must be used within a DataProvider");
+  return ctx;
 }

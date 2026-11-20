@@ -10,10 +10,10 @@ import { BankTable } from "@/modules/banks/components/BankTable";
  * modal (add/edit/delete) replaces this one, so afterChange reopens it with
  * a fresh list once the child is done. */
 export function BanksModalContent() {
-	const { openModal, closeModal } = useModal();
-	const { can } = useAuth();
-	const canCreate = can("Bank_Management", "can_create_bank");
-	const reopen = () => openModal(<BanksModalContent />, true);
+  const { openModal, closeModal } = useModal();
+  const { can } = useAuth();
+  const canCreate = can("Bank_Management", "can_create_bank");
+  const reopen = () => openModal(<BanksModalContent />, true);
 
   return (
     <>

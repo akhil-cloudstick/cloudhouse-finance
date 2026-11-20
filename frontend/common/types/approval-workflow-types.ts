@@ -13,66 +13,66 @@
  * chain — see resolveIndex. */
 
 export type ApprovalFlowKey =
-	| "loan_sanction"
-	| "loan_extension"
-	| "loan_release"
-	| "auction_partial_repayment"
-	| "auction_shortfall"
-	| "expense"
-	| "loan_topup"
-	| "personal_loan";
+  | "loan_sanction"
+  | "loan_extension"
+  | "loan_release"
+  | "auction_partial_repayment"
+  | "auction_shortfall"
+  | "expense"
+  | "loan_topup"
+  | "personal_loan";
 export type StageView = {
-	key: string;
-	// The value stored on the item's approvalStage/status while it waits here.
-	pending: string;
-	label: string;
-	role: string;
-	roleId: number;
-	permission: string;
-	module: string;
-	defaultEnabled: boolean;
-	enabled: boolean;
+  key: string;
+  // The value stored on the item's approvalStage/status while it waits here.
+  pending: string;
+  label: string;
+  role: string;
+  roleId: number;
+  permission: string;
+  module: string;
+  defaultEnabled: boolean;
+  enabled: boolean;
 };
 export type FlowView = {
-	key: string;
-	label: string;
-	actionLabel: string;
-	category: string;
-	finalAction: string;
-	offBehavior: string;
-	minEnabled: number;
-	maxSteps: number;
-	stages: StageView[];
+  key: string;
+  label: string;
+  actionLabel: string;
+  category: string;
+  finalAction: string;
+  offBehavior: string;
+  minEnabled: number;
+  maxSteps: number;
+  stages: StageView[];
 };
 export type ApprovalWorkflowConfig = FlowView[];
 /* --- Admin screen (GET/PUT /approval-workflow/categories) --------------- */
 
 export type ChainRole = { roleId: number; name: string; active: boolean };
 export type CategoryFlow = {
-	key: string;
-	label: string;
-	actionLabel: string;
-	finalAction: string;
-	offBehavior: string;
-	minEnabled: number;
-	maxSteps: number;
-	steps: ChainRole[];
+  key: string;
+  label: string;
+  actionLabel: string;
+  finalAction: string;
+  offBehavior: string;
+  minEnabled: number;
+  maxSteps: number;
+  steps: ChainRole[];
 };
 export type CategoryView = {
-	key: string;
-	label: string;
-	description: string;
-	shared: boolean;
-	sharedSteps: ChainRole[];
-	// Strictest of the category's flows — what a shared chain must satisfy.
-	minEnabled: number;
-	maxSteps: number;
-	flows: CategoryFlow[];
+  key: string;
+  label: string;
+  description: string;
+  shared: boolean;
+  sharedSteps: ChainRole[];
+  // Strictest of the category's flows — what a shared chain must satisfy.
+  minEnabled: number;
+  maxSteps: number;
+  flows: CategoryFlow[];
 };
 export type UpdateCategoryInput = {
-	shared: boolean;
-	steps?: number[];
-	flows?: Record<string, number[]>;
+  shared: boolean;
+  steps?: number[];
+  flows?: Record<string, number[]>;
 };
 /* Legacy (pre-chain) stage values per flow, in their old order, with the
  * role each stood for — mirrors the Stages of workflow.Catalogue. Used only

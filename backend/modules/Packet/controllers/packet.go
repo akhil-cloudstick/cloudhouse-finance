@@ -254,19 +254,13 @@ func attachLockerCodes(ctx context.Context, packets []models.Packet) {
 }
 
 func persistPacket(ctx context.Context, p *models.Packet) error {
-	db := config.DB.WithContext(ctx)
-	if err := db.Save(p).Error; err != nil {
-		return err
-	}
-	return loanModels.TouchLoan(db, p.LoanID)
+	return config.DB.
+		WithContext(ctx).Save(p).Error
 }
 
 func createMovement(ctx context.Context, m *models.PacketMovement) error {
-	db := config.DB.WithContext(ctx)
-	if err := db.Create(m).Error; err != nil {
-		return err
-	}
-	return loanModels.TouchLoanOfPacket(db, m.PacketID)
+	return config.DB.
+		WithContext(ctx).Create(m).Error
 }
 
 func findMovements(ctx context.Context, packetID uint) ([]models.PacketMovement, error) {
@@ -612,7 +606,7 @@ func RecordPacketMovement(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	if loanNoLongerMovableStatuses[p.Loan.Status] {
-		return common.FailErr(c, common.NewConflict("gold has left custody — no more movements"))
+		return common.FailErr(c, common.NewConflict("this loan's gold has already left custody — no further packet movement is possible"))
 	}
 	if blocked := pendingLoanBlocksMove(p.Loan.Status, req.ToStatus); blocked != "" {
 		return common.FailErr(c, common.NewConflict(blocked))

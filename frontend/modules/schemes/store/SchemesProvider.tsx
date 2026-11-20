@@ -19,39 +19,39 @@ type SchemesProviderProps = { children: React.ReactNode };
  * way CustomersProvider does for customers.
  */
 export function SchemesProvider({ children }: SchemesProviderProps) {
-	// Loaded for every page, so only fetched when this role can view the
-	// module — otherwise it stays empty instead of failing with a 403.
-	const { can, permissionsLoaded, selectedBranchId } = useAuth();
-	const allowed = can("Scheme_Management", "can_view_scheme_module");
-	const [schemes, setSchemes] = useState<SchemeView[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState("");
+  // Loaded for every page, so only fetched when this role can view the
+  // module — otherwise it stays empty instead of failing with a 403.
+  const { can, permissionsLoaded, selectedBranchId } = useAuth();
+  const allowed = can("Scheme_Management", "can_view_scheme_module");
+  const [schemes, setSchemes] = useState<SchemeView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-	const refresh = useCallback(() => {
-		if (!allowed) {
-			setLoading(!permissionsLoaded);
-			return;
-		}
-		setLoading(true);
-		listSchemes()
-			.then((list) => { setSchemes(list); setError(""); })
-			.catch((e) => setError(e instanceof Error ? e.message : "Failed to load schemes."))
-			.finally(() => setLoading(false));
-	}, [allowed, permissionsLoaded]);
+  const refresh = useCallback(() => {
+    if (!allowed) {
+      setLoading(!permissionsLoaded);
+      return;
+    }
+    setLoading(true);
+    listSchemes()
+      .then((list) => { setSchemes(list); setError(""); })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load schemes."))
+      .finally(() => setLoading(false));
+  }, [allowed, permissionsLoaded]);
 
-	// Refetch when the global branch selector changes — the list is scoped
-	// server-side by the X-Branch-Id header.
-	useEffect(() => { refresh(); }, [refresh, selectedBranchId]);
+  // Refetch when the global branch selector changes — the list is scoped
+  // server-side by the X-Branch-Id header.
+  useEffect(() => { refresh(); }, [refresh, selectedBranchId]);
 
-	return (
-		<SchemesContext.Provider value={{ schemes, loading, error, refresh }}>
-			{children}
-		</SchemesContext.Provider>
-	);
+  return (
+    <SchemesContext.Provider value={{ schemes, loading, error, refresh }}>
+      {children}
+    </SchemesContext.Provider>
+  );
 }
 
 export function useSchemes() {
-	const ctx = useContext(SchemesContext);
-	if (!ctx) throw new Error("useSchemes must be used within a SchemesProvider");
-	return ctx;
+  const ctx = useContext(SchemesContext);
+  if (!ctx) throw new Error("useSchemes must be used within a SchemesProvider");
+  return ctx;
 }

@@ -123,7 +123,7 @@ func decideRequest(ctx context.Context, requestID uint, branchID *uint, approve 
 	if req.Type != models.RequestTypeExtension {
 		return nil, common.NewBadRequest("this request is not an Extension request")
 	}
-	return nil, common.NewBadRequest("decide this through the approval chain")
+	return nil, common.NewBadRequest("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
 }
 
 func findByRequestID(ctx context.Context, requestID uint) ([]models.RequestApproval, error) {
@@ -162,19 +162,13 @@ func (req loanRequest) toInput() (CreateInput, error) {
 }
 
 func insertLoanRequest(ctx context.Context, req *models.LoanRequest) error {
-	db := config.DB.WithContext(ctx)
-	if err := db.Create(req).Error; err != nil {
-		return err
-	}
-	return models.TouchLoan(db, req.LoanID)
+	return config.DB.
+		WithContext(ctx).Create(req).Error
 }
 
 func persistLoanRequest(ctx context.Context, req *models.LoanRequest) error {
-	db := config.DB.WithContext(ctx)
-	if err := db.Save(req).Error; err != nil {
-		return err
-	}
-	return models.TouchLoan(db, req.LoanID)
+	return config.DB.
+		WithContext(ctx).Save(req).Error
 }
 
 func findLoanRequestByID(ctx context.Context, id uint) (*models.LoanRequest, error) {

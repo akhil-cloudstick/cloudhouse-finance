@@ -1,11 +1,11 @@
 type StageTrackerProps = {
-	stages: string[];
-	/** Index into `stages` of the currently-active/next-pending stage, or
-	 * stages.length if every stage is done. */
-	currentIndex: number;
-	/** When set (e.g. "Rejected"), renders as a red terminal marker instead
-	 * of the normal stage list — the chain stopped before completing. */
-	terminal?: string;
+  stages: string[];
+  /** Index into `stages` of the currently-active/next-pending stage, or
+   * stages.length if every stage is done. */
+  currentIndex: number;
+  /** When set (e.g. "Rejected"), renders as a red terminal marker instead
+   * of the normal stage list — the chain stopped before completing. */
+  terminal?: string;
 };
 
 /* Shared progress-stepper UI for any fixed, ordered stage chain — used by
@@ -16,25 +16,25 @@ type StageTrackerProps = {
  * value passed in by the caller, rather than deriving progress from a
  * loosely-related status string. */
 export function StageTracker({
-	stages,
-	currentIndex,
-	terminal,
+  stages,
+  currentIndex,
+  terminal,
 }: StageTrackerProps) {
-	if (terminal) {
-		return (
-			<div className="track">
-				<div className="st done" style={{ borderColor: "var(--red)", color: "var(--red)" }}>{terminal}</div>
-			</div>
-		);
-	}
-	// A single-approver chain has no progress to show — callers show an
-	// "Awaiting … approval" line instead.
-	if (stages.length <= 1) return null;
-	return (
-		<div className="track">
-			{stages.map((s, i) => (
-				<div key={s} className={`st ${i < currentIndex ? "done" : i === currentIndex ? "on" : ""}`}>{s}</div>
-			))}
-		</div>
-	);
+  if (terminal) {
+    return (
+      <div className="track">
+        <div className="st done" style={{ borderColor: "var(--red)", color: "var(--red)" }}>{terminal}</div>
+      </div>
+    );
+  }
+  // A single-approver chain has no progress to show — callers show an
+  // "Awaiting … approval" line instead.
+  if (stages.length <= 1) return null;
+  return (
+    <div className="track">
+      {stages.map((s, i) => (
+        <div key={s} className={`st ${i < currentIndex ? "done" : i === currentIndex ? "on" : ""}`}>{s}</div>
+      ))}
+    </div>
+  );
 }

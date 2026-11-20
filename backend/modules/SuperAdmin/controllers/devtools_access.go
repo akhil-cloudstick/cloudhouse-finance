@@ -63,6 +63,7 @@ func SetDevToolsPin(c echo.Context) error {
 	if err != nil {
 		return common.FailErr(c, err)
 	}
+
 	row := commonModels.DevToolsAccess{ID: 1, EncryptedPin: encrypted, UpdatedAt: time.Now()}
 	err = config.BaseDB.WithContext(auth.RequestContext(c)).
 		Clauses(clause.OnConflict{
@@ -73,6 +74,7 @@ func SetDevToolsPin(c echo.Context) error {
 	if err != nil {
 		return common.FailErr(c, err)
 	}
+
 	auditBusiness(auth.RequestContext(c), actor(c), "set_devtools_pin", nil, "", "", optionalReason(req.Reason))
 	return common.Success(c, http.StatusOK, echo.Map{"updated": true})
 }

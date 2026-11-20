@@ -117,7 +117,7 @@ func NormalizeContactPhone(raw string, required bool) (string, error) {
 			continue
 		}
 		if !contactPhonePattern.MatchString(p) {
-			return "", NewBadRequest("contact phone is not valid")
+			return "", NewBadRequest("contact phone must be one or more valid numbers separated by commas, e.g. +91 9000012345")
 		}
 		out = append(out, p)
 	}

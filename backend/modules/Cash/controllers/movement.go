@@ -153,7 +153,7 @@ func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amou
 			continue
 		}
 		if c.mode == models.CashModeCheque {
-			return 0, "", common.NewBadRequest("Cheque is not a supported payment mode")
+			return 0, "", common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
 		}
 		rec := base
 		rec.Mode = c.mode
@@ -231,16 +231,16 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 			clause, args := bankPledgeBranchClause("branch_id", "transaction_group_id", []uint{*branchID})
 			q = q.Where(clause, args...)
 		} else {
-		q = q.Where("branch_id = ?", *branchID)
-	}
+			q = q.Where("branch_id = ?", *branchID)
+		}
 	}
 	if len(filter.BranchIDs) > 0 {
 		if pledgeWide {
 			clause, args := bankPledgeBranchClause("branch_id", "transaction_group_id", filter.BranchIDs)
 			q = q.Where(clause, args...)
 		} else {
-		q = q.Where("branch_id IN ?", filter.BranchIDs)
-	}
+			q = q.Where("branch_id IN ?", filter.BranchIDs)
+		}
 	}
 	if len(filter.CustomerIDs) > 0 {
 		q = q.Where("party_customer_id IN ?", filter.CustomerIDs)
@@ -382,15 +382,16 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		}
 	}
 	rec := &models.CashMovement{
-		Type:               in.Type,
-		Amount:             in.Amount,
-		Mode:               in.Mode,
-		Bank:               in.Bank,
-		BankID:             in.BankID,
-		ToBankID:           in.ToBankID,
-		BranchID:           in.BranchID,
-		ReceiptImage:       in.ReceiptImage,
-		Remarks:            strings.TrimSpace(in.Remarks),
+		Type:         in.Type,
+		Amount:       in.Amount,
+		Mode:         in.Mode,
+		Bank:         in.Bank,
+		BankID:       in.BankID,
+		ToBankID:     in.ToBankID,
+		BranchID:     in.BranchID,
+		ReceiptImage: in.ReceiptImage,
+		Remarks:      strings.TrimSpace(in.Remarks),
+
 		TransactionGroupID: in.GroupID,
 	}
 	if in.OccurredOn.IsZero() {
@@ -505,7 +506,7 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 			return nil, err
 		}
 		if !hasLoanDetails(src) {
-			return nil, common.NewBadRequest("no loan details yet — add cash first")
+			return nil, common.NewBadRequest("this loan has no details recorded yet — add cash from it first")
 		}
 		toBankID = 0
 		category = src.Name
@@ -543,7 +544,7 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 		mode = models.CashModeBankTransfer
 	case models.CashModeBankTransfer, models.CashModeUPI:
 	default:
-		return nil, common.NewBadRequest("mode must be Bank Transfer or UPI")
+		return nil, common.NewBadRequest("mode must be Bank Transfer or UPI for a transfer between banks")
 	}
 	occurred := in.OccurredOn
 	if occurred.IsZero() {
@@ -690,7 +691,7 @@ type SplitPart struct {
 // cheque amount is rejected: the application has no Cheque mode.
 func SplitParts(cash, upi, bankTransfer, cheque float64, bankID *uint) ([]SplitPart, error) {
 	if cheque > 0 {
-		return nil, common.NewBadRequest("Cheque is not a supported payment mode")
+		return nil, common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
 	}
 	var out []SplitPart
 	if cash > 0 {

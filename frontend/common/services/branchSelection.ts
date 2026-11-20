@@ -19,8 +19,8 @@
 import { activeBusinessSlug } from "@/common/services/tenantSession";
 
 function storageKey(slug?: string | null): string {
-	const s = slug === undefined ? activeBusinessSlug() : slug;
-	return `cloudhouse_selected_branch::${s || "default"}`;
+  const s = slug === undefined ? activeBusinessSlug() : slug;
+  return `cloudhouse_selected_branch::${s || "default"}`;
 }
 
 /* The header name the backend reads — kept as one constant so a rename on
@@ -29,33 +29,33 @@ function storageKey(slug?: string | null): string {
 export const SELECTED_BRANCH_HEADER = "X-Branch-Id";
 
 export function getSelectedBranchId(): number | null {
-	if (typeof window === "undefined") return null;
-	const raw = window.sessionStorage.getItem(storageKey());
-	if (!raw) return null;
-	const id = Number(raw);
-	return Number.isFinite(id) && id > 0 ? id : null;
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem(storageKey());
+  if (!raw) return null;
+  const id = Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
 }
 
 export function setSelectedBranchId(id: number | null): void {
-	if (typeof window === "undefined") return;
-	const key = storageKey();
-	if (id && id > 0) {
-		window.sessionStorage.setItem(key, String(id));
-	} else {
-		window.sessionStorage.removeItem(key);
-	}
-	window.dispatchEvent(new Event("branch-selection-changed"));
+  if (typeof window === "undefined") return;
+  const key = storageKey();
+  if (id && id > 0) {
+    window.sessionStorage.setItem(key, String(id));
+  } else {
+    window.sessionStorage.removeItem(key);
+  }
+  window.dispatchEvent(new Event("branch-selection-changed"));
 }
 
 export function clearSelectedBranch(slug?: string | null): void {
-	if (typeof window === "undefined") return;
-	window.sessionStorage.removeItem(storageKey(slug));
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(storageKey(slug));
 }
 
 /* The header to merge into every authenticated request — empty object when
  * nothing is selected, so callers can always spread it unconditionally
  * ({...authHeader(), ...branchHeader()}) without an `if`. */
 export function branchHeader(): Record<string, string> {
-	const id = getSelectedBranchId();
-	return id ? { [SELECTED_BRANCH_HEADER]: String(id) } : {};
+  const id = getSelectedBranchId();
+  return id ? { [SELECTED_BRANCH_HEADER]: String(id) } : {};
 }

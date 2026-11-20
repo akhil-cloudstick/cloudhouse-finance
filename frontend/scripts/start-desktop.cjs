@@ -5,7 +5,7 @@ const { loadEnvConfig } = require("@next/env");
 const {
   fetchTenantBranding,
   generateIconFromLogo,
-  generateDefaultIcon,
+  generateIconFromInitials,
   regenerateWindowsResource,
   writeWindowTitleOverride,
   updateUrl,
@@ -17,7 +17,7 @@ loadEnvConfig(root, true);
 // The real S3_* values live only in backend/.env now — fills in whatever frontend's own env didn't set.
 loadEnvConfig(path.join(root, "..", "backend"), true);
 
-const port = 3004;
+const port = 3011;
 const devURL = `http://localhost:${port}`;
 const backend = (process.env.BACKEND_ORIGIN || "http://localhost:8090").replace(/\/+$/, "");
 const apiBase = process.env.DESKTOP_API_BASE || process.env.NEXT_PUBLIC_API_BASE || `${backend}/api/v1`;
@@ -57,10 +57,10 @@ async function main() {
       if (branding.logoUrl) {
         await generateIconFromLogo(branding.logoUrl, root);
       } else {
-        // No logo yet: the default logo, never a stale previous tenant's.
-        await generateDefaultIcon(root);
+        // No logo yet: an initials icon, never a stale previous tenant's.
+        await generateIconFromInitials(branding.name, branding.brandColor, root);
       }
-      regenerateWindowsResource(root, run, branding.name);
+      regenerateWindowsResource(root, run);
     } catch (err) {
       console.warn(`Could not build a tenant icon (${err.message}) — the taskbar icon may be stale for this tenant.`);
     }

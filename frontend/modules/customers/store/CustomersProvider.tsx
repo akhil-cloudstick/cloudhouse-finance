@@ -16,18 +16,18 @@ type CustomersProviderProps = { children: React.ReactNode };
  * tells them when a customer was added or changed (`version` bumps on refresh).
  */
 export function CustomersProvider({ children }: CustomersProviderProps) {
-	const [version, setVersion] = useState(0);
-	const refresh = useCallback(() => setVersion((v) => v + 1), []);
+  const [version, setVersion] = useState(0);
+  const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
-	return (
-		<CustomersContext.Provider value={{ version, refresh }}>
-			{children}
-		</CustomersContext.Provider>
-	);
+  return (
+    <CustomersContext.Provider value={{ version, refresh }}>
+      {children}
+    </CustomersContext.Provider>
+  );
 }
 
 export function useCustomers() {
-	const ctx = useContext(CustomersContext);
-	if (!ctx) throw new Error("useCustomers must be used within a CustomersProvider");
-	return ctx;
+  const ctx = useContext(CustomersContext);
+  if (!ctx) throw new Error("useCustomers must be used within a CustomersProvider");
+  return ctx;
 }

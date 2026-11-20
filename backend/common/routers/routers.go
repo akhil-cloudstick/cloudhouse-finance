@@ -13,7 +13,6 @@ func CommonRoutes(e *echo.Echo) *echo.Echo {
 	CustomerAppRoutes(e)
 	CustomerRoutes(e)
 	DemoRoutes(e)
-	DeviceRoutes(e)
 	EmployeeRoutes(e)
 	GoldRateRoutes(e)
 	InvestorRoutes(e)

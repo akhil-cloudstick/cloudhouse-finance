@@ -19,72 +19,72 @@ const MIN_SCALE = 0.55;
 const LEDGER_SELECTOR = ".ledger-amt td.num, .ledger-total-fit";
 
 function textWidth(el: HTMLElement): number {
-	const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-	const range = document.createRange();
-	let left = Infinity;
-	let right = -Infinity;
-	for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-		if (!n.textContent?.trim()) continue;
-		range.selectNodeContents(n);
-		const b = range.getBoundingClientRect();
-		left = Math.min(left, b.left);
-		right = Math.max(right, b.right);
-	}
-	return right > left ? right - left : 0;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  let left = Infinity;
+  let right = -Infinity;
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.textContent?.trim()) continue;
+    range.selectNodeContents(n);
+    const b = range.getBoundingClientRect();
+    left = Math.min(left, b.left);
+    right = Math.max(right, b.right);
+  }
+  return right > left ? right - left : 0;
 }
 
 function fitLedger(el: HTMLElement) {
-	if (el.dataset.fitOrig === undefined) el.dataset.fitOrig = el.style.fontSize;
-	el.style.fontSize = el.dataset.fitOrig;
-	// Stacked cards show the value on its own line, full width — nothing to fit.
-	if (el.closest(".tbl-stack") && window.innerWidth <= 1279) return;
-	const box = el.classList.contains("ledger-total-fit") ? (el.parentElement as HTMLElement) : el;
-	const cs = getComputedStyle(box);
-	const fixed = parseFloat(cs.minWidth);
-	const avail = (Number.isFinite(fixed) && fixed > 0 ? fixed : box.clientWidth) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-	const w = textWidth(el);
-	if (!avail || !w || w <= avail) return;
-	const base = parseFloat(getComputedStyle(el).fontSize);
-	if (!base) return;
-	el.style.fontSize = `${(base * Math.max((avail / w) * 0.97, MIN_SCALE)).toFixed(2)}px`;
+  if (el.dataset.fitOrig === undefined) el.dataset.fitOrig = el.style.fontSize;
+  el.style.fontSize = el.dataset.fitOrig;
+  // Stacked cards show the value on its own line, full width — nothing to fit.
+  if (el.closest(".tbl-stack") && window.innerWidth <= 1279) return;
+  const box = el.classList.contains("ledger-total-fit") ? (el.parentElement as HTMLElement) : el;
+  const cs = getComputedStyle(box);
+  const fixed = parseFloat(cs.minWidth);
+  const avail = (Number.isFinite(fixed) && fixed > 0 ? fixed : box.clientWidth) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const w = textWidth(el);
+  if (!avail || !w || w <= avail) return;
+  const base = parseFloat(getComputedStyle(el).fontSize);
+  if (!base) return;
+  el.style.fontSize = `${(base * Math.max((avail / w) * 0.97, MIN_SCALE)).toFixed(2)}px`;
 }
 
 function fit(el: HTMLElement) {
-	// Remember what the element had inline (usually nothing) so resetting does
-	// not wipe a size a page set on purpose.
-	if (el.dataset.fitOrig === undefined) el.dataset.fitOrig = el.style.fontSize;
-	el.style.fontSize = el.dataset.fitOrig;
-	const avail = el.clientWidth;
-	if (!avail || el.scrollWidth <= avail + 0.5) return;
-	const base = parseFloat(getComputedStyle(el).fontSize);
-	if (!base) return;
-	const scale = Math.max((avail / el.scrollWidth) * 0.97, MIN_SCALE);
-	el.style.fontSize = `${(base * scale).toFixed(2)}px`;
+  // Remember what the element had inline (usually nothing) so resetting does
+  // not wipe a size a page set on purpose.
+  if (el.dataset.fitOrig === undefined) el.dataset.fitOrig = el.style.fontSize;
+  el.style.fontSize = el.dataset.fitOrig;
+  const avail = el.clientWidth;
+  if (!avail || el.scrollWidth <= avail + 0.5) return;
+  const base = parseFloat(getComputedStyle(el).fontSize);
+  if (!base) return;
+  const scale = Math.max((avail / el.scrollWidth) * 0.97, MIN_SCALE);
+  el.style.fontSize = `${(base * scale).toFixed(2)}px`;
 }
 
 export function FitTextObserver() {
-	useEffect(() => {
-		let frame = 0;
-		const run = () => {
-			frame = 0;
-			document.querySelectorAll<HTMLElement>(SELECTOR).forEach(fit);
-			document.querySelectorAll<HTMLElement>(LEDGER_SELECTOR).forEach(fitLedger);
-		};
-		const schedule = () => {
-			if (!frame) frame = requestAnimationFrame(run);
-		};
-		// Only content and structure changes are observed — fit() itself writes the
-		// style attribute, which must not retrigger it.
-		const mo = new MutationObserver(schedule);
-		mo.observe(document.body, { childList: true, subtree: true, characterData: true });
-		window.addEventListener("resize", schedule);
-		void document.fonts?.ready.then(schedule);
-		schedule();
-		return () => {
-			mo.disconnect();
-			window.removeEventListener("resize", schedule);
-			if (frame) cancelAnimationFrame(frame);
-		};
-	}, []);
-	return null;
+  useEffect(() => {
+    let frame = 0;
+    const run = () => {
+      frame = 0;
+      document.querySelectorAll<HTMLElement>(SELECTOR).forEach(fit);
+      document.querySelectorAll<HTMLElement>(LEDGER_SELECTOR).forEach(fitLedger);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(run);
+    };
+    // Only content and structure changes are observed — fit() itself writes the
+    // style attribute, which must not retrigger it.
+    const mo = new MutationObserver(schedule);
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    window.addEventListener("resize", schedule);
+    void document.fonts?.ready.then(schedule);
+    schedule();
+    return () => {
+      mo.disconnect();
+      window.removeEventListener("resize", schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+  return null;
 }

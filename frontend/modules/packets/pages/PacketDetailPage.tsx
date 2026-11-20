@@ -14,8 +14,7 @@ import { listLockers, searchLockersPage } from "@/modules/lockers/services/locke
 import { type LockerView } from "@/modules/lockers/types/locker-types";
 import { getLoanByNumber, canAcceptBankPledge } from "@/modules/loans/services/loanService";
 import { RepledgeModalContent } from "@/common/components/modals/RepledgeModalContent";
-import { ENTRIES_SENT_EVENT } from "@/common/offline/live";
-import { getPacketByCode, listMovements, recordMovement, pendingLabel, PACKET_STAGES, PACKET_STATUS } from "@/modules/packets/services/packetService";
+import { getPacketByCode, listMovements, recordMovement, PACKET_STAGES, PACKET_STATUS } from "@/modules/packets/services/packetService";
 import { type PacketView, type MovementView } from "@/modules/packets/types/packet-types";
 import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
@@ -25,27 +24,27 @@ import { TableCols } from "@/common/components/ui/TableCols";
 type StepperProps = { status: string };
 
 function Stepper({ status }: StepperProps) {
-	const idx = PACKET_STAGES.indexOf(status);
-	return (
-		<div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, margin: "12px 0 20px" }}>
-			{PACKET_STAGES.map((stage, i) => (
-				<div key={stage} style={{ display: "flex", alignItems: "center" }}>
-					<div
-						style={{
-							padding: "5px 11px", borderRadius: 999, fontSize: 12, whiteSpace: "nowrap",
-							background: i <= idx ? "linear-gradient(90deg,var(--brand-mid),var(--brand-deep))" : "var(--brand-pale)",
-							color: i <= idx ? "#fff" : "var(--muted)",
-							fontWeight: i === idx ? 700 : 500,
-							border: i === idx ? "2px solid var(--brand-deep)" : "none",
-						}}
-					>
-						{stage}
-					</div>
-					{i < PACKET_STAGES.length - 1 && <div style={{ width: 18, height: 2, background: i < idx ? "var(--brand-deep)" : "var(--line)" }} />}
-				</div>
-			))}
-		</div>
-	);
+  const idx = PACKET_STAGES.indexOf(status);
+  return (
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, margin: "12px 0 20px" }}>
+      {PACKET_STAGES.map((stage, i) => (
+        <div key={stage} style={{ display: "flex", alignItems: "center" }}>
+          <div
+            style={{
+              padding: "5px 11px", borderRadius: 999, fontSize: 12, whiteSpace: "nowrap",
+              background: i <= idx ? "linear-gradient(90deg,var(--brand-mid),var(--brand-deep))" : "var(--brand-pale)",
+              color: i <= idx ? "#fff" : "var(--muted)",
+              fontWeight: i === idx ? 700 : 500,
+              border: i === idx ? "2px solid var(--brand-deep)" : "none",
+            }}
+          >
+            {stage}
+          </div>
+          {i < PACKET_STAGES.length - 1 && <div style={{ width: 18, height: 2, background: i < idx ? "var(--brand-deep)" : "var(--line)" }} />}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 type PacketDetailPageProps = { code?: string };
@@ -56,141 +55,132 @@ type PacketDetailPageProps = { code?: string };
  * history, and the staff action buttons that drive
  * POST /packets/:id/movements. */
 export function PacketDetailPage({ code }: PacketDetailPageProps) {
-	const toast = useToast();
-	const showBranch = useShowBranch();
-	const { openModal } = useModal();
+  const toast = useToast();
+  const showBranch = useShowBranch();
+  const { openModal } = useModal();
   const { can, employee } = useAuth();
-	const canOpen = useCanOpenRoute();
+  const canOpen = useCanOpenRoute();
 
-	const canCreateBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
-	// Locker names on this page come from the locker list — without locker
-	// view the packet still loads, just without them.
-	const canViewLockers = can("Locker_Management", "can_view_locker_module");
-	// Every packet movement (check-in, ready-for-release, released) writes to
-	// the packet, so they all need "can update packet" — hidden, not disabled,
-	// without it (see Customers.tsx).
-	const canMovePackets = can("Packet_Management", "can_update_packet");
+  const canCreateBankPledge = can("Bank_Pledge_Management", "can_create_bank_pledge");
+  // Locker names on this page come from the locker list — without locker
+  // view the packet still loads, just without them.
+  const canViewLockers = can("Locker_Management", "can_view_locker_module");
+  // Every packet movement (check-in, ready-for-release, released) writes to
+  // the packet, so they all need "can update packet" — hidden, not disabled,
+  // without it (see Customers.tsx).
+  const canMovePackets = can("Packet_Management", "can_update_packet");
 
-	const [p, setP] = useState<PacketView | null>(null);
-	const [movements, setMovements] = useState<MovementView[]>([]);
-	const [lockers, setLockers] = useState<LockerView[]>([]);
-	const [error, setError] = useState("");
-	const [busy, setBusy] = useState(false);
+  const [p, setP] = useState<PacketView | null>(null);
+  const [movements, setMovements] = useState<MovementView[]>([]);
+  const [lockers, setLockers] = useState<LockerView[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const allFullRef = useRef(false); // locker picker: every matching locker is full
-	const [pickLocker, setPickLocker] = useState(false);
+  const [pickLocker, setPickLocker] = useState(false);
   // True when the picker is moving a packet already in one locker to another (vs. a first check-in).
-    const [changingLocker, setChangingLocker] = useState(false);
-	const [lockerId, setLockerId] = useState<number | "">("");
+  const [changingLocker, setChangingLocker] = useState(false);
+  const [lockerId, setLockerId] = useState<number | "">("");
 
-	async function load() {
-		if (!code) return;
-		setError("");
-		try {
-			const pkt = await getPacketByCode(code);
-			setP(pkt);
-			const [mv, lk] = await Promise.all([listMovements(pkt.id), canViewLockers ? listLockers() : Promise.resolve([])]);
-			setMovements(mv);
-			setLockers(lk);
-		} catch (e) {
-			setError(e instanceof ApiError ? e.message : "Failed to load packet.");
-		}
-	}
+  async function load() {
+    if (!code) return;
+    setError("");
+    try {
+      const pkt = await getPacketByCode(code);
+      setP(pkt);
+      const [mv, lk] = await Promise.all([listMovements(pkt.id), canViewLockers ? listLockers() : Promise.resolve([])]);
+      setMovements(mv);
+      setLockers(lk);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to load packet.");
+    }
+  }
 
-	// a movement that was queued may not have been on the server when the packet was read: when the sender has posted it,
-	// read the packet again so the new stage shows without a manual refresh
-	useEffect(() => {
-		const again = () => void load();
-		window.addEventListener(ENTRIES_SENT_EVENT, again);
-		return () => window.removeEventListener(ENTRIES_SENT_EVENT, again);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [code]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [code]);
 
-	useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [code]);
+  // Bank-pledging a packet's gold is a real transaction (bank, amount, cash
+  // treatment) — not a bare stepper move. This opens the same RepledgeModal
+  // used from the loan page / Bank Re-Pledge page; recordBankPledge() moves
+  // the packet to "Bank Pledged" itself server-side (see
+  // PacketMover.RecordBankPledgeMovement), so there is no separate doMove
+  // call here.
+  async function openBankPledge() {
+    if (!p) return;
+    setBusy(true);
+    try {
+      const loan = await getLoanByNumber(p.loanNumber);
+      // The packet being in a locker isn't sufficient on its own — the loan
+      // must also still be pledgeable (not closed/released/auctioned, and
+      // its one bank pledge unused). Checked here rather than only on the
+      // button because the loan is not loaded until this click.
+      if (!canAcceptBankPledge(loan.status, loan.bankPledgeStatus)) {
+        toast("This loan can no longer be re-pledged to a bank.");
+        return;
+      }
+      openModal(<RepledgeModalContent loan={loan} onSaved={load} />, true);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-	// Bank-pledging a packet's gold is a real transaction (bank, amount, cash
-	// treatment) — not a bare stepper move. This opens the same RepledgeModal
-	// used from the loan page / Bank Re-Pledge page; recordBankPledge() moves
-	// the packet to "Bank Pledged" itself server-side (see
-	// PacketMover.RecordBankPledgeMovement), so there is no separate doMove
-	// call here.
-	async function openBankPledge() {
-		if (!p) return;
-		setBusy(true);
-		try {
-			const loan = await getLoanByNumber(p.loanNumber);
-			// The packet being in a locker isn't sufficient on its own — the loan
-			// must also still be pledgeable (not closed/released/auctioned, and
-			// its one bank pledge unused). Checked here rather than only on the
-			// button because the loan is not loaded until this click.
-			if (!canAcceptBankPledge(loan.status, loan.bankPledgeStatus)) {
-				toast("This loan can no longer be re-pledged to a bank.");
-				return;
-			}
-			openModal(<RepledgeModalContent loan={loan} onSaved={load} />, true);
-		} catch (e) {
-			toast(e instanceof ApiError ? e.message : "Could not load the loan — try again.");
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	async function doMove(toStatus: string, extraLockerId?: number) {
-		if (!p) return;
-		setBusy(true);
-		try {
-			await recordMovement(p.id, { toStatus, lockerId: extraLockerId, employeeId: employee?.id ?? 0 });
-			toast(changingLocker ? `Packet ${p.code} moved to another locker` : `Packet ${pendingLabel(p.code)} moved to "${toStatus}"`);
-			setPickLocker(false);
+  async function doMove(toStatus: string, extraLockerId?: number) {
+    if (!p) return;
+    setBusy(true);
+    try {
+      await recordMovement(p.id, { toStatus, lockerId: extraLockerId, employeeId: employee?.id ?? 0 });
+      toast(changingLocker ? `Packet ${p.code} moved to another locker` : `Packet ${p.code} moved to "${toStatus}"`);
+      setPickLocker(false);
       setChangingLocker(false);
-			setLockerId("");
-			await load();
-		} catch (e) {
-			toast(e instanceof ApiError ? e.message : "Could not record the movement — try again.");
-		} finally {
-			setBusy(false);
-		}
-	}
+      setLockerId("");
+      await load();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : "Could not record the movement — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-	if (error) {
-		return <p style={{ color: "var(--red)", fontSize: 13.5 }}>Could not load packet — {error}</p>;
-	}
-	if (!p) {
-		return <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading packet…</p>;
-	}
+  if (error) {
+    return <p style={{ color: "var(--red)", fontSize: 13.5 }}>Could not load packet — {error}</p>;
+  }
+  if (!p) {
+    return <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading packet…</p>;
+  }
 
-	const currentLocker = lockers.find((l) => l.id === p.currentLockerId);
-	// Once the loan is Auctioned/AuctionedBalanceDue/Closed, the gold has
-	// already left custody (sold or released) — no further packet movement
-	// is possible (the backend rejects it too, see packet.
-	// loanNoLongerMovableStatuses), and the packet's own workflow stage
-	// (e.g. still "Locker Stored" from before the sale) is no longer the
-	// meaningful status to show: the loan's own outcome overrides it.
-	const isAuctioned = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due";
-	const movementLocked = isAuctioned || p.loanStatus === "Closed" || p.loanStatus === "Rejected";
-	// The packet is made when the loan is submitted, but it can't go into a locker until the loan is approved.
-	const awaitingApproval = p.loanStatus === "Pending Approval";
-	// A Closed loan's gold was handed back to the customer, whatever stage an older release left the packet at.
-	const displayStatus = isAuctioned ? "Auctioned" : p.loanStatus === "Closed" ? PACKET_STATUS.RELEASED : p.status;
+  const currentLocker = lockers.find((l) => l.id === p.currentLockerId);
+  // Once the loan is Auctioned/AuctionedBalanceDue/Closed, the gold has
+  // already left custody (sold or released) — no further packet movement
+  // is possible (the backend rejects it too, see packet.
+  // loanNoLongerMovableStatuses), and the packet's own workflow stage
+  // (e.g. still "Locker Stored" from before the sale) is no longer the
+  // meaningful status to show: the loan's own outcome overrides it.
+  const isAuctioned = p.loanStatus === "Auctioned" || p.loanStatus === "Auctioned - Balance Due";
+  const movementLocked = isAuctioned || p.loanStatus === "Closed" || p.loanStatus === "Rejected";
+  // The packet is made when the loan is submitted, but it can't go into a locker until the loan is approved.
+  const awaitingApproval = p.loanStatus === "Pending Approval";
+  // A Closed loan's gold was handed back to the customer, whatever stage an older release left the packet at.
+  const displayStatus = isAuctioned ? "Auctioned" : p.loanStatus === "Closed" ? PACKET_STATUS.RELEASED : p.status;
 
-	return (
-		<>
-			<div className="page-h">
-				<div><h1>Packet {pendingLabel(p.code)}</h1><p>Loan {pendingLabel(p.loanNumber)} · {p.customerName}</p></div>
-				<div className="sp" />
-				<StatusChip status={displayStatus} />
-			</div>
-			<hr className="gold-rule" />
-			{/* "Auctioned" isn't one of PACKET_STAGES — the packet's workflow is
-				* moot once the gold has been sold, so the stepper (which would
-				* otherwise render every stage as not-yet-reached) is skipped in
-				* favor of a plain explanatory line. */}
-			{isAuctioned ? (
-				<p style={{ color: "var(--muted)", fontSize: 13.5, margin: "12px 0 20px" }}>
-					This loan&apos;s gold was sold at auction — the packet&apos;s locker workflow no longer applies.
-				</p>
-			) : (
-				<Stepper status={displayStatus} />
-			)}
+  return (
+    <>
+      <div className="page-h">
+        <div><h1>Packet {p.code}</h1><p>Loan {p.loanNumber} · {p.customerName}</p></div>
+        <div className="sp" />
+        <StatusChip status={displayStatus} />
+      </div>
+      <hr className="gold-rule" />
+      {/* "Auctioned" isn't one of PACKET_STAGES — the packet's workflow is
+        * moot once the gold has been sold, so the stepper (which would
+        * otherwise render every stage as not-yet-reached) is skipped in
+        * favor of a plain explanatory line. */}
+      {isAuctioned ? (
+        <p style={{ color: "var(--muted)", fontSize: 13.5, margin: "12px 0 20px" }}>
+          This loan&apos;s gold was sold at auction — the packet&apos;s locker workflow no longer applies.
+        </p>
+      ) : (
+        <Stepper status={displayStatus} />
+      )}
 
       <div className="grid cols21">
         <div className="grid">
@@ -251,96 +241,96 @@ export function PacketDetailPage({ code }: PacketDetailPageProps) {
         </div>
         </div>
 
-				<div className="card">
-					<div className="hd"><h3>Details</h3></div>
-					<div className="bd">
-						<div className="kv" style={{ gridTemplateColumns: "1fr" }}>
-							<div className="i"><div className="k">Items / Weight</div><div className="v">{p.itemCount} item(s) · {fmtW(p.totalWeight)}</div></div>
-							{showBranch && <div className="i"><div className="k">Branch</div><div className="v">{p.branchName}</div></div>}
-							<div className="i"><div className="k">Current Locker</div><div className="v">{currentLocker ? currentLocker.code : "—"}</div></div>
-						</div>
+        <div className="card">
+          <div className="hd"><h3>Details</h3></div>
+          <div className="bd">
+            <div className="kv" style={{ gridTemplateColumns: "1fr" }}>
+              <div className="i"><div className="k">Items / Weight</div><div className="v">{p.itemCount} item(s) · {fmtW(p.totalWeight)}</div></div>
+              {showBranch && <div className="i"><div className="k">Branch</div><div className="v">{p.branchName}</div></div>}
+              <div className="i"><div className="k">Current Locker</div><div className="v">{currentLocker ? currentLocker.code : "—"}</div></div>
+            </div>
 
-						<hr className="gold-rule" style={{ margin: "16px 0" }} />
+            <hr className="gold-rule" style={{ margin: "16px 0" }} />
 
-						{!movementLocked && canMovePackets && (p.status === PACKET_STATUS.GENERATED || p.status === PACKET_STATUS.RETURNED) && !pickLocker && (
-							<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-								<button className="btn" disabled={busy || awaitingApproval} title={awaitingApproval ? "Loan awaiting approval" : undefined} onClick={() => setPickLocker(true)}><Icon name="lock" /> Check In to Locker</button>
-								{/* Returned-from-bank gold going straight back to the
-									* customer doesn't need a locker stop in between — the
-									* same direct-to-Released edge LOCKER_STORED gets below. */}
-								{p.status === PACKET_STATUS.RETURNED && (
-									<button className="btn ghost" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
-								)}
-								{awaitingApproval && <p style={{ flexBasis: "100%", fontSize: 12, color: "var(--muted)", margin: 0 }}>Can be checked in once the loan is approved.</p>}
-							</div>
-						)}
-						{!movementLocked && pickLocker && (
-							<div className="frow" style={{ marginBottom: 10 }}>
-								<div style={{ flex: 1 }}>
-									<label className="f">{changingLocker ? `Move from ${currentLocker?.code ?? "current locker"} to` : "Select locker"}</label>
-									{/* Server-side paginated + searched (5 per page, loads more
-										* as you scroll near the bottom) instead of a plain
-										* <select> over every locker at once — see
-										* lockerService.ts's searchLockersPage. Full lockers are
-										* filtered out of each page rather than shown disabled.
-										* Scoped to the packet's own branch — gold physically at
-										* one branch can't be checked into another branch's
-										* locker. */}
-									<SearchableSelect<LockerView>
-										value=""
-										placeholder="Search locker code…"
-										searchHint="Searches: locker code"
-										fetchFn={(q, page) =>
+            {!movementLocked && canMovePackets && (p.status === PACKET_STATUS.GENERATED || p.status === PACKET_STATUS.RETURNED) && !pickLocker && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn" disabled={busy || awaitingApproval} title={awaitingApproval ? "Loan awaiting approval" : undefined} onClick={() => setPickLocker(true)}><Icon name="lock" /> Check In to Locker</button>
+                {/* Returned-from-bank gold going straight back to the
+                  * customer doesn't need a locker stop in between — the
+                  * same direct-to-Released edge LOCKER_STORED gets below. */}
+                {p.status === PACKET_STATUS.RETURNED && (
+                  <button className="btn ghost" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
+                )}
+                {awaitingApproval && <p style={{ flexBasis: "100%", fontSize: 12, color: "var(--muted)", margin: 0 }}>Can be checked in once the loan is approved.</p>}
+              </div>
+            )}
+            {!movementLocked && pickLocker && (
+              <div className="frow" style={{ marginBottom: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <label className="f">{changingLocker ? `Move from ${currentLocker?.code ?? "current locker"} to` : "Select locker"}</label>
+                  {/* Server-side paginated + searched (5 per page, loads more
+                    * as you scroll near the bottom) instead of a plain
+                    * <select> over every locker at once — see
+                    * lockerService.ts's searchLockersPage. Full lockers are
+                    * filtered out of each page rather than shown disabled.
+                    * Scoped to the packet's own branch — gold physically at
+                    * one branch can't be checked into another branch's
+                    * locker. */}
+                  <SearchableSelect<LockerView>
+                    value=""
+                    placeholder="Search locker code…"
+                    searchHint="Searches: locker code"
+                    fetchFn={(q, page) =>
                       searchLockersPage(q, page, { activeOnly: true, branchId: p.branchId }).then((res) => {
                         const others = res.items.filter((l) => l.id !== p.currentLockerId);
                         const items = others.filter((l) => l.occupied < l.capacity);
                         if (page === 0) allFullRef.current = others.length > 0 && items.length === 0 && !res.hasMore;
                         return { items, hasMore: res.hasMore };
                       })
-										}
+                    }
                     emptyText={() => (allFullRef.current ? "All lockers full" : "No results")}
-										getId={(l) => String(l.id)}
-										getLabel={(l) => `${l.code} (${l.occupied}/${l.capacity})`}
-										onChange={(id) => setLockerId(id ? Number(id) : "")}
-									/>
-								</div>
-								<div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-									<button className="btn ghost sm" onClick={() => { setPickLocker(false); setChangingLocker(false); setLockerId(""); }}>Cancel</button>
-									<button className="btn sm" disabled={busy || lockerId === ""} onClick={() => doMove(PACKET_STATUS.LOCKER_STORED, Number(lockerId))}>{changingLocker ? "Confirm Change" : "Confirm Check-In"}</button>
-								</div>
-							</div>
-						)}
+                    getId={(l) => String(l.id)}
+                    getLabel={(l) => `${l.code} (${l.occupied}/${l.capacity})`}
+                    onChange={(id) => setLockerId(id ? Number(id) : "")}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  <button className="btn ghost sm" onClick={() => { setPickLocker(false); setChangingLocker(false); setLockerId(""); }}>Cancel</button>
+                  <button className="btn sm" disabled={busy || lockerId === ""} onClick={() => doMove(PACKET_STATUS.LOCKER_STORED, Number(lockerId))}>{changingLocker ? "Confirm Change" : "Confirm Check-In"}</button>
+                </div>
+              </div>
+            )}
 
-						{!movementLocked && canMovePackets && p.status === PACKET_STATUS.LOCKER_STORED && !pickLocker && (
-							<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {!movementLocked && canMovePackets && p.status === PACKET_STATUS.LOCKER_STORED && !pickLocker && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button className="btn ghost" disabled={busy} onClick={() => { setChangingLocker(true); setPickLocker(true); }}><Icon name="lock" /> Change Locker</button>
-								{canCreateBankPledge && (
-									<button className="btn ghost" disabled={busy} onClick={openBankPledge}><Icon name="bank" /> Repledge to Bank</button>
-								)}
-								<button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
-							</div>
-						)}
+                {canCreateBankPledge && (
+                  <button className="btn ghost" disabled={busy} onClick={openBankPledge}><Icon name="bank" /> Repledge to Bank</button>
+                )}
+                <button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
+              </div>
+            )}
 
-						{/* READY_FOR_RELEASE is a legacy status only — no packet is ever
-							* moved INTO it anymore (see allowedTransitions in backend/
-							* internal/packet/service.go), but a packet seeded/recorded
-							* before that change still needs a way out of it. */}
-						{!movementLocked && canMovePackets && p.status === PACKET_STATUS.READY_FOR_RELEASE && (
-							<button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
-						)}
+            {/* READY_FOR_RELEASE is a legacy status only — no packet is ever
+              * moved INTO it anymore (see allowedTransitions in backend/
+              * internal/packet/service.go), but a packet seeded/recorded
+              * before that change still needs a way out of it. */}
+            {!movementLocked && canMovePackets && p.status === PACKET_STATUS.READY_FOR_RELEASE && (
+              <button className="btn" disabled={busy} onClick={() => doMove(PACKET_STATUS.RELEASED)}><Icon name="check" /> Release</button>
+            )}
 
-						{!isAuctioned && p.status === PACKET_STATUS.BANK_PLEDGED && (
-							<p style={{ color: "var(--muted)", fontSize: "clamp(11px, 1.6vw, 12.5px)", lineHeight: 1.45, overflowWrap: "anywhere" }}>
-								Pledged with a bank — release it from the loan&apos;s Bank Pledge to return this packet.
-							</p>
-						)}
+            {!isAuctioned && p.status === PACKET_STATUS.BANK_PLEDGED && (
+              <p style={{ color: "var(--muted)", fontSize: "clamp(11px, 1.6vw, 12.5px)", lineHeight: 1.45, overflowWrap: "anywhere" }}>
+                Pledged with a bank — release it from the loan&apos;s Bank Pledge to return this packet.
+              </p>
+            )}
 
-						{!isAuctioned && p.status === PACKET_STATUS.RELEASED && (
-							<p style={{ color: "var(--muted)", fontSize: 12.5 }}>This packet has been released to the customer — no further actions.</p>
-						)}
-					</div>
-				</div>
-			</div>
-		</>
-	);
+            {!isAuctioned && p.status === PACKET_STATUS.RELEASED && (
+              <p style={{ color: "var(--muted)", fontSize: 12.5 }}>This packet has been released to the customer — no further actions.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
 }

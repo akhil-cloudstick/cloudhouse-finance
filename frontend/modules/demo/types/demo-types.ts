@@ -13,24 +13,24 @@
  */
 
 export type ResetReport = {
-	/** table name -> rows removed */
-	deleted: Record<string, number>;
-	/** entity name -> rows seeded */
-	created: Record<string, number>;
-	filesRemoved: number;
-	/** The login that was preserved. */
-	adminUsername: string;
-	durationMs: number;
-	seededAt: string;
+  /** table name -> rows removed */
+  deleted: Record<string, number>;
+  /** entity name -> rows seeded */
+  created: Record<string, number>;
+  filesRemoved: number;
+  /** The login that was preserved. */
+  adminUsername: string;
+  durationMs: number;
+  seededAt: string;
 };
 /** One completed phase, as reported by the seeder. */
 export type ResetProgress = {
-	step: string;
-	index: number;
-	total: number;
+  step: string;
+  index: number;
+  total: number;
 };
 export type StreamEvent = Partial<ResetProgress> & {
-	error?: string;
-	done?: boolean;
-	report?: ResetReport;
+  error?: string;
+  done?: boolean;
+  report?: ResetReport;
 };

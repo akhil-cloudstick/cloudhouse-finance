@@ -11,13 +11,7 @@ if (!apiBase) {
 const result = spawnSync("npx", ["next", "build"], {
   stdio: "inherit",
   shell: true,
-  // DESKTOP_TENANT also names the business inside the window (its logo, name and sign-in), not just the exe icon.
-  env: {
-    ...process.env,
-    DESKTOP_BUILD: "1",
-    ...(apiBase ? { NEXT_PUBLIC_API_BASE: apiBase } : {}),
-    NEXT_PUBLIC_DESKTOP_TENANT: (process.env.DESKTOP_TENANT || "").trim().toLowerCase(),
-  },
+  env: { ...process.env, DESKTOP_BUILD: "1", ...(apiBase ? { NEXT_PUBLIC_API_BASE: apiBase } : {}) },
 });
 
 process.exit(result.status ?? 1);

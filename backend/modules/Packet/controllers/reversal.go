@@ -3,7 +3,6 @@ package controllers
 import (
 	common "cloudhouse/backend/common/controllers"
 	"cloudhouse/backend/config"
-	loanModels "cloudhouse/backend/modules/Loan/models"
 	"cloudhouse/backend/modules/Packet/models"
 	"context"
 	"errors"
@@ -130,9 +129,6 @@ func ReverseToPreviousTx(ctx context.Context, db *gorm.DB, loanID, actorEmployee
 	if err := db.WithContext(ctx).Create(mv).Error; err != nil {
 		return nil, err
 	}
-	if err := loanModels.TouchLoan(db.WithContext(ctx), p.LoanID); err != nil {
-		return nil, err
-	}
 	return &p, nil
 }
 
@@ -151,10 +147,7 @@ func RestoreWeightsTx(ctx context.Context, db *gorm.DB, loanID uint, gross, net 
 	if err := db.WithContext(ctx).Save(&p).Error; err != nil {
 		return err
 	}
-	if err := db.WithContext(ctx).Create(&models.PacketMovement{
+	return db.WithContext(ctx).Create(&models.PacketMovement{
 		PacketID: p.ID, FromStatus: p.Status, ToStatus: p.Status, ActorEmployeeID: actorEmployeeID, Remarks: remarks,
-	}).Error; err != nil {
-		return err
-	}
-	return loanModels.TouchLoan(db.WithContext(ctx), p.LoanID)
+	}).Error
 }

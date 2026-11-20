@@ -27,26 +27,26 @@ type AuthGuardProps = { children: React.ReactNode };
  * business URL down to this one static page; the real slug is read from
  * window.location by parsePath()/appRoutes.ts, never from a route param. */
 export default function AuthGuard({ children }: AuthGuardProps) {
-	const { token, loading } = useAuth();
+  const { token, loading } = useAuth();
 
-	/* Fires at most once per document. Signing out drops the token here AND
-	 * navigates from Topbar's own handler, so without the latch this guard
-	 * issued a second replace() into a navigation that was already in flight —
-	 * the later call aborts the earlier one, and an aborted leave is how the
-	 * browser ends up sitting on a page it was told twice to leave. Once we
-	 * have decided to go, the decision stands. */
-	const redirectedRef = useRef(false);
+  /* Fires at most once per document. Signing out drops the token here AND
+   * navigates from Topbar's own handler, so without the latch this guard
+   * issued a second replace() into a navigation that was already in flight —
+   * the later call aborts the earlier one, and an aborted leave is how the
+   * browser ends up sitting on a page it was told twice to leave. Once we
+   * have decided to go, the decision stands. */
+  const redirectedRef = useRef(false);
 
-	useEffect(() => {
-		if (loading || token || redirectedRef.current) return;
-		redirectedRef.current = true;
-		// Keeps the business slug, so a bounced user lands back on their own
-		// organisation's sign-in link rather than a bare form that would ask
-		// for a business code they may never have been told.
-		window.location.replace(loginPath());
-	}, [loading, token]);
+  useEffect(() => {
+    if (loading || token || redirectedRef.current) return;
+    redirectedRef.current = true;
+    // Keeps the business slug, so a bounced user lands back on their own
+    // organisation's sign-in link rather than a bare form that would ask
+    // for a business code they may never have been told.
+    window.location.replace(loginPath());
+  }, [loading, token]);
 
-	if (loading || !token) return null;
+  if (loading || !token) return null;
 
-	return <>{children}</>;
+  return <>{children}</>;
 }

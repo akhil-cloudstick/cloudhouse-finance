@@ -26,20 +26,20 @@ export type LockupFit = "xl" | "lg" | "md" | "sm";
 export type LockupSubFit = "sm" | "xs";
 
 export type LockupInput = {
-	name?: string | null;
-	shortName?: string | null;
-	lockupTagline?: string | null;
+  name?: string | null;
+  shortName?: string | null;
+  lockupTagline?: string | null;
 };
 
 export type Lockup = {
-	/** Bold headline. Empty only before any brand data has arrived. */
-	top: string;
-	/** Small uppercase subline. Empty means: render no second line at all. May
-	 * contain a single "\n" the vendor typed — render it with white-space
-	 * preserved (app.css uses pre-line), not collapsed. */
-	bottom: string;
-	topFit: LockupFit;
-	bottomFit: LockupSubFit;
+  /** Bold headline. Empty only before any brand data has arrived. */
+  top: string;
+  /** Small uppercase subline. Empty means: render no second line at all. May
+   * contain a single "\n" the vendor typed — render it with white-space
+   * preserved (app.css uses pre-line), not collapsed. */
+  bottom: string;
+  topFit: LockupFit;
+  bottomFit: LockupSubFit;
 };
 
 /* Longest string that still fits the rail on ONE line at each step.
@@ -58,9 +58,9 @@ export type Lockup = {
  * see app.css. Uppercase runs wider than the average, so a name near a
  * boundary may wrap; that is the intended failure, not overflow. */
 const TOP_STEPS: ReadonlyArray<readonly [maxLen: number, fit: LockupFit]> = [
-	[6, "xl"],
-	[10, "lg"],
-	[12, "md"],
+  [6, "xl"],
+  [10, "lg"],
+  [12, "md"],
 ];
 const TOP_SMALLEST: LockupFit = "sm";
 
@@ -70,7 +70,7 @@ const norm = (v: string | null | undefined): string => (v || "").trim();
  * on the widest line — total length would shrink a deliberately-broken
  * subline for no reason. */
 const widestLine = (text: string): number =>
-	text.split("\n").reduce((w, line) => Math.max(w, line.length), 0);
+  text.split("\n").reduce((w, line) => Math.max(w, line.length), 0);
 
 /* The subline may carry explicit line breaks, because where a long name
  * breaks is an editorial choice we cannot make for a business: CTFI's reads
@@ -91,19 +91,19 @@ const widestLine = (text: string): number =>
 const MAX_SUB_LINES = 2;
 
 function normSub(v: string | null | undefined): string {
-	return (v || "")
-		.replace(/\r\n?/g, "\n")
-		.replace(/[\\/]n/g, "\n")
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean)
-		.slice(0, MAX_SUB_LINES)
-		.join("\n");
+  return (v || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\\/]n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, MAX_SUB_LINES)
+    .join("\n");
 }
 
 function topFitFor(text: string): LockupFit {
-	for (const [maxLen, fit] of TOP_STEPS) if (text.length <= maxLen) return fit;
-	return TOP_SMALLEST;
+  for (const [maxLen, fit] of TOP_STEPS) if (text.length <= maxLen) return fit;
+  return TOP_SMALLEST;
 }
 
 /**
@@ -123,26 +123,26 @@ function topFitFor(text: string): LockupFit {
  * vendor's name. A business is never shown a brand that is not its own.
  */
 export function resolveLockup(input: LockupInput): Lockup {
-	const name = norm(input.name);
-	const shortName = norm(input.shortName);
-	const tagline = normSub(input.lockupTagline);
+  const name = norm(input.name);
+  const shortName = norm(input.shortName);
+  const tagline = normSub(input.lockupTagline);
 
-	const top = shortName || name;
-	let bottom = tagline || (name === top ? "" : name);
+  const top = shortName || name;
+  let bottom = tagline || (name === top ? "" : name);
 
-	if (bottom.replace(/\s+/g, "").toLowerCase() === top.replace(/\s+/g, "").toLowerCase()) {
-		bottom = "";
-	}
+  if (bottom.replace(/\s+/g, "").toLowerCase() === top.replace(/\s+/g, "").toLowerCase()) {
+    bottom = "";
+  }
 
-	/* The headline's size depends only on its own length, never on whether a
-	 * subline is present. Losing the subline frees VERTICAL room, and font size
-	 * spends HORIZONTAL room — growing the text here would push a long name off
-	 * the edge of a rail it currently fits. A one-line lockup needs no special
-	 * case: the text column is centred against the logo mark by its parent. */
-	return {
-		top,
-		bottom,
-		topFit: topFitFor(top),
-		bottomFit: widestLine(bottom) > 18 ? "xs" : "sm",
-	};
+  /* The headline's size depends only on its own length, never on whether a
+   * subline is present. Losing the subline frees VERTICAL room, and font size
+   * spends HORIZONTAL room — growing the text here would push a long name off
+   * the edge of a rail it currently fits. A one-line lockup needs no special
+   * case: the text column is centred against the logo mark by its parent. */
+  return {
+    top,
+    bottom,
+    topFit: topFitFor(top),
+    bottomFit: widestLine(bottom) > 18 ? "xs" : "sm",
+  };
 }

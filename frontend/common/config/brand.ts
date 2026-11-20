@@ -13,27 +13,27 @@ import { activeBusinessSlug } from "@/common/services/tenantSession";
  */
 
 export const BRAND = {
-	/** Display name for chrome: sidebar, topbar breadcrumb, page titles. */
-	name: "CloudHouse Finance",
-	/** The sidebar's stacked lockup splits the name across two lines. */
-	nameTop: "CLOUDHOUSE",
-	nameBottom: "Finance",
-	/** Compact form for tight spots (browser tab, collapsed sidebar, mobile). */
-	shortName: "CloudHouse",
-	/** Full legal name — print headers, copyright, legal documents. */
-	legalName: "CloudHouse Finance",
-	/** Sits under the legal name on documents and the login brand panel. */
-	descriptor: "Gold Loans & Finance",
-	/* Kerala Money Lenders registration — required on customer documents.
-	 * DEMO VALUES: replace both with CloudHouse's real registration before
-	 * anything printed here is handed to a customer. */
-	kmlReg: "KL/CHGF/2026/00184",
-	kmlRegLabel: "KML Reg. No: KL/CHGF/2026/00184",
-	phones: ["+91 9000012345", "+91 9000067890"],
-	/** Square + transparent. Sidebar, login, favicon. */
-	markSrc: "/cloudhouse-mark.png",
-	/** Full vertical lockup. Login brand panel and print headers. */
-	wordmarkSrc: "/cloudhouse-wordmark.svg",
+  /** Display name for chrome: sidebar, topbar breadcrumb, page titles. */
+  name: "CloudHouse Finance",
+  /** The sidebar's stacked lockup splits the name across two lines. */
+  nameTop: "CLOUDHOUSE",
+  nameBottom: "Finance",
+  /** Compact form for tight spots (browser tab, collapsed sidebar, mobile). */
+  shortName: "CloudHouse",
+  /** Full legal name — print headers, copyright, legal documents. */
+  legalName: "CloudHouse Finance",
+  /** Sits under the legal name on documents and the login brand panel. */
+  descriptor: "Gold Loans & Finance",
+  /* Kerala Money Lenders registration — required on customer documents.
+   * DEMO VALUES: replace both with CloudHouse's real registration before
+   * anything printed here is handed to a customer. */
+  kmlReg: "KL/CHGF/2026/00184",
+  kmlRegLabel: "KML Reg. No: KL/CHGF/2026/00184",
+  phones: ["+91 9000012345", "+91 9000067890"],
+  /** Square + transparent. Sidebar, login, favicon. */
+  markSrc: "/cloudhouse-mark.png",
+  /** Full vertical lockup. Login brand panel and print headers. */
+  wordmarkSrc: "/cloudhouse-wordmark.svg",
 } as const;
 
 /** `+91 9000012345 | +91 9000067890` — the wordmark's own separator style. */
@@ -46,20 +46,20 @@ export const BRAND_PHONES = BRAND.phones.join("  |  ");
  * duplicated in six files), they import these. Keep in sync with the :root
  * block in common/styles/app.css. */
 export const PRINT_COLORS = {
-	brand: "#6054bf", // oklch(0.515 0.162 284)
-	brandDeep: "#423591", // oklch(0.40  0.145 284)
-	accent: "#f99603", // oklch(0.76  0.17   65)
-	ink: "#11101a", // oklch(0.18  0.02  285)
-	muted: "#62626f", // oklch(0.50  0.02  285)
-	line: "#e3e2e7", // oklch(0.915 0.006 290)
-	tint: "#f9f9ff", // oklch(0.983 0.008 284)
+  brand: "#6054bf", // oklch(0.515 0.162 284)
+  brandDeep: "#423591", // oklch(0.40  0.145 284)
+  accent: "#f99603", // oklch(0.76  0.17   65)
+  ink: "#11101a", // oklch(0.18  0.02  285)
+  muted: "#62626f", // oklch(0.50  0.02  285)
+  line: "#e3e2e7", // oklch(0.915 0.006 290)
+  tint: "#f9f9ff", // oklch(0.983 0.008 284)
 } as const;
 
 /* The logo's own violet → magenta → orange sweep. Used sparingly for brand
  * moments (login panel, sidebar rail, the topbar hairline) — never behind
  * body text, where a moving background destroys contrast. */
 export const BRAND_GRADIENT =
-	"linear-gradient(135deg, #6644de 0%, #c61f8f 52%, #f99603 100%)";
+  "linear-gradient(135deg, #6644de 0%, #c61f8f 52%, #f99603 100%)";
 
 /* VENDOR is us — the company that sells and operates this software — as
  * distinct from BRAND above, which is the product a BUSINESS's own staff and
@@ -69,10 +69,10 @@ export const BRAND_GRADIENT =
  * Overloading BRAND for both is how a customer ends up looking at our
  * vendor name on their own paperwork. */
 export const VENDOR = {
-	name: "CloudHouse Technologies",
-	shortName: "CloudHouse",
-	product: "Superadmin Console",
-	markSrc: "/cloudhouse-mark.png",
+  name: "CloudHouse Technologies",
+  shortName: "CloudHouse",
+  product: "Superadmin Console",
+  markSrc: "/cloudhouse-mark.png",
 } as const;
 
 /* printColors returns the brand ramp for the CURRENT business, in hex.
@@ -91,15 +91,15 @@ export const VENDOR = {
 export type PrintColors = { [K in keyof typeof PRINT_COLORS]: string };
 
 export function printColors(): PrintColors {
-	const cached = readCachedBrandColor(activeBusinessSlug());
-	if (!cached) return PRINT_COLORS;
-	const ramp = brandRampHex(cached);
-	return {
-		...PRINT_COLORS,
-		brand: ramp["--brand"] ?? PRINT_COLORS.brand,
-		brandDeep: ramp["--brand-deep"] ?? PRINT_COLORS.brandDeep,
-		tint: ramp["--brand-faint"] ?? PRINT_COLORS.tint,
-	};
+  const cached = readCachedBrandColor(activeBusinessSlug());
+  if (!cached) return PRINT_COLORS;
+  const ramp = brandRampHex(cached);
+  return {
+    ...PRINT_COLORS,
+    brand: ramp["--brand"] ?? PRINT_COLORS.brand,
+    brandDeep: ramp["--brand-deep"] ?? PRINT_COLORS.brandDeep,
+    tint: ramp["--brand-faint"] ?? PRINT_COLORS.tint,
+  };
 }
 
 /* --- Per-business identity for print templates -----------------------------
@@ -118,13 +118,13 @@ export function printColors(): PrintColors {
 const BRAND_PROFILE_KEY_PREFIX = "cloudhouse_brand_profile::";
 
 export type PrintBrand = {
-	/** Raw registration number, for templates that render their own label. */
-	kmlRegNo: string;
-	legalName: string;
-	kmlRegLabel: string;
-	addressLine: string;
-	/** The business's own contact number(s); falls back to the platform demo numbers. */
-	phones: string;
+  /** Raw registration number, for templates that render their own label. */
+  kmlRegNo: string;
+  legalName: string;
+  kmlRegLabel: string;
+  addressLine: string;
+  /** The business's own contact number(s); falls back to the platform demo numbers. */
+  phones: string;
 };
 
 /* readCachedBrandIdentity replays the last-known IDENTITY (not just the print
@@ -138,52 +138,52 @@ export type PrintBrand = {
  * businesses open in two tabs cannot read each other's.
  */
 export function readCachedBrandIdentity(slug: string | null): {
-	name: string;
-	shortName: string;
-	/** No fallback to name here — empty is meaningful to resolveLockup. */
-	lockupTagline: string;
-	legalName: string;
-	logoUrl: string;
+  name: string;
+  shortName: string;
+  /** No fallback to name here — empty is meaningful to resolveLockup. */
+  lockupTagline: string;
+  legalName: string;
+  logoUrl: string;
 } | null {
-	if (typeof window === "undefined") return null;
-	try {
-		const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (slug || "default"));
-		if (!raw) return null;
-		const p = JSON.parse(raw) as Record<string, string | undefined>;
-		if (!p.name && !p.logoUrl) return null;
-		return {
-			name: p.name || "",
-			shortName: p.shortName || p.name || "",
-			lockupTagline: p.lockupTagline || "",
-			legalName: p.legalName || p.name || "",
-			logoUrl: p.logoUrl || "",
-		};
-	} catch {
-		return null;
-	}
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (slug || "default"));
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Record<string, string | undefined>;
+    if (!p.name && !p.logoUrl) return null;
+    return {
+      name: p.name || "",
+      shortName: p.shortName || p.name || "",
+      lockupTagline: p.lockupTagline || "",
+      legalName: p.legalName || p.name || "",
+      logoUrl: p.logoUrl || "",
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function cacheBrandProfile(
-	slug: string | null,
-	profile: { legalName: string; kmlRegNo: string; addressLine: string } & Partial<{ name: string; shortName: string; lockupTagline: string; logoUrl: string; contactPhone: string; policy: string }>
+  slug: string | null,
+  profile: { legalName: string; kmlRegNo: string; addressLine: string } & Partial<{ name: string; shortName: string; lockupTagline: string; logoUrl: string; contactPhone: string; policy: string }>
 ): void {
-	if (typeof window === "undefined") return;
-	const key = BRAND_PROFILE_KEY_PREFIX + (slug || "default");
-	try {
-		/* MERGE, never replace. Two callers write this record with different
-		 * halves of it: the authenticated read supplies the registration number
-		 * and address, the public (signed-out) read only ever knows the name and
-		 * logo. A straight overwrite meant an expired token — which falls through
-		 * to the public read — silently blanked the registration number that the
-		 * print templates then had to fall back to the platform's for. Empty
-		 * strings are treated as "not supplied" and leave the stored value alone. */
-		const prev = JSON.parse(window.localStorage.getItem(key) || "{}") as Record<string, string>;
-		const merged: Record<string, string> = { ...prev };
-		for (const [k, v] of Object.entries(profile)) if (v) merged[k] = v;
-		window.localStorage.setItem(key, JSON.stringify(merged));
-	} catch {
-		/* storage disabled — templates fall back to the platform brand */
-	}
+  if (typeof window === "undefined") return;
+  const key = BRAND_PROFILE_KEY_PREFIX + (slug || "default");
+  try {
+    /* MERGE, never replace. Two callers write this record with different
+     * halves of it: the authenticated read supplies the registration number
+     * and address, the public (signed-out) read only ever knows the name and
+     * logo. A straight overwrite meant an expired token — which falls through
+     * to the public read — silently blanked the registration number that the
+     * print templates then had to fall back to the platform's for. Empty
+     * strings are treated as "not supplied" and leave the stored value alone. */
+    const prev = JSON.parse(window.localStorage.getItem(key) || "{}") as Record<string, string>;
+    const merged: Record<string, string> = { ...prev };
+    for (const [k, v] of Object.entries(profile)) if (v) merged[k] = v;
+    window.localStorage.setItem(key, JSON.stringify(merged));
+  } catch {
+    /* storage disabled — templates fall back to the platform brand */
+  }
 }
 
 /* The arranged sidebar header, replayed on a cold load like the identity
@@ -194,62 +194,62 @@ export function cacheBrandProfile(
 const BRAND_HEADER_KEY_PREFIX = "cloudhouse_brand_header::";
 
 export type CachedBrandHeader = {
-	/** Normalised layout JSON, or "" for the classic lockup. */
-	headerLayout: string;
-	shortNameSet: boolean;
-	logoDisplay: string;
+  /** Normalised layout JSON, or "" for the classic lockup. */
+  headerLayout: string;
+  shortNameSet: boolean;
+  logoDisplay: string;
 };
 
 export function cacheBrandHeader(slug: string | null, header: CachedBrandHeader): void {
-	if (typeof window === "undefined") return;
-	try {
-		window.localStorage.setItem(BRAND_HEADER_KEY_PREFIX + (slug || "default"), JSON.stringify(header));
-	} catch {
-		/* storage disabled — the header still renders once branding loads */
-	}
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(BRAND_HEADER_KEY_PREFIX + (slug || "default"), JSON.stringify(header));
+  } catch {
+    /* storage disabled — the header still renders once branding loads */
+  }
 }
 
 export function readCachedBrandHeader(slug: string | null): CachedBrandHeader | null {
-	if (typeof window === "undefined") return null;
-	try {
-		const v = JSON.parse(window.localStorage.getItem(BRAND_HEADER_KEY_PREFIX + (slug || "default")) || "null");
-		if (!v || typeof v !== "object") return null;
-		return {
-			headerLayout: typeof v.headerLayout === "string" ? v.headerLayout : "",
-			shortNameSet: v.shortNameSet === true,
-			logoDisplay: typeof v.logoDisplay === "string" ? v.logoDisplay : "",
-		};
-	} catch {
-		return null;
-	}
+  if (typeof window === "undefined") return null;
+  try {
+    const v = JSON.parse(window.localStorage.getItem(BRAND_HEADER_KEY_PREFIX + (slug || "default")) || "null");
+    if (!v || typeof v !== "object") return null;
+    return {
+      headerLayout: typeof v.headerLayout === "string" ? v.headerLayout : "",
+      shortNameSet: v.shortNameSet === true,
+      logoDisplay: typeof v.logoDisplay === "string" ? v.logoDisplay : "",
+    };
+  } catch {
+    return null;
+  }
 }
 
 /* printBrand falls back FIELD BY FIELD rather than all-or-nothing: a business
  * that has a legal name but no registration number on file should print its
  * own name, not revert wholesale to CloudHouse's. */
 export function printBrand(): PrintBrand {
-	const fallback: PrintBrand = {
-		legalName: BRAND.legalName,
-		kmlRegLabel: BRAND.kmlRegLabel,
-		kmlRegNo: BRAND.kmlReg,
-		addressLine: "",
-		phones: BRAND_PHONES,
-	};
-	if (typeof window === "undefined") return fallback;
-	try {
-		const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (activeBusinessSlug() || "default"));
-		if (!raw) return fallback;
-		const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string; contactPhone?: string; policy?: string };
-		return {
-			legalName: p.legalName || fallback.legalName,
-			kmlRegLabel: p.kmlRegNo ? `${p.policy === "gml" ? "GML" : p.policy === "tml" ? "TML" : "KML"} Reg. No: ${p.kmlRegNo}` : fallback.kmlRegLabel,
-			kmlRegNo: p.kmlRegNo || fallback.kmlRegNo,
-			addressLine: p.addressLine || "",
-			phones: p.contactPhone || fallback.phones,
-		};
-	} catch {
-		return fallback;
-	}
+  const fallback: PrintBrand = {
+    legalName: BRAND.legalName,
+    kmlRegLabel: BRAND.kmlRegLabel,
+    kmlRegNo: BRAND.kmlReg,
+    addressLine: "",
+    phones: BRAND_PHONES,
+  };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (activeBusinessSlug() || "default"));
+    if (!raw) return fallback;
+    const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string; contactPhone?: string; policy?: string };
+    return {
+      legalName: p.legalName || fallback.legalName,
+      kmlRegLabel: p.kmlRegNo ? `${p.policy === "gml" ? "GML" : p.policy === "tml" ? "TML" : "KML"} Reg. No: ${p.kmlRegNo}` : fallback.kmlRegLabel,
+      kmlRegNo: p.kmlRegNo || fallback.kmlRegNo,
+      addressLine: p.addressLine || "",
+      phones: p.contactPhone || fallback.phones,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 /* tenantLenderProfile is printBrand's counterpart with NO platform fallback:
@@ -265,18 +265,18 @@ export function printBrand(): PrintBrand {
  * a pre-filled fallback would hide.
  */
 export function tenantLenderProfile(): { legalName: string; addressLine: string; kmlRegNo: string } {
-	const empty = { legalName: "", addressLine: "", kmlRegNo: "" };
-	if (typeof window === "undefined") return empty;
-	try {
-		const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (activeBusinessSlug() || "default"));
-		if (!raw) return empty;
-		const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string };
-		return {
-			legalName: p.legalName || "",
-			addressLine: p.addressLine || "",
-			kmlRegNo: p.kmlRegNo || "",
-		};
-	} catch {
-		return empty;
-	}
+  const empty = { legalName: "", addressLine: "", kmlRegNo: "" };
+  if (typeof window === "undefined") return empty;
+  try {
+    const raw = window.localStorage.getItem(BRAND_PROFILE_KEY_PREFIX + (activeBusinessSlug() || "default"));
+    if (!raw) return empty;
+    const p = JSON.parse(raw) as { legalName?: string; kmlRegNo?: string; addressLine?: string };
+    return {
+      legalName: p.legalName || "",
+      addressLine: p.addressLine || "",
+      kmlRegNo: p.kmlRegNo || "",
+    };
+  } catch {
+    return empty;
+  }
 }

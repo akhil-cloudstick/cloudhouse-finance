@@ -255,7 +255,7 @@ func validateCreate(in EmployeeCreateInput) error {
 		return err
 	}
 	if in.Username != "" && !usernameRe.MatchString(in.Username) {
-		return NewBadRequest("invalid username (3+ letters, numbers, . _ -)")
+		return NewBadRequest("username must be at least 3 characters and contain only letters, numbers, dots, underscores or hyphens")
 	}
 	if in.Password != "" && len(in.Password) < 8 {
 		return NewBadRequest("password must be at least 8 characters")
@@ -413,7 +413,7 @@ func updateEmployee(ctx context.Context, id uint, in EmployeeUpdateInput, branch
 	if strings.TrimSpace(in.Username) != "" {
 		username := strings.TrimSpace(in.Username)
 		if !usernameRe.MatchString(username) {
-			return nil, NewBadRequest("invalid username (3+ letters, numbers, . _ -)")
+			return nil, NewBadRequest("username must be at least 3 characters and contain only letters, numbers, dots, underscores or hyphens")
 		}
 		if err := checkUsernameUnique(ctx, username, rec.ID); err != nil {
 			return nil, err

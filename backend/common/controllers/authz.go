@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -295,30 +294,6 @@ func adminMatrix(ctx context.Context, roleID uint, search string) (map[string][]
 		return nil, err
 	}
 	out := make(map[string][]RolePermissionRow)
-	// A permission added after this role was made has no row for it. It is listed anyway, as not granted, so an
-	// administrator can grant it; saving the matrix creates the row.
-	have := make(map[uint]bool, len(rows))
-	for _, row := range rows {
-		have[row.PermissionID] = true
-	}
-	needle := strings.ToLower(strings.TrimSpace(search))
-	for _, p := range allPerms {
-		if have[p.ID] || !p.IsActive || (needle != "" && !strings.Contains(strings.ToLower(p.Name), needle)) {
-			continue
-		}
-		rows = append(rows, struct {
-			ID           uint
-			RoleID       uint
-			PermissionID uint
-			Permission   bool
-			PID          uint   `gorm:"column:p_id"`
-			PName        string `gorm:"column:p_name"`
-			PDescription string `gorm:"column:p_description"`
-			PModuleName  string `gorm:"column:p_module_name"`
-			PIsActive    bool   `gorm:"column:p_is_active"`
-		}{RoleID: roleID, PermissionID: p.ID, PID: p.ID, PName: p.Name, PDescription: p.Description, PModuleName: p.ModuleName, PIsActive: p.IsActive})
-	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].PID < rows[j].PID })
 	for _, row := range rows {
 		out[row.PModuleName] = append(out[row.PModuleName], RolePermissionRow{
 			ID: row.ID, RoleID: row.RoleID, PermissionID: row.PermissionID, Permission: row.Permission,

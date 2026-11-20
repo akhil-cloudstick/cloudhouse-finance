@@ -231,6 +231,7 @@ func editBankPledge(ctx context.Context, loanID, pledgeID uint, in *EditBankPled
 		before := p
 		res.Before = &before
 		txCtx := cashbook.WithTx(ctx, tx)
+
 		// the lines this pledge booked; refused when they cannot be identified exactly
 		var pledgeLines, releaseLines *cashbook.BankPledgeLines
 		var expenseID *uint
@@ -251,6 +252,7 @@ func editBankPledge(ctx context.Context, loanID, pledgeID uint, in *EditBankPled
 				expenseID = p.ReleaseExpenseID
 			}
 		}
+
 		if in == nil {
 			// delete: the packet must still be where this pledge put it
 			if p.Status == models.BankPledgeStatusRecordActive {
@@ -302,6 +304,7 @@ func editBankPledge(ctx context.Context, loanID, pledgeID uint, in *EditBankPled
 			lastPledgeGone = p.Status == models.BankPledgeStatusRecordActive && active == 0
 			return updateLoanTx(ctx, tx, l)
 		}
+
 		var legacy *[4]float64
 		var legacyBank *uint
 		if releaseLines != nil {
@@ -316,6 +319,7 @@ func editBankPledge(ctx context.Context, loanID, pledgeID uint, in *EditBankPled
 		if dryRun {
 			return errDryRun
 		}
+
 		// remove the old lines, then book the corrected ones
 		if pledgeLines != nil {
 			if err := cashbook.DeleteMovementGroup(txCtx, pledgeLines.GroupID); err != nil {

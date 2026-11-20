@@ -50,7 +50,6 @@ var BankPledgeIneligibleStatuses = []string{
 type Loan struct {
 	config.TenantScoped
 	ID                   uint                    `json:"id" gorm:"primaryKey"`
-	UUID                 string                  `json:"uuid" gorm:"type:uuid;default:gen_random_uuid()"`
 	LoanNumber           string                  `json:"loan_number" gorm:"index;size:20"`
 	BranchID             uint                    `json:"branch_id" gorm:"not null"`
 	Branch               commonModels.Branch     `json:"branch" gorm:"foreignKey:BranchID"`

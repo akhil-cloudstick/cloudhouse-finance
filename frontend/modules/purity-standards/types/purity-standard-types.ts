@@ -5,11 +5,11 @@
  * FKs into it; PurityPicker.tsx uses it purely to power the karat/fineness%
  * typeahead. */
 export type BackendPurityStandard = {
-	id: number;
-	karat: number | null;
-	finenessPercent: number | null;
-	label: string;
-	isActive: boolean;
-	createdAt: string;
-	updatedAt: string;
+  id: number;
+  karat: number | null;
+  finenessPercent: number | null;
+  label: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 };

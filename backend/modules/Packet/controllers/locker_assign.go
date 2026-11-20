@@ -2,7 +2,6 @@ package controllers
 
 import (
 	common "cloudhouse/backend/common/controllers"
-	loanModels "cloudhouse/backend/modules/Loan/models"
 	"cloudhouse/backend/modules/Packet/models"
 	"context"
 	"errors"
@@ -86,10 +85,7 @@ func AssignLockerTx(ctx context.Context, db *gorm.DB, loanID, lockerID, actorEmp
 	if err := db.WithContext(ctx).Save(&p).Error; err != nil {
 		return err
 	}
-	if err := db.WithContext(ctx).Create(&models.PacketMovement{
+	return db.WithContext(ctx).Create(&models.PacketMovement{
 		PacketID: p.ID, FromStatus: from, ToStatus: p.Status, LockerID: &lockerID, ActorEmployeeID: actorEmployeeID, Remarks: remarks,
-	}).Error; err != nil {
-		return err
-	}
-	return loanModels.TouchLoan(db.WithContext(ctx), p.LoanID)
+	}).Error
 }

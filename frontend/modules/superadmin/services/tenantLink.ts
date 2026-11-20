@@ -18,16 +18,16 @@ const TENANT_APP_ORIGIN = (process.env.NEXT_PUBLIC_TENANT_APP_ORIGIN || "").repl
 
 /** The staff sign-in link for a business, given its `code`. */
 export function tenantLoginLink(code: string): string {
-	if (TENANT_APP_ORIGIN) return `${TENANT_APP_ORIGIN}/${code}`;
-	if (typeof window === "undefined") return `/${code}`;
+  if (TENANT_APP_ORIGIN) return `${TENANT_APP_ORIGIN}/${code}`;
+  if (typeof window === "undefined") return `/${code}`;
 
-	const { protocol, hostname, port, origin } = window.location;
-	const labels = hostname.toLowerCase().split(".");
-	// Only a "superadmin.<domain>" host means businesses live on subdomains of
-	// that same domain; every other host serves them as a path segment.
-	if (labels.length >= 2 && labels[0] === "superadmin") {
-		const domain = labels.slice(1).join(".");
-		return `${protocol}//${code}.${domain}${port ? `:${port}` : ""}`;
-	}
-	return `${origin}/${code}`;
+  const { protocol, hostname, port, origin } = window.location;
+  const labels = hostname.toLowerCase().split(".");
+  // Only a "superadmin.<domain>" host means businesses live on subdomains of
+  // that same domain; every other host serves them as a path segment.
+  if (labels.length >= 2 && labels[0] === "superadmin") {
+    const domain = labels.slice(1).join(".");
+    return `${protocol}//${code}.${domain}${port ? `:${port}` : ""}`;
+  }
+  return `${origin}/${code}`;
 }
