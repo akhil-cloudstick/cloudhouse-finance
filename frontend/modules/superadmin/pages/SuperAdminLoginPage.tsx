@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { login, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { readSuperAdminToken, writeSuperAdminSession } from "@/modules/superadmin/services/superadminSession";
 import { VENDOR } from "@/modules/superadmin/config/brand";
+import { goToSuperAdmin } from "@/modules/superadmin/services/superadminNav";
 import "@/modules/superadmin/styles/superadmin.css";
 
 /* Separate from the tenant login page (app/(product)/login/page.tsx): a different
@@ -89,7 +90,7 @@ export default function SuperAdminLoginPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (readSuperAdminToken()) router.replace("/superadmin");
+    if (readSuperAdminToken()) goToSuperAdmin(router, "/");
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -103,7 +104,7 @@ export default function SuperAdminLoginPage() {
     try {
       const res = await login(username.trim(), password);
       writeSuperAdminSession(res.token, res.superAdminUser);
-      router.push("/superadmin");
+      goToSuperAdmin(router, "/", "push");
     } catch (err) {
       setError(err instanceof SuperAdminApiError ? err.message : "Could not reach the server.");
     } finally {
