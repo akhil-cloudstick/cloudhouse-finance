@@ -8,7 +8,7 @@ export function NoAccess({ header = <FlatHeader title="No access" /> }: NoAccess
   return (
     <Screen header={header}>
       <PScroll contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 18 }}>
-        <NoticeBanner>You do not have access to this page. Ask your administrator to grant the permission for it.</NoticeBanner>
+        <NoticeBanner>You lack page access.</NoticeBanner>
         <PrimaryButton label="Back to Dashboard" variant="outline" onPress={() => openPage("/dashboard")} style={{ marginTop: 14 }} />
       </PScroll>
     </Screen>

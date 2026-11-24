@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useToast } from "@/common/components/ToastProvider";
 import { SearchableSelect } from "@/common/components/ui/SearchableSelect";
 import { searchPurityStandardsPage, createPurityStandardByKarat, createPurityStandardByFineness } from "@/modules/purity-standards/services/purityStandardService";
 import { type BackendPurityStandard } from "@/modules/purity-standards/types/purity-standard-types";
@@ -21,6 +22,7 @@ export function PurityPicker({
   disabled,
   dropdownMinWidth = 60,
 }: PurityPickerProps) {
+  const toast = useToast();
   const parsed = parsePurity(value);
   const [unit, setUnit] = useState<PurityUnit>(parsed?.unit ?? "karat");
 
@@ -28,7 +30,12 @@ export function PurityPicker({
 
   async function fetchFn(q: string, page: number) {
     const result = await searchPurityStandardsPage(q, page);
-    const items = result.items.filter((p) => (unit === "karat" ? p.karat != null : p.finenessPercent != null));
+    const term = q.trim();
+    const items = result.items
+      .filter((p) => (unit === "karat" ? p.karat != null : p.finenessPercent != null))
+      // The server matches the whole purity label (e.g. "24K (99.9%)"), so a typed "10"
+      // also brings back 24. Keep only entries whose number starts with what was typed.
+      .filter((p) => !term || getLabel(p).startsWith(term));
     return { items, hasMore: false };
   }
 
@@ -42,8 +49,29 @@ export function PurityPicker({
     onChange(formatPurity(unit, num));
   }
 
+  // A purity typed but never confirmed (no Enter / click) is still taken when the field loses focus,
+  // so the loan is not saved with the previous purity. Out-of-range or non-numeric text is ignored.
+  function commitTyped(text: string) {
+    const num = Number(text);
+    if (!Number.isFinite(num)) return;
+    if (unit === "karat" ? !isKaratInRange(num) : !isFinenessInRange(num)) return;
+    onChange(formatPurity(unit, num));
+  }
+
   async function onCreate(query: string): Promise<BackendPurityStandard> {
     const num = Number(query.trim());
+    // Shown as a toast rather than inside the dropdown, where the text got truncated.
+    const problem = !Number.isFinite(num)
+      ? `Enter a valid gold ${unit === "karat" ? "karat" : "fineness %"}.`
+      : unit === "karat" && !isKaratInRange(num)
+        ? `Enter a valid gold karat. Minimum is ${MIN_KARAT} and maximum is ${MAX_KARAT}.`
+        : unit === "fineness" && !isFinenessInRange(num)
+          ? `Enter a valid fineness %. It must be above 0 and at most ${MAX_FINENESS_PERCENT}.`
+          : null;
+    if (problem) {
+      toast(problem);
+      throw new Error(problem);
+    }
     if (unit === "karat") return createPurityStandardByKarat(num);
     return createPurityStandardByFineness(num);
   }
@@ -136,6 +164,8 @@ export function PurityPicker({
             placeholder={unit === "karat" ? `22 (${MIN_KARAT}-${MAX_KARAT})` : "91.6"}
             allowCreate
             onCreate={onCreate}
+            onBlurText={commitTyped}
+            createLabel="+ XX number"
             disabled={disabled}
             compact
             compactMinWidth={dropdownMinWidth}

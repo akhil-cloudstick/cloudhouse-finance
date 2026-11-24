@@ -1,6 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
-import * as Print from "expo-print";
+import { safeDownload } from "@/common/utils/safeDownload";
+import { presentFile, previewPdf } from "@/common/utils/presentFile";
 import { API_BASE_URL, apiUrl, ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
@@ -9,7 +9,7 @@ async function downloadToCache(investmentId: number, investmentNumber: string, p
   const token = await getToken();
   const filename = `${stem}-${investmentNumber}.pdf`;
   const targetUri = `${FileSystem.cacheDirectory}${filename}`;
-  const result = await FileSystem.downloadAsync(
+  const result = await safeDownload(
     apiUrl(`/investments/${investmentId}/${path}`),
     targetUri,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} }
@@ -22,19 +22,15 @@ async function downloadToCache(investmentId: number, investmentNumber: string, p
 
 export async function downloadInvestmentBondPdf(investmentId: number, investmentNumber: string): Promise<void> {
   const uri = await downloadToCache(investmentId, investmentNumber);
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Debenture Subscription Agreement" });
-  } else {
-    throw new Error(`Saved to ${uri} — sharing isn't available on this device.`);
-  }
+  await presentFile(uri, { mimeType: "application/pdf", title: "Debenture Subscription Agreement" });
 }
 
 export async function previewInvestmentBondPdf(investmentId: number, investmentNumber: string): Promise<void> {
   const uri = await withPrintProgress(() => downloadToCache(investmentId, investmentNumber));
-  await Print.printAsync({ uri });
+  await previewPdf(uri);
 }
 
 export async function previewInvestmentStatementPdf(investmentId: number, investmentNumber: string): Promise<void> {
   const uri = await withPrintProgress(() => downloadToCache(investmentId, investmentNumber, "statement/pdf", "investment-statement"));
-  await Print.printAsync({ uri });
+  await previewPdf(uri);
 }

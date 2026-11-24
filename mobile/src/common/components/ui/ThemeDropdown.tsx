@@ -15,6 +15,10 @@ type ThemeDropdownProps<T> = {
   keyOf?: (v: T) => string | number;
   placeholder?: string;
   style?: StyleProp<ViewStyle>;
+  /** Open the list above the field (a field low on a bottom sheet). */
+  openUp?: boolean;
+  /** Tallest the list may get before it scrolls (default: the Popover's). */
+  maxHeight?: number;
 };
 
 export function ThemeDropdown<T>({
@@ -25,13 +29,31 @@ export function ThemeDropdown<T>({
   keyOf,
   placeholder = "Select",
   style,
+  openUp,
+  maxHeight,
 }: ThemeDropdownProps<T>) {
   const { ref, measure } = useAnchor();
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const close = () => setAnchor(null);
   const openMenu = () => {
+    if (!Keyboard.isVisible()) {
+      measure(setAnchor);
+      return;
+    }
+    // Keyboard is up: closing it resizes the sheet under the field. Opening the list at once put it
+    // at the keyboard-up spot, then it jumped ("shook") as the sheet settled. Wait until the
+    // keyboard is down and the sheet has finished moving, then measure and open.
+    let done = false;
+    const open = () => {
+      if (done) return;
+      done = true;
+      sub.remove();
+      clearTimeout(fallback);
+      measure(setAnchor);
+    };
+    const sub = Keyboard.addListener("keyboardDidHide", () => setTimeout(open, 120));
+    const fallback = setTimeout(open, 600);
     Keyboard.dismiss();
-    measure(setAnchor);
   };
   return (
     <View style={style}>
@@ -43,7 +65,7 @@ export function ThemeDropdown<T>({
           <Chevron open={!!anchor} />
         </Pressable>
       </View>
-      <Popover anchor={anchor} onClose={close} onRemeasure={() => measure(setAnchor)}>
+      <Popover anchor={anchor} onClose={close} onRemeasure={() => measure(setAnchor)} openUp={openUp} maxHeight={maxHeight}>
         {options.length === 0 ? <Txt style={[s.ddItemTxt, { padding: 10, color: C.muted }]}>No options</Txt> : null}
         {options.map((o, i) => {
           const selected = value != null && (keyOf ? keyOf(o) === keyOf(value) : o === value);

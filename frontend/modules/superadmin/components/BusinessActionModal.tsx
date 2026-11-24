@@ -13,139 +13,136 @@ import { useActiveBranches } from "@/modules/superadmin/hooks/use-active-branche
 const SERVER_FIELDS: Record<string, RegExp> = { reason: /reason/i };
 
 type BusinessActionModalProps = {
-  business: Business;
-  kind: "suspend" | "reactivate" | "tier" | "delete";
-  tiers: Tier[];
-  /* Known when opened from the detail page — lets the plan change warn that
-   * the business is already above the new plan's branch limit. */
-  activeBranches?: number;
-  onClose: () => void;
-  onDone: () => void;
+	business: Business;
+	kind: "suspend" | "reactivate" | "tier" | "delete";
+	tiers: Tier[];
+	/* Known when opened from the detail page — lets the plan change warn that
+	 * the business is already above the new plan's branch limit. */
+	activeBranches?: number;
+	onClose: () => void;
+	onDone: () => void;
 };
 
 export function BusinessActionModal({
-  business,
-  kind,
-  tiers,
-  activeBranches,
-  onClose,
-  onDone,
+	business,
+	kind,
+	tiers,
+	activeBranches,
+	onClose,
+	onDone,
 }: BusinessActionModalProps) {
-  const [reason, setReason] = useState("");
-  const [tierId, setTierId] = useState(business.tierId);
-  const [confirmCode, setConfirmCode] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fe, setFe] = useState<Record<string, string>>({});
+	const [reason, setReason] = useState("");
+	const [tierId, setTierId] = useState(business.tierId);
+	const [confirmCode, setConfirmCode] = useState("");
+	const [submitting, setSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [fe, setFe] = useState<Record<string, string>>({});
 
-  const title =
-    kind === "suspend"
-      ? "Suspend business"
-      : kind === "reactivate"
-        ? "Reactivate business"
-        : kind === "delete"
-          ? "Delete business permanently"
-          : "Change plan";
-  // Plans below the business's active branch count aren't offered at all
-  // (the server refuses them too).
-  const branches = useActiveBranches(kind === "tier" ? business.id : null, activeBranches);
-  const planOptions = plansFor(tiers);
-  const planNote = downgradeNote(tiers.find((t) => t.id === tierId), branches);
+	const title =
+		kind === "suspend"
+			? "Suspend business"
+			: kind === "reactivate"
+				? "Reactivate business"
+				: kind === "delete"
+					? "Delete business permanently"
+					: "Change plan";
+	// Plans below the business's active branch count aren't offered at all
+	// (the server refuses them too).
+	const branches = useActiveBranches(kind === "tier" ? business.id : null, activeBranches);
+	const planOptions = plansFor(tiers);
+	const planNote = downgradeNote(tiers.find((t) => t.id === tierId), branches);
 
-  const fail = (field: string, msg: string) => { setError(null); setFe({ [field]: msg }); };
-  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+	const fail = (field: string, msg: string) => { setError(null); setFe({ [field]: msg }); };
+	const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setFe({});
-    if (!reason.trim()) {
-      fail("reason", "A reason is required.");
-      return;
-    }
-    if (kind === "delete" && confirmCode.trim() !== business.code) {
-      fail("confirm", `Type ${business.code} exactly to confirm.`);
-      return;
-    }
-    setSubmitting(true);
-    try {
-      if (kind === "suspend") await suspendBusiness(business.id, reason);
-      else if (kind === "reactivate") await reactivateBusiness(business.id, reason);
-      else if (kind === "delete") await deleteBusiness(business.id, reason);
-      else await changeTier(business.id, tierId, reason);
-      onDone();
-      onClose();
-    } catch (err) {
-      const msg = err instanceof SuperAdminApiError ? err.message : "The action failed.";
-      const field = err instanceof SuperAdminApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
-      if (field) fail(field, msg); else setError(msg);
-    } finally {
-      setSubmitting(false);
-    }
-  }
+	async function submit(e: React.FormEvent) {
+		e.preventDefault();
+		setError(null);
+		setFe({});
+		// Every problem is shown at once, each beside its own field.
+		const errors: Record<string, string> = {};
+		if (!reason.trim()) errors["reason"] ??= "A reason is required.";
+		if (kind === "delete" && confirmCode.trim() !== business.code) errors["confirm"] ??= `Type ${business.code} exactly to confirm.`;
+		if (Object.keys(errors).length) { setFe(errors); return; }
+		setSubmitting(true);
+		try {
+			if (kind === "suspend") await suspendBusiness(business.id, reason);
+			else if (kind === "reactivate") await reactivateBusiness(business.id, reason);
+			else if (kind === "delete") await deleteBusiness(business.id, reason);
+			else await changeTier(business.id, tierId, reason);
+			onDone();
+			onClose();
+		} catch (err) {
+			const msg = err instanceof SuperAdminApiError ? err.message : "The action failed.";
+			const field = err instanceof SuperAdminApiError ? fieldForMessage(msg, SERVER_FIELDS) : "";
+			if (field) fail(field, msg); else setError(msg);
+		} finally {
+			setSubmitting(false);
+		}
+	}
 
-  return (
-    <div className="sa-modal-backdrop" onClick={onClose}>
-      <form className="sa-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <div className="sa-modal-head">
-          <h2>
-            {title} — {business.name}
-          </h2>
-        </div>
-        <div className="sa-modal-body">
-          {kind === "suspend" && (
-            <p className="sa-modal-note">
-              Restricts new lending and administration only. Never blocks a borrower repaying or collecting gold they
-              have already paid for.
-            </p>
-          )}
-          {kind === "delete" && (
-            <>
-              <p className="sa-modal-note danger">
-                This permanently deletes {business.name} — every branch, customer, loan, staff login and its logo
-                file. This cannot be undone.
-              </p>
-              <div className={fe.confirm ? "sa-field has-err" : "sa-field"}>
-                <label>
-                  Type <b>{business.code}</b> to confirm
-                </label>
-                <input value={confirmCode} onChange={(e) => { setConfirmCode(e.target.value); clearFe("confirm"); }} autoComplete="off" />
-                {fe.confirm && <span className="sa-error" role="alert">{fe.confirm}</span>}
-              </div>
-            </>
-          )}
-          {kind === "tier" && (
-            <>
-              <div className="sa-field">
-                <label>New plan</label>
-                <Select
-                  value={String(tierId)}
-                  onChange={(v) => setTierId(Number(v))}
-                  ariaLabel="New plan"
-                  options={planOptions.map((t) => ({ value: String(t.id), label: planLabel(t) }))}
-                />
-                <span className="sa-hint">Takes effect immediately. Existing branches are never removed.</span>
-              </div>
-              {planNote && <p className="sa-modal-note">{planNote}</p>}
-            </>
-          )}
-          <ReasonField value={reason} onChange={(v) => { setReason(v); clearFe("reason"); }} required error={fe.reason} />
-          {error && <p className="sa-error">{error}</p>}
-        </div>
-        <div className="sa-modal-foot">
-          <span className="sa-foot-spacer" />
-          <button type="button" className="sa-btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className={`sa-btn ${kind === "suspend" || kind === "delete" ? "danger" : "primary"}`}
-            disabled={submitting}
-          >
-            {submitting ? "Working…" : title}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+	return (
+		<div className="sa-modal-backdrop" onClick={onClose}>
+			<form className="sa-modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+				<div className="sa-modal-head">
+					<h2>
+						{title} — {business.name}
+					</h2>
+				</div>
+				<div className="sa-modal-body">
+					{kind === "suspend" && (
+						<p className="sa-modal-note">
+							Restricts new lending and administration only. Never blocks a borrower repaying or collecting gold they
+							have already paid for.
+						</p>
+					)}
+					{kind === "delete" && (
+						<>
+							<p className="sa-modal-note danger">
+								This permanently deletes {business.name} — every branch, customer, loan, staff login and its logo
+								file. This cannot be undone.
+							</p>
+							<div className={fe.confirm ? "sa-field has-err" : "sa-field"}>
+								<label>
+									Type <b>{business.code}</b> to confirm
+								</label>
+								<input value={confirmCode} onChange={(e) => { setConfirmCode(e.target.value); clearFe("confirm"); }} autoComplete="off" />
+								{fe.confirm && <span className="sa-error" role="alert">{fe.confirm}</span>}
+							</div>
+						</>
+					)}
+					{kind === "tier" && (
+						<>
+							<div className="sa-field">
+								<label>New plan</label>
+								<Select
+									value={String(tierId)}
+									onChange={(v) => setTierId(Number(v))}
+									ariaLabel="New plan"
+									options={planOptions.map((t) => ({ value: String(t.id), label: planLabel(t) }))}
+								/>
+								<span className="sa-hint">Takes effect immediately. Existing branches are never removed.</span>
+							</div>
+							{planNote && <p className="sa-modal-note">{planNote}</p>}
+						</>
+					)}
+					<ReasonField value={reason} onChange={(v) => { setReason(v); clearFe("reason"); }} required error={fe.reason} />
+					{error && <p className="sa-error">{error}</p>}
+				</div>
+				<div className="sa-modal-foot">
+					<span className="sa-foot-spacer" />
+					<button type="button" className="sa-btn" onClick={onClose}>
+						Cancel
+					</button>
+					<button
+						type="submit"
+						className={`sa-btn ${kind === "suspend" || kind === "delete" ? "danger" : "primary"}`}
+						disabled={submitting}
+					>
+						{submitting ? "Working…" : title}
+					</button>
+				</div>
+			</form>
+		</div>
+	);
 }

@@ -84,16 +84,19 @@ func FindByRole(ctx context.Context, roleName string) ([]commonModels.Employee, 
 	return out, err
 }
 
-func findEmployees(ctx context.Context, branchID *uint, search string, limit, offset int) ([]commonModels.Employee, int64, error) {
+func findEmployees(ctx context.Context, branchIDs []uint, roles []string, search string, limit, offset int) ([]commonModels.Employee, int64, error) {
 	var employees []commonModels.Employee
 	q := config.DB.
 		WithContext(ctx).Preload("Branch").Order("id asc")
-	if branchID != nil {
-		q = q.Where("branch_id = ?", *branchID)
+	if len(branchIDs) > 0 {
+		q = q.Where("branch_id IN ?", branchIDs)
+	}
+	if len(roles) > 0 {
+		q = q.Where("role IN ?", roles)
 	}
 	if search != "" {
-		like := "%" + search + "%"
-		q = q.Where("name ILIKE ? OR code ILIKE ? OR phone ILIKE ? OR username ILIKE ? OR email ILIKE ?", like, like, like, like, like)
+		q = ApplySearch(q, search, "employees.name", "employees.code", "employees.phone", "employees.username", "employees.email", "employees.role",
+			"(SELECT b.name FROM branches b WHERE b.id = employees.branch_id)")
 	}
 	var total int64
 	if limit > 0 {
@@ -252,7 +255,7 @@ func validateCreate(in EmployeeCreateInput) error {
 		return err
 	}
 	if in.Username != "" && !usernameRe.MatchString(in.Username) {
-		return NewBadRequest("username must be at least 3 characters and contain only letters, numbers, dots, underscores or hyphens")
+		return NewBadRequest("invalid username (3+ letters, numbers, . _ -)")
 	}
 	if in.Password != "" && len(in.Password) < 8 {
 		return NewBadRequest("password must be at least 8 characters")
@@ -349,8 +352,8 @@ func SaveEmployee(ctx context.Context, in EmployeeCreateInput, actorEmployeeID u
 	return FindEmployeeByID(ctx, rec.ID)
 }
 
-func listEmployees(ctx context.Context, branchID *uint, search string, limit, offset int) ([]commonModels.Employee, int64, error) {
-	return findEmployees(ctx, branchID, search, limit, offset)
+func listEmployees(ctx context.Context, branchIDs []uint, roles []string, search string, limit, offset int) ([]commonModels.Employee, int64, error) {
+	return findEmployees(ctx, branchIDs, roles, search, limit, offset)
 }
 
 func getEmployee(ctx context.Context, id uint, branchID *uint) (*commonModels.Employee, error) {
@@ -410,7 +413,7 @@ func updateEmployee(ctx context.Context, id uint, in EmployeeUpdateInput, branch
 	if strings.TrimSpace(in.Username) != "" {
 		username := strings.TrimSpace(in.Username)
 		if !usernameRe.MatchString(username) {
-			return nil, NewBadRequest("username must be at least 3 characters and contain only letters, numbers, dots, underscores or hyphens")
+			return nil, NewBadRequest("invalid username (3+ letters, numbers, . _ -)")
 		}
 		if err := checkUsernameUnique(ctx, username, rec.ID); err != nil {
 			return nil, err
@@ -481,19 +484,43 @@ func CreateEmployee(c echo.Context) error {
 	return Success(c, http.StatusOK, rec)
 }
 
+// queryBranchIDs reads branch_id as one or more comma-separated branch ids, narrowed to the caller's branch
+// scope; empty means every branch. ok is false when a chosen branch is outside the caller's current selection.
+func queryBranchIDs(c echo.Context) (branchIDs []uint, ok bool) {
+	raw := strings.TrimSpace(c.QueryParam("branch_id"))
+	ids := parseUintCSV(raw)
+	if raw != "" && len(ids) == 0 {
+		return nil, false
+	}
+	scope := auth.GetBranchScope(c)
+	if scope == nil {
+		return ids, true
+	}
+	for _, id := range ids {
+		if id != *scope {
+			return nil, false
+		}
+	}
+	return []uint{*scope}, true
+}
+
 func ListEmployees(c echo.Context) error {
 	ctx := auth.RequestContext(c)
-	branchScope := auth.GetBranchScope(c)
+	branchIDs, ok := queryBranchIDs(c)
+	if !ok {
+		return Fail(c, http.StatusBadRequest, "that branch is outside your current branch selection")
+	}
+	roles := splitStringCSV(c.QueryParam("role"))
 	search := strings.TrimSpace(c.QueryParam("search"))
 	page, limit, offset := PageParams(c)
 	if limit > 0 {
-		rec, total, err := listEmployees(ctx, branchScope, search, limit, offset)
+		rec, total, err := listEmployees(ctx, branchIDs, roles, search, limit, offset)
 		if err != nil {
 			return FailErr(c, err)
 		}
 		return SuccessPage(c, page, limit, total, rec)
 	}
-	rec, _, err := listEmployees(ctx, branchScope, search, 0, 0)
+	rec, _, err := listEmployees(ctx, branchIDs, roles, search, 0, 0)
 	if err != nil {
 		return FailErr(c, err)
 	}

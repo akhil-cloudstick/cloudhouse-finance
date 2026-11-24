@@ -1,11 +1,15 @@
 export type ReportFilters = {
   from?: string; // "YYYY-MM-DD"
   to?: string; // "YYYY-MM-DD"
-  branchId?: number;
+  branchId?: string;
   page?: number;
   pageSize?: number;
-  status?: string; // /reports/loans/status
-  triggerType?: string; // /reports/communication-history
+  // Form G's named period ("q1".."q4" | "annual") and its year; when set, from/to are not sent.
+  period?: string;
+  year?: number;
+  // Per-report filter selections: query param name -> comma-joined values
+  // (status, trigger_type, customer_id, scheme_id, ...). Sent as-is on both the list and export calls.
+  extra?: Record<string, string>;
   q?: string; // free-text search (sent as `q`)
 };
 export type ReportResult<Row, Totals> = {
@@ -30,8 +34,6 @@ export type InterestCollectionRow = {
   loanId: number; loanNumber: string; paidOn: string; interestApplied: number; penalApplied: number; branchName: string;
 };
 export type InterestCollectionTotals = { totalInterest: number; totalPenal: number; total: number };
-export type OutstandingPrincipalRow = { branchName: string; loanCount: number; outstanding: number };
-export type OutstandingPrincipalTotals = { totalOutstanding: number; totalLoans: number };
 export type PaymentCollectionRow = {
   paymentId: number; loanNumber: string; paidOn: string; amount: number; type: string; branchName: string; employeeName: string;
 };
@@ -75,7 +77,7 @@ export type KYCTotals = { count: number; verified: number; pending: number };
 export type GoldRateHistoryRow = { date: string; k24: number; setBy: string };
 export type GoldRateHistoryTotals = { count: number };
 export type EmployeePerformanceRow = {
-  employeeId: number; name: string; role: string; branchName: string;
+  employeeId: number; employeeCode?: string; name: string; role: string; branchName: string;
   loansProcessed: number; collectionsAmount: number; remindersSent: number; approvals: number;
 };
 export type EmployeePerformanceTotals = { totalLoansProcessed: number; totalCollections: number };
@@ -136,3 +138,8 @@ export type FormGStatement = {
     excessLiabilitiesOverAssets: number;
   };
 };
+
+/* ---- Day Book: lines staff record by hand (backend Reports/models/day_book.go). ---- */
+export type DayBookRow = { id: number; date: string; particulars: string; debit: number; credit: number; interest: number };
+export type DayBookTotals = { debit: number; credit: number; interest: number };
+export type DayBookInput = { date: string; particulars: string; debit: number; credit: number; interest: number };

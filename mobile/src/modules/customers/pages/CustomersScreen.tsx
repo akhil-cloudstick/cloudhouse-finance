@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { AccRow, FabCorner, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, emptyGroupedFilter, gfValues, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { dmy } from "@/common/utils/format";
 import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
@@ -10,6 +10,7 @@ import { useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { listCustomersPage } from "@/modules/customers/services/customerService";
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { useAuth } from "@/common/providers/AuthProvider";
+import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 
 // Same PAN / Aadhaar verification filters as web's Customers page (multi-select each).
 const VERIFICATION_OPTIONS = [
@@ -29,8 +30,10 @@ const FILTER_SECTIONS: GFSection[] = [
 // Customer quick action, via ?register=1) opens the Register Customer sheet.
 export default function CustomersScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const params = useLocalSearchParams<{ register?: string }>();
   const [registerOpen, setRegisterOpen] = useState(false);
+  const showBranch = useShowBranchFilter();
   const canCreate = useAuth().can("Customer_Management", "can_create_customer");
 
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("customers:filters", emptyGroupedFilter());
@@ -57,32 +60,44 @@ export default function CustomersScreen() {
       }
       floating={canCreate ? <FabCorner onPress={() => setRegisterOpen(true)} label="Register customer" /> : undefined}
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(c) => String(c.id)}
         emptyText={list.search ? "No customers match your search." : "No customers yet."}
         header={
           <>
-            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-              <GroupedFilter title="Filter customers" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+            <View style={{ paddingTop: 12 }}>
+              <SearchFilterRow
+                value={list.search}
+                onChangeText={list.setSearch}
+                placeholder="Search this list by customer name, ID, or phone"
+                filter={<GroupedFilter title="Filter customers" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
+              />
             </View>
-            <SearchInput
-              value={list.search}
-              onChangeText={list.setSearch}
-              placeholder="Search this list by customer name, ID, or phone"
-            />
           </>
         }
         renderItem={(c, i) => (
           <AccRow
             defaultOpen={i === 0}
+            // iPad and bigger: the same columns as the web Customers table.
+            cells={[
+              { h: "Customer", v: c.name, sub: c.code, flex: 2 },
+              { h: "Contact", v: c.phone || "—", sub: c.address || undefined, flex: 2, covers: ["Phone", "Address"] },
+              ...(showBranch ? [{ h: "Branch", v: c.branch?.name || "—" }] : []),
+              { h: "PAN", v: c.panStatus || "—", chip: !!c.panStatus },
+              { h: "Aadhaar", v: c.aadhaarStatus || "—", chip: !!c.aadhaarStatus },
+              { h: "KYC Status", v: c.kycStatus || "—", chip: !!c.kycStatus },
+              { h: "Loans", v: String(c.loanCount ?? 0), num: true, flex: 0.6 },
+            ]}
             id={c.code}
             name={c.name}
-            sub={c.phone || undefined}
+            sub={[c.phone, c.address].filter(Boolean).join(" · ") || undefined}
             status={c.kycStatus || undefined}
             details={[
               { k: "Phone", v: c.phone || "—" },
+              { k: "Address", v: c.address || "—" },
+              { k: "Loans", v: String(c.loanCount ?? 0) },
               { k: "Branch", v: c.branch?.name || "—" },
               { k: "KYC status", v: c.kycStatus || "—" },
               { k: "PAN", v: c.panStatus || "—" },
@@ -98,7 +113,14 @@ export default function CustomersScreen() {
         visible={registerOpen}
         onClose={() => setRegisterOpen(false)}
         onSaved={(c) => {
-          if (c?.id) router.push(`/customers/${c.id}` as never);
+          if (!c?.id) return;
+          // Open the new customer's profile by pushing it straight onto this screen's own stack.
+          // The path-based router.push has to find this stack through Expo Router's global
+          // lookup, and when this page was reached from the Dashboard's Register Customer
+          // action (which rebuilds the Customers tab) the push didn't land on the profile.
+          const push = (navigation as { push?: (name: string, params?: object) => void }).push;
+          if (push) push("[id]", { id: String(c.id) });
+          else router.push(`/customers/${c.id}` as never);
         }}
       />
     </Screen>

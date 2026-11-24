@@ -5,7 +5,9 @@ import { useAuth } from "@/common/providers/AuthProvider";
 import { approveLoanRequest } from "@/modules/loans/services/loanService";
 import { Loan, LoanRequest } from "@/modules/loans/types/loan-types";
 import { dmy } from "@/common/utils/format";
+import { approverItems } from "@/modules/loans/utils/approverItems";
 import { ApprovalChainPanel } from "@/common/components/ApprovalChainPanel";
+import { stageTag, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 
 type ExtensionReviewPanelProps = {
   request: LoanRequest;
@@ -30,6 +32,7 @@ export function ExtensionReviewPanel({
   onError,
 }: ExtensionReviewPanelProps) {
   const { can } = useAuth();
+  const wf = useApprovalWorkflow();
   const canDecide = can("Loan_Management", "can_update_loan");
   const l = loan ?? request.loan;
   const months = request.requestedExtensionMonths;
@@ -48,6 +51,7 @@ export function ExtensionReviewPanel({
         ]}
       />
       {request.detail ? <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>{request.detail}</Txt> : null}
+      {approverItems(request.approvals, (s) => stageTag(wf, "loan_extension", s)).length ? <FieldGrid style={{ marginBottom: 14 }} items={approverItems(request.approvals, (s) => stageTag(wf, "loan_extension", s))} /> : null}
 
       <ApprovalChainPanel
         flow="loan_extension"

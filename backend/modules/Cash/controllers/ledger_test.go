@@ -100,8 +100,8 @@ func TestAuctionRepaymentRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if totals.TotalCredit != 19533.33 {
-		t.Errorf("real rows should count, credit total = %.2f", totals.TotalCredit)
+	if totals.TotalCredit != 19533 {
+		t.Errorf("real rows should count, credit total = %.2f (whole rupees)", totals.TotalCredit)
 	}
 
 	// An older sale (no cash lines of its own) is shown as a memo: listed, but not counted twice.
@@ -119,5 +119,20 @@ func TestAuctionRepaymentRows(t *testing.T) {
 	}
 	if !memo[0].Memo || memo[0].Description != "Interest — Auction Sale (applied to loan)" {
 		t.Errorf("older sale rows should read as applied-to-loan memos, got %+v", memo[0])
+	}
+}
+
+func TestCategoryProtectedReason(t *testing.T) {
+	if categoryProtectedReason("Auction", "") == "" || categoryProtectedReason("bank pledge release", "") == "" {
+		t.Error("the system categories must be protected (case-insensitively)")
+	}
+	if categoryProtectedReason("Rent", "LN-00001") == "" {
+		t.Error("a category tied to a loan must be protected")
+	}
+	if categoryProtectedReason("Rent", "") != "" {
+		t.Error("an ordinary category may be deleted")
+	}
+	if pluralY(1) != "y" || pluralY(3) != "ies" {
+		t.Error("pluralY wording")
 	}
 }

@@ -34,6 +34,7 @@ const DEFS: Record<string, Def> = {
   shield: { size: 18, stroke: 2, body: <Path d="M12 3 5 6v5c0 5 3.5 8.5 7 10 3.5-1.5 7-5 7-10V6Z" /> },
   gear: { size: 18, stroke: 2, body: <><Circle cx="12" cy="12" r="3" /><Path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></> },
   scan: { size: 18, stroke: 2, body: <Path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M4 12h16" /> },
+  camera: { size: 18, stroke: 2, body: <><Path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.6l1.6-2.3h6.6L16.9 7h2.6A1.5 1.5 0 0 1 21 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z" /><Circle cx="12" cy="13.5" r="3.6" /></> },
   chart: { size: 18, stroke: 2, body: <Path d="M4 20V4M4 20h16M8 16v-5M13 16V8M18 16v-8" /> },
   gavel: {
     size: 18,
@@ -41,6 +42,11 @@ const DEFS: Record<string, Def> = {
     body: <><Path d="m14 13-7.5 7.5a2.12 2.12 0 0 1-3-3L11 10" /><Path d="m16 16 6-6" /><Path d="m8 8 6-6" /><Path d="m9 7 8 8" /><Path d="m21 11-8-8" /></>,
   },
   logout: { size: 18, stroke: 2, body: <><Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><Polyline points="16 17 21 12 16 7" /><Line x1="21" y1="12" x2="9" y2="12" /></> },
+  filter: { size: 18, stroke: 2, body: <Polygon points="22 3 2 3 10 12.5 10 19 14 21 14 12.5 22 3" /> },
+  trash: { size: 18, stroke: 2, body: <><Polyline points="3 6 5 6 21 6" /><Path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><Path d="M10 11v6M14 11v6" /><Path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></> },
+  headset: { size: 20, stroke: 2, body: <><Path d="M4 14v-2a8 8 0 0 1 16 0v2" /><Rect x="3" y="14" width="4" height="6" rx="1.5" /><Rect x="17" y="14" width="4" height="6" rx="1.5" /><Path d="M19 20c0 1.5-2 2-5 2" /></> },
+  mail: { size: 18, stroke: 2, body: <><Rect x="3" y="5" width="18" height="14" rx="2.5" /><Path d="m4 7 8 6 8-6" /></> },
+  phone: { size: 18, stroke: 2, body: <Path d="M5 4h4l1.5 4.5L8 10a12 12 0 0 0 6 6l1.5-2.5L20 15v4a1.5 1.5 0 0 1-1.7 1.5C10 19.7 4.3 14 3.5 5.7A1.5 1.5 0 0 1 5 4Z" /> },
   close: { size: 16, stroke: 2.4, body: <><Line x1="18" y1="6" x2="6" y2="18" /><Line x1="6" y1="6" x2="18" y2="18" /></> },
 };
 

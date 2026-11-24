@@ -112,12 +112,12 @@ func issueConnectCode(ctx context.Context) (*ConnectCode, error) {
 func redeemConnectCode(raw string) (*ConnectRedeem, error) {
 	code := normalizeConnectCode(raw)
 	if len(code) != 6 {
-		return nil, NewNotFound("this code is invalid or has expired — generate a new one from the web dashboard")
+		return nil, NewNotFound("code is invalid or expired")
 	}
 	businessCode, ok := brandingConnects.
 		lookup(code, time.Now())
 	if !ok {
-		return nil, NewNotFound("this code is invalid or has expired — generate a new one from the web dashboard")
+		return nil, NewNotFound("code is invalid or expired")
 	}
 	return &ConnectRedeem{BusinessCode: businessCode}, nil
 }

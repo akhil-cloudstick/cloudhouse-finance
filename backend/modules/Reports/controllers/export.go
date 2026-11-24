@@ -7,10 +7,12 @@ import (
 	"cloudhouse/backend/modules/Reports/models"
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"reflect"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jung-kurt/gofpdf"
 	"github.com/labstack/echo/v4"
@@ -31,11 +33,9 @@ func reportRows(ctx context.Context, key string, f models.Filter) (rows any, tot
 	case "personal-loans":
 		return call2(personalLoans(ctx, f))
 	case "loans-status":
-		return call2(loanStatus(ctx, f, ""))
+		return call2(loanStatus(ctx, f, f.Status))
 	case "interest-collection":
 		return call2(interestCollection(ctx, f))
-	case "outstanding-principal":
-		return call2(outstandingPrincipal(ctx, f))
 	case "payment-collection":
 		return call2(paymentCollection(ctx, f))
 	case "gold-weight":
@@ -49,7 +49,13 @@ func reportRows(ctx context.Context, key string, f models.Filter) (rows any, tot
 	case "gold-release":
 		return call2(goldRelease(ctx, f))
 	case "auctions":
-		return call2(auctionsReport(ctx, f))
+		rs, ts, err := auctionsReport(ctx, f)
+		for i := range rs {
+			if label, ok := auctionOutcomeLabels[rs[i].SettlementStatus]; ok {
+				rs[i].SettlementStatus = label
+			}
+		}
+		return rs, ts, err
 	case "expense-cashflow":
 		return call2(expenseCashflow(ctx, f))
 	case "kyc":
@@ -59,7 +65,7 @@ func reportRows(ctx context.Context, key string, f models.Filter) (rows any, tot
 	case "employee-performance":
 		return call2(employeePerformance(ctx, f))
 	case "communication-history":
-		return call2(communicationHistory(ctx, f, ""))
+		return call2(communicationHistory(ctx, f, f.TriggerType))
 	case "investments-deposit-register":
 		return call2(depositRegister(ctx, f))
 	case "investments-interest-payout-register":
@@ -273,7 +279,7 @@ func BuildPDF(businessName, title string, headers []string, data [][]string) ([]
 	tr := pdf.UnicodeTranslatorFromDescriptor("")
 	pdf.AddPage()
 	pdf.SetFont("Arial", "B", 14)
-	pdf.CellFormat(0, 10, businessName+" — "+title, "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 10, tr(businessName+" — "+title), "", 1, "L", false, 0, "")
 	pdf.SetFont("Arial", "", 8)
 	pageWidth, _ := pdf.GetPageSize()
 	marginL, _, marginR, _ := pdf.GetMargins()
@@ -282,25 +288,77 @@ func BuildPDF(businessName, title string, headers []string, data [][]string) ([]
 	if colCount == 0 {
 		colCount = 1
 	}
-	colWidth := usable / float64(colCount)
-	pdf.SetFont("Arial", "B", 8)
-	for _, hcell := range headers {
-		pdf.CellFormat(colWidth, 7, tr(hcell), "1", 0, "L", false, 0, "")
+	// Column widths follow the longest content (capped, so one long text cannot starve the rest);
+	// long text wraps inside its cell instead of running over the next column.
+	weights := make([]float64, colCount)
+	for i := 0; i < colCount; i++ {
+		w := 6.0
+		if i < len(headers) {
+			w = math.Max(w, float64(utf8.RuneCountInString(headers[i])))
+		}
+		for _, row := range data {
+			if i < len(row) {
+				w = math.Max(w, math.Min(float64(utf8.RuneCountInString(row[i])), 48))
+			}
+		}
+		weights[i] = w
 	}
-	pdf.Ln(-1)
-	pdf.SetFont("Arial", "", 8)
-	for _, row := range data {
+	var sum float64
+	for _, w := range weights {
+		sum += w
+	}
+	widths := make([]float64, colCount)
+	for i, w := range weights {
+		widths[i] = usable * w / sum
+	}
+	const lineH = 4.5
+	_, pageH := pdf.GetPageSize()
+	_, _, _, marginB := pdf.GetMargins()
+	drawRow := func(cells []string, bold bool) {
+		style := ""
+		if bold {
+			style = "B"
+		}
+		pdf.SetFont("Arial", style, 8)
+		lines := make([][]string, colCount)
+		maxLines := 1
 		for i := 0; i < colCount; i++ {
 			val := ""
-			if i < len(row) {
-				val = row[i]
+			if i < len(cells) {
+				val = cells[i]
 			}
-			pdf.CellFormat(colWidth, 6, tr(val), "1", 0, "L", false, 0, "")
+			var wrapped []string
+			for _, l := range pdf.SplitLines([]byte(tr(val)), widths[i]-2) {
+				wrapped = append(wrapped, string(l))
+			}
+			if len(wrapped) == 0 {
+				wrapped = []string{""}
+			}
+			lines[i] = wrapped
+			if len(wrapped) > maxLines {
+				maxLines = len(wrapped)
+			}
 		}
-		pdf.Ln(-1)
-		if pdf.GetY() > 190 {
+		rowH := float64(maxLines)*lineH + 1.5
+		if pdf.GetY()+rowH > pageH-marginB {
 			pdf.AddPage()
 		}
+		x, y := pdf.GetX(), pdf.GetY()
+		for i := 0; i < colCount; i++ {
+			pdf.Rect(x, y, widths[i], rowH, "D")
+			pdf.SetXY(x, y+0.75)
+			for _, l := range lines[i] {
+				pdf.CellFormat(widths[i], lineH, l, "", 2, "L", false, 0, "")
+			}
+			x += widths[i]
+		}
+		pdf.SetXY(marginL, y+rowH)
+	}
+	drawRow(headers, true)
+	for r, row := range data {
+		// the closing "Total" row is set in bold
+		bold := r == len(data)-1 && len(row) > 1 && strings.EqualFold(strings.TrimSpace(row[1]), "total")
+		drawRow(row, bold)
 	}
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {
@@ -408,14 +466,41 @@ func ExportReport(c echo.Context) error {
 		exportFormG(c, f, format)
 		return nil
 	}
+	if key == "cash-ledger" {
+		exportCashLedger(c, f, format)
+		return nil
+	}
+	if key == "day-book" {
+		exportDayBook(c, f, format)
+		return nil
+	}
 	rows, _, err := reportRows(ctx, key, f)
 	if err != nil {
 		badRequest(c, err)
 		return nil
 	}
+	// The file is built whole in memory: refuse a range with more rows than one
+	// export should hold instead of building it.
+	if v := reflect.ValueOf(rows); v.Kind() == reflect.Slice && v.Len() > reportExportMaxRows {
+		badRequest(c, fmt.Errorf("this report has %d rows in the chosen period — choose a shorter date range (at most %d rows per export)", v.Len(), reportExportMaxRows))
+		return nil
+	}
 	headers, data := toTable(rows)
+	// Raw database ids mean nothing to the reader: every report row already carries the number or code staff see
+	// (loan number, packet code, customer code, employee code, investment number), so no *_id column is exported.
+	for _, col := range append([]string{}, headers...) {
+		if strings.HasSuffix(col, "_id") {
+			headers, data = dropColumn(headers, data, col)
+		}
+	}
+	// What staff know as the Investment ID is the investment number (INV-00001), so that column carries the name.
+	for i, h := range headers {
+		if h == "investment_number" {
+			headers[i] = "investment_id"
+		}
+	}
 	if _, single := auth.SingleBranchPin(c); single {
-		headers, data = dropColumn(headers, data, "branchName")
+		headers, data = dropColumn(headers, data, "branch_name")
 	}
 	filename := fmt.Sprintf("%s-%s.%s", key, time.Now().Format("20060102-150405"), format)
 	switch format {
@@ -439,4 +524,15 @@ func ExportReport(c echo.Context) error {
 		badRequest(c, fmt.Errorf("format must be xlsx or pdf"))
 	}
 	return nil
+}
+
+const reportExportMaxRows = 20000
+
+// auctionOutcomeLabels are the plain-English outcome names shown in the app, used in the exports too.
+var auctionOutcomeLabels = map[string]string{
+	"Pending":            "Awaiting settlement",
+	"SettledByRepayment": "Settled by repayment",
+	"WrittenOff":         "Written off",
+	"SettledToCustomer":  "Settled to customer",
+	"SettledToLoanCo":    "Settled to company",
 }

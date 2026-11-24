@@ -22,6 +22,12 @@ var modeVocabulary = map[string]bool{
 
 const SelfTransferSource = "Self Transfer"
 
+// Built-in self-transfer categories that move money between the cash drawer and a bank.
+const (
+	SelfTransferCashToBank = "Cash to Bank"
+	SelfTransferBankToCash = "Bank to Cash"
+)
+
 var bankModes = []string{models.CashModeUPI, models.CashModeBankTransfer}
 
 // bankModeSQL is bankModes as a SQL list, for the ledger scans that build their WHERE clause as text.
@@ -272,8 +278,14 @@ func respondLedger(c echo.Context, page, limit int, export bool, title, filename
 	return c.Blob(http.StatusOK, "application/pdf", pdfBytes)
 }
 
+// parseQueryDate reads the optional ?date=YYYY-MM-DD as local midnight. UTC
+// midnight would put the day's bounds 5h30m off for an IST business.
 func parseQueryDate(c echo.Context) (time.Time, error) {
-	return parseOptionalDate(c.QueryParam("date"))
+	v := c.QueryParam("date")
+	if v == "" {
+		return time.Time{}, nil
+	}
+	return time.ParseInLocation("2006-01-02", v, time.Local)
 }
 
 func respondLoanLedger(c echo.Context, src *models.CashSource, bal LoanBalance) error {

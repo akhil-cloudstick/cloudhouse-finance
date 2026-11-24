@@ -6,9 +6,9 @@ import { singleFlight } from "@/common/utils/singleFlight";
 import { FieldError } from "@/common/components/ui/FieldError";
 
 type RejectRemarksModalContentProps = {
-  title: string;
-  required?: boolean;
-  onConfirm: (remarks: string) => void | Promise<void>;
+	title: string;
+	required?: boolean;
+	onConfirm: (remarks: string) => void | Promise<void>;
 };
 
 /* "Reject — why?" prompt shared by the approval-chain screens (top-up,
@@ -17,48 +17,47 @@ type RejectRemarksModalContentProps = {
  * the value captured when the modal opened. `onConfirm` may be async and
  * may throw; its message is shown inline and the modal stays open. */
 export function RejectRemarksModalContent({
-  title,
-  required = false,
-  onConfirm,
+	title,
+	required = false,
+	onConfirm,
 }: RejectRemarksModalContentProps) {
-  const { closeModal } = useModal();
-  const [remarks, setRemarks] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  // The missing-reason message goes under the reason; `err` keeps what the confirm handler throws.
-  const [remarksErr, setRemarksErr] = useState("");
+	const { closeModal } = useModal();
+	const [remarks, setRemarks] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [err, setErr] = useState("");
+	// The missing-reason message goes under the reason; `err` keeps what the confirm handler throws.
+	const [remarksErr, setRemarksErr] = useState("");
 
-  async function confirm() { return singleFlight("modal:rejectremarks:confirm", async () => {
-    setRemarksErr("");
-    if (required && !remarks.trim()) { setErr(""); setRemarksErr("Please enter a reason for rejecting."); return; }
-    setBusy(true);
-    setErr("");
-    try {
-      await onConfirm(remarks.trim());
-      closeModal();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Something went wrong.");
-    } finally {
-      setBusy(false);
-    }
-  }); }
+	async function confirm() { return singleFlight("modal:rejectremarks:confirm", async () => {
+		setRemarksErr("");
+		if (required && !remarks.trim()) { setErr(""); setRemarksErr("Please enter a reason for rejecting."); return; }
+		setBusy(true);
+		setErr("");
+		try {
+			await onConfirm(remarks.trim());
+			closeModal();
+		} catch (e) {
+			setErr(e instanceof Error ? e.message : "Something went wrong.");
+		} finally {
+			setBusy(false);
+		}
+	}); }
 
-  return (
-    <>
-      <div className="hd"><h3>{title}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
-        <div className="frow">
-          <div className={remarksErr ? "has-err" : undefined}>
-            <label className="f">Reason for rejecting{required ? " *" : " (optional)"}</label>
-            <input className="inp" autoFocus value={remarks} onChange={(e) => { setRemarks(e.target.value); setRemarksErr(""); }} placeholder={required ? "" : "optional"} /><FieldError msg={remarksErr} />
-          </div>
-        </div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
-      </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn danger" disabled={busy} onClick={confirm}>{busy ? "Rejecting…" : "Reject"}</button>
-      </div>
-    </>
-  );
+	return (
+		<>
+			<div className="hd"><h3>{title}</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll">
+				<div className="frow">
+					<div className={remarksErr ? "has-err" : undefined}>
+						<label className="f">Reason for rejecting{required ? " *" : " (optional)"}</label>
+						<input className="inp" autoFocus value={remarks} onChange={(e) => { setRemarks(e.target.value); setRemarksErr(""); }} placeholder={required ? "" : "optional"} /><FieldError msg={remarksErr} />
+					</div>
+				</div>
+			</div>
+			<div className="ft">
+					{err && <span className="ft-err" role="alert">{err}</span>}
+				<button className="btn danger" disabled={busy} onClick={confirm}>{busy ? "Rejecting…" : "Reject"}</button>
+			</div>
+		</>
+	);
 }

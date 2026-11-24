@@ -17,7 +17,7 @@ var dailyUsageCaps = map[string]uint{
 	UsageSetuEsign: 100,
 }
 
-var ErrUsageCapExceeded = NewConflict("daily usage limit reached for this business — try again tomorrow, or contact support")
+var ErrUsageCapExceeded = NewConflict("daily limit reached — try tomorrow")
 
 func capFor(category string) uint {
 	if c, ok := dailyUsageCaps[category]; ok {

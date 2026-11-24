@@ -6,7 +6,8 @@ import { Icon } from "@/common/components/Icon";
 import { singleFlight } from "@/common/utils/singleFlight";
 import type { EsignDeliverBy } from "@/modules/loans/components/EsignLanguageModalContent";
 
-// Customer is the only signer here, no witnesses.
+/* Collects how the pledge slip eSign link is delivered (GML only — the customer is the only
+ * signer, no witnesses). Normal printing is chosen from the Documents menu's side picker. */
 type PledgeSlipModalContentProps = {
   loanNumber: string;
   customerName: string;
@@ -65,9 +66,7 @@ export function PledgeSlipModalContent({ loanNumber, customerName, customerPhone
         </p>
         {err && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 12 }}>{err}</p>}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal} disabled={busy}>Cancel</button>
-        <button className="btn" onClick={confirm} disabled={busy}>{busy ? "Preparing…" : "Send for eSign →"}</button>
+      <div className="ft">        <button className="btn" onClick={confirm} disabled={busy}>{busy ? "Preparing…" : "Send for eSign →"}</button>
       </div>
     </>
   );

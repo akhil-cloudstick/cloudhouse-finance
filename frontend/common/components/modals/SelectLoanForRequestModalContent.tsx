@@ -21,7 +21,7 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
   // Shown under the loan picker.
   const [err, setErr] = useState("");
 
-  const eligible = loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Pending Approval");
+  const eligible = loans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Pending Approval" && l.status !== "Auctioned" && l.status !== "Auctioned - Balance Due");
   const selected = eligible.find((l) => l.id === loanId);
 
   // Not blanket-disabled on `!selected` — see RepledgeModal.tsx's own
@@ -51,12 +51,10 @@ export function SelectLoanForRequestModalContent({ loans, onPicked }: SelectLoan
             onChange={(v) => setType(v as "Extension" | "Release")}
           /></div></div>
         {eligible.length === 0 && (
-          <p className="notice"><Icon name="shield" /> This customer has no open loans to request an extension or release for.</p>
+          <p className="notice"><Icon name="shield" /> Customer has no open loans.</p>
         )}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
+      <div className="ft">        <button className="btn" onClick={next}><Icon name="check" /> Next</button>
       </div>
     </>
   );

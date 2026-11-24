@@ -3,7 +3,9 @@
 // per-language templates instead (see printServerPdf below).
 import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
+import { safeDownload } from "@/common/utils/safeDownload";
 import { toQR } from "toqr";
+import { presentFile } from "@/common/utils/presentFile";
 import { dmy, fmt, todayISO } from "@/common/utils/format";
 import { rupeesInWords } from "@/common/utils/numberToWords";
 import { Loan, LoanTopUp } from "@/modules/loans/types/loan-types";
@@ -138,7 +140,6 @@ export async function printLabelAndSlipOnePage(l: Loan) {
     ${pledgeSlipBody(l, topUps)}
     <div style="margin-top:24px;padding-top:16px;border-top:1px dashed #ccc;text-align:center">
       <div style="display:inline-block">${label.html}</div>
-      <p class="muted" style="margin-top:12px;color:${C.muted}">Packet label — scanning the QR opens ${label.url}</p>
     </div>
   </body></html>`;
   await Print.printAsync({ html });
@@ -181,8 +182,8 @@ export async function printStatement(l: Loan) {
   await printDoc(
     `Statement — ${l.loanNumber}`,
     `${brandHeader("Statement of Account")}
-    <table>
-      <tr><th style="width:150px">Loan No</th><td>${l.loanNumber}</td><th style="width:150px">Statement Date</th><td>${dmy(todayISO())}</td></tr>
+    <table style="table-layout:fixed;width:100%;word-break:break-word;overflow-wrap:anywhere"><colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup>
+      <tr><th>Loan No</th><td>${l.loanNumber}</td><th>Statement Date</th><td>${dmy(todayISO())}</td></tr>
       <tr><th>Debtor Name</th><td colspan="3">${c?.name ?? "—"}</td></tr>
       <tr><th>Debtor Address</th><td colspan="3">${c?.address || "—"}</td></tr>
       <tr><th>Amount of Loan</th><td>${fmt(l.principalAmount)}</td><th>Amount in Words</th><td>${rupeesInWords(l.principalAmount)}</td></tr>
@@ -192,7 +193,7 @@ export async function printStatement(l: Loan) {
       ${additionalInfo ? `<tr><th>Additional Information</th><td colspan="3">${additionalInfo}</td></tr>` : ""}
     </table>
     <p><b>True account of the transaction with the debtor:</b></p>
-    <table>
+    <table style="table-layout:fixed;width:100%;word-break:break-word;overflow-wrap:anywhere"><colgroup><col style="width:13%"><col style="width:33%"><col style="width:11%"><col style="width:13%"><col style="width:14%"><col style="width:16%"></colgroup>
       <thead><tr><th>Date</th><th>Description</th><th>Method</th><th>Reference</th><th class="num">Amount</th><th class="num">Running Balance</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr><th colspan="4">Outstanding Principal</th><th class="num">${fmt(l.outstandingAmount)}</th><th></th></tr></tfoot>
@@ -216,7 +217,7 @@ async function printServerPdf(path: string, filename: string): Promise<void> {
   const token = await getToken();
   const targetUri = `${FileSystem.cacheDirectory}${filename.replace(/[^\w.-]+/g, "-")}`;
   const result = await withPrintProgress(() =>
-    FileSystem.downloadAsync(apiUrl(`${path}`), targetUri, {
+    safeDownload(apiUrl(`${path}`), targetUri, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
   );
@@ -233,7 +234,7 @@ async function printServerPdf(path: string, filename: string): Promise<void> {
     FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
     throw new ApiError(result.status, message, body);
   }
-  await Print.printAsync({ uri: result.uri });
+  await presentFile(result.uri, { mimeType: "application/pdf", title: filename.replace(/\.pdf$/i, "") });
 }
 
 export function printPledgeAgreementPdf(loanId: number, loanNumber: string, lang: DocLang) {
@@ -323,4 +324,38 @@ async function packetLabelParts(l: Loan): Promise<{ css: string; html: string; u
       </div>
     </div>`;
   return { css, html, url };
+}
+
+/** Mobile port of frontend/modules/loans/utils/printAuctionLetter.ts: the final notice sent before a public auction. */
+export async function printAuctionLetter(l: Loan, auctionDate?: string | null, noticeDate?: string | null) {
+  const venue = `${printBrand().legalName || BRAND.legalName}, Head Office`;
+  const ornaments = l.ornaments ?? [];
+  const body = `${brandHeader()}
+    <p class="muted">Ref: CHGF/AUC/${esc(l.loanNumber.replace("LN-", ""))} · Date: ${dmy(noticeDate ? noticeDate.slice(0, 10) : todayISO())}</p>
+    <p><b>To,</b><br>${esc(l.customer?.name ?? "—")}</p>
+    <p><b>Subject: Final notice — public auction of gold ornaments pledged against loan ${esc(l.loanNumber)}</b></p>
+    <p>Dear Sir/Madam,</p>
+    <ol>
+      <li>Despite our repeated reminders, the dues against your gold loan <b>${esc(l.loanNumber)}</b>
+        (outstanding <b>${fmt(l.totalOutstandingBalance ?? l.outstandingAmount ?? 0)}</b> as on date) remain unpaid.</li>
+      <li>You are hereby given final notice that the gold ornaments pledged against the said loan will be sold in
+        <b>PUBLIC AUCTION</b>${auctionDate ? ` on <b>${dmy(auctionDate)}</b>` : ""} at <b>${esc(venue)}</b>,
+        if the entire dues are not settled before the auction date.</li>
+      <li>Details of the pledged ornaments to be auctioned:</li>
+    </ol>
+    <table>
+      <tr><th>Ornament</th><th>Purity</th><th class="num">Gross (g)</th><th class="num">Net (g)</th><th class="num">Qty</th></tr>
+      ${ornaments.length
+        ? ornaments.map((o) => `<tr><td>${esc(o.name)}</td><td>${o.purity}</td><td class="num">${o.grossWeight.toFixed(1)}</td><td class="num">${o.netWeight.toFixed(1)}</td><td class="num">${o.quantity}</td></tr>`).join("")
+        : `<tr><td colspan="5">Pledged gold — ${(l.totalNetWeight ?? 0).toFixed(1)} g total</td></tr>`}
+    </table>
+    <ol start="4">
+      <li>Any surplus from the auction sale after adjusting the principal, interest, penal charges and auction
+        expenses will be refunded to you; any shortfall shall remain recoverable from you.</li>
+      <li>You may redeem the ornaments by settling the full outstanding with charges at our branch on any working
+        day before the auction date.</li>
+    </ol>
+    <p>This notice is issued as per the terms of the loan agreement and applicable regulations.</p>
+    <div class="sig"><div><span>Authorized Signatory</span></div><div><span>Branch Manager</span></div></div>`;
+  await printDoc(`Auction Letter — ${l.loanNumber}`, body);
 }

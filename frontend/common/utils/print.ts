@@ -11,7 +11,7 @@
 import { BRAND, printBrand, printColors } from "@/common/config/brand";
 
 /** Escapes text interpolated into the print HTML strings. */
-const esc = (s: string) =>
+export const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** True on desktop browsers that can print a PDF/popup in place. Mobile and
@@ -162,7 +162,35 @@ export function brandHeader(docTitle?: string): string {
   </header>`;
 }
 
+/* Script appended to every printable tab: print once loaded, close afterwards. */
+const SELF_PRINT_SCRIPT = `<script>window.addEventListener("load",function(){setTimeout(function(){try{window.focus();window.print()}catch(e){}},400)});window.addEventListener("afterprint",function(){window.close()});</script>`;
+
+/* Opens a printable HTML document in its own tab and prints it from there.
+ *
+ * The tab is opened with noopener from a blob: URL rather than window.open("")
+ * + document.write. A document.write popup keeps its opener, so both live in
+ * one browser process, and window.print() in the popup freezes the opener too:
+ * the whole app (the Documents menu included) went dead until the print dialog
+ * closed, and no second document could be opened meanwhile. A noopener tab is
+ * its own browsing context, so the app stays usable while a print dialog is up.
+ * (noopener means window.open returns null even on success, so a popup block
+ * cannot be detected here.) The object URL is revoked late so the tab can load. */
+export function openPrintableTab(html: string): void {
+  const url = URL.createObjectURL(new Blob([html.replace("</body>", SELF_PRINT_SCRIPT + "</body>")], { type: "text/html" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 120_000);
+}
+
 export function openPrintWindow(title: string, body: string, onBlocked: (msg: string) => void) {
+  // Documents built elsewhere (the server's slip / statement styles) carry their own @page margin, which brings the
+  // browser's date / title header and footer back. Drop those rules: this window sets a zero page margin itself.
+  body = body.replace(/@page[^{]*{[^}]*}/g, "");
   // Resolved per call, not at module load: the colour belongs to whichever
   // business is signed in, and this module is imported once for all of them.
   const C = printColors();
@@ -186,7 +214,8 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
     .num{text-align:right;font-variant-numeric:tabular-nums}
     ol li{margin-bottom:10px;text-align:justify}
     .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px}
-    .sig div{flex:1;text-align:center;position:relative}
+    /* Direct children only: a nested div (an embedded slip's .lender-sig wrapper) must keep its own positioning. */
+    .sig>div{flex:1;text-align:center;position:relative}
     .sig span{display:block;border-top:1px solid ${C.ink};padding-top:6px;margin-top:44px;font-size:12.5px}
     /* Absolutely positioned — sits inside the existing blank gap the 44px
      * margin-top above already reserves, rather than adding its own height
@@ -194,9 +223,20 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
      * normal flow element instead, its line would render lower than the
      * Borrower's identical (image-less) line beside it, since each .sig
      * div sizes independently. */
-    .lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:110px;height:auto}
+    .lender-sig{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:115px;height:auto}
     .muted{color:${C.muted};font-size:12.5px}
-    @media print{.noprint{display:none}}
+    /* Long text (descriptions, remarks, additional info) wraps inside its box and continues on the next line. */
+    body{overflow-wrap:anywhere;word-break:break-word}
+    table{table-layout:auto;max-width:100%}
+    th,td,p,li,div{overflow-wrap:anywhere;word-break:break-word;min-width:0}
+    /* A zero page margin is what makes browsers leave out their own date / title / URL header and footer;
+       the margin the page needs comes from the body padding instead. */
+    @page{size:A4;margin:0}
+    @media print{
+      .noprint{display:none}
+      body{margin:0 auto;padding:12mm 14mm;max-width:none;box-sizing:border-box;width:100%}
+      tr{page-break-inside:avoid}
+    }
   </style></head><body>${body}
   <div class="noprint" style="text-align:center;margin-top:30px">
     <button onclick="window.print()" style="padding:10px 26px;font-size:14px;cursor:pointer">🖨 Print</button></div>
@@ -207,16 +247,6 @@ export function openPrintWindow(title: string, body: string, onBlocked: (msg: st
     downloadBlob(new Blob([html], { type: "text/html" }), `${title.replace(/[\\/:*?"<>|]+/g, "-")}.html`);
     return;
   }
-  const w = window.open("", "_blank");
-  if (!w) {
-    onBlocked("Popup blocked — please allow popups for this site to print");
-    return;
-  }
-  w.document.write(html);
-  w.document.close();
-  // Close the preview once the print dialog is dismissed (Print or Cancel).
-  w.addEventListener("afterprint", () => w.close());
-  setTimeout(() => {
-    try { w.focus(); w.print(); } catch { /* ignore */ }
-  }, 400);
+  void onBlocked;
+  openPrintableTab(html);
 }

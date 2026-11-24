@@ -45,14 +45,17 @@ type CashMovement struct {
 	CounterBankRef     *commonModels.Bank     `json:"counter_bank_ref,omitempty" gorm:"foreignKey:CounterBankID"`
 	PartyCustomerID    *uint                  `json:"party_customer_id"`
 	PartyCustomer      *commonModels.Customer `json:"party_customer,omitempty" gorm:"foreignKey:PartyCustomerID"`
-	ExpenseID          *uint                  `json:"expense_id"`
-	ReceiptImage       string                 `json:"receipt_image,omitempty" gorm:"type:text"`
-	SourceType         string                 `json:"source_type,omitempty" gorm:"size:40;index:idx_cash_movements_source,priority:1"`
-	SourceID           *uint                  `json:"source_id,omitempty" gorm:"index:idx_cash_movements_source,priority:2"`
-	Remarks            string                 `json:"remarks" gorm:"size:500"`
+	// PartyInvestorID names the investor on an investment deposit / payout (investors are their own table).
+	PartyInvestorID *uint  `json:"party_investor_id,omitempty"`
+	ExpenseID       *uint  `json:"expense_id"`
+	ReceiptImage    string `json:"receipt_image,omitempty" gorm:"type:text"`
+	SourceType      string `json:"source_type,omitempty" gorm:"size:40;index:idx_cash_movements_source,priority:1"`
+	SourceID        *uint  `json:"source_id,omitempty" gorm:"index:idx_cash_movements_source,priority:2"`
+	Remarks         string `json:"remarks" gorm:"size:500"`
 	// IsManual marks a line a person keyed in (cash-in, debit, self transfer): the ledger offers Edit on it.
 	IsManual  bool      `json:"editable" gorm:"not null;default:false"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Expense struct {
@@ -79,9 +82,14 @@ type Expense struct {
 	// GroupID ties the debit lines of one payment breakdown together (empty for a single-mode expense).
 	GroupID   string    `json:"group_id,omitempty" gorm:"size:40;index"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	// Editable is true for an expense the Expense Register may edit: a pending or approved one a person keyed in
 	// (not the ones the system books for an auction or a bank pledge release).
 	Editable bool `json:"editable" gorm:"-"`
+	// BankPledgeID / BankPledgeLoanID are set on a "Bank Pledge Release" entry: it is not edited as a plain expense but
+	// through the bank pledge it belongs to (PATCH /loans/:id/bank-pledge/:pledge_id), which rewrites it with its cash lines.
+	BankPledgeID     uint `json:"bank_pledge_id,omitempty" gorm:"-"`
+	BankPledgeLoanID uint `json:"bank_pledge_loan_id,omitempty" gorm:"-"`
 }
 
 func (e *Expense) AfterFind(_ *gorm.DB) error {
@@ -103,6 +111,7 @@ type OpeningCashBalance struct {
 	FromBank    *commonModels.Bank  `json:"from_bank,omitempty" gorm:"foreignKey:FromBankID"`
 	Amount      float64             `json:"amount" gorm:"not null;type:numeric(16,2)"`
 	CreatedAt   time.Time           `json:"created_at"`
+	UpdatedAt   time.Time           `json:"updated_at"`
 	IsSet       bool                `json:"is_set" gorm:"-"`
 }
 
@@ -123,9 +132,13 @@ type GoldSale struct {
 	Mode               string              `json:"mode" gorm:"not null;size:20;default:Cash"`
 	BankID             *uint               `json:"bank_id"`
 	BankRef            *commonModels.Bank  `json:"bank_ref,omitempty" gorm:"foreignKey:BankID"`
-	Remarks            string              `json:"remarks" gorm:"size:500"`
-	ReceiptImage       string              `json:"receipt_image,omitempty" gorm:"type:text"`
-	CreatedAt          time.Time           `json:"created_at"`
+	// CostMode / CostBankID say how the cost to acquire was paid; the cost itself is the cash-out CostCashMovementID.
+	CostMode     string    `json:"cost_mode" gorm:"size:20"`
+	CostBankID   *uint     `json:"cost_bank_id"`
+	Remarks      string    `json:"remarks" gorm:"size:500"`
+	ReceiptImage string    `json:"receipt_image,omitempty" gorm:"type:text"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type Category struct {
@@ -154,6 +167,7 @@ type LoanCashSource struct {
 	InterestRate    *float64  `json:"interest_rate" gorm:"type:numeric(6,2)"`
 	DurationMonths  *int      `json:"duration_months"`
 	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 func (m *CashMovement) BeforeCreate(_ *gorm.DB) error {

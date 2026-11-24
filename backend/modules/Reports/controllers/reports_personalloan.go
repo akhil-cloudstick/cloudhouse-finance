@@ -21,8 +21,14 @@ func personalLoans(ctx context.Context, f models.Filter) ([]models.PersonalLoanR
 		Where("p.status NOT IN ?", []string{"Pending Approval", "Rejected"}).
 		Where("p.deleted_at IS NULL").
 		Order("p.opened_date desc")
-	if f.BranchID != nil {
-		q = q.Where("p.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("p.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("p.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.Frequencies) > 0 {
+		q = q.Where("p.frequency IN ?", f.Frequencies)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.PersonalLoanTotals{}, err

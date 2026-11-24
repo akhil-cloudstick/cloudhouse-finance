@@ -130,6 +130,37 @@ html {
   scroll-behavior: smooth
 }
 
+/* Theme-tinted scrollbars everywhere (modals, tables, page) instead of the
+ * browser's default fat gray bar. Elements with their own rule (.no-scrollbar,
+ * .newloan-root …) keep it, as those set scrollbar-width: none explicitly. */
+:root {
+  /* One scrollbar colour for the whole app; every scrollbar rule uses this. */
+  --scroll-thumb: var(--brand-light);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px
+}
+
+::-webkit-scrollbar-track {
+  background: transparent
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 8px
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand)
+}
+
 body {
   font-family: var(--brand-font-family), var(--font-sans), 'Inter', sans-serif;
   font-size: calc(1em * var(--brand-font-scale));
@@ -371,16 +402,13 @@ h3,
 .nav {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 0 16px
+  padding: 12px 0 16px;
+  scrollbar-width: none
 }
 
 .nav::-webkit-scrollbar {
-  width: 5px
-}
-
-.nav::-webkit-scrollbar-thumb {
-  background: color-mix(in oklab, var(--brand) 30%, transparent);
-  border-radius: 3px
+  display: none;
+  width: 0
 }
 
 .nav .grp {
@@ -640,6 +668,34 @@ h3,
   color: var(--red);
 }
 
+/* Shown only while there is text: one × that clears it, in place of the "/" hint and the collapse ×. */
+.gsearch-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+.gsearch-clear:hover {
+  color: var(--red);
+}
+
+.gsearch.gsearch-has-query input {
+  padding-right: 32px;
+}
+
+.gsearch.gsearch-has-query kbd,
+.gsearch.gsearch-has-query .gsearch-close {
+  display: none !important;
+}
+
 .rate-compact {
   display: none;
 }
@@ -668,6 +724,18 @@ h3,
 
 .gs-results.open {
   display: block
+}
+
+/* New Loan: dropdown lists and the Saved drafts list still scroll (wheel/touch),
+ * but without a visible scrollbar. */
+.newloan-root .gs-results,
+.newloan-drafts > .bd {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.newloan-root .gs-results::-webkit-scrollbar,
+.newloan-drafts > .bd::-webkit-scrollbar {
+  display: none;
 }
 
 /* FilterPanel.tsx's own popover — a small, capped-width card (never the
@@ -714,6 +782,9 @@ h3,
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
+  /* .btn's letter-spacing would add space after the digit and push it off-center. */
+  letter-spacing: 0;
+  text-indent: 0;
 }
 
 .gs-results .gs-grp {
@@ -763,6 +834,28 @@ h3,
 .gs-results a .ic svg {
   width: 15px;
   height: 15px
+}
+
+.gs-results a .gs-del {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-content: center;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--red);
+  border-radius: 6px;
+  opacity: .65;
+  cursor: pointer;
+  transition: background .12s, opacity .12s;
+}
+
+.gs-results a .gs-del:hover {
+  background: var(--red-bg);
+  opacity: 1;
 }
 
 .gs-results a .tx {
@@ -837,7 +930,7 @@ h3,
  * Select, GlobalSearch, DatePicker). */
 .gs-results {
   scrollbar-width: thin;
-  scrollbar-color: var(--brand-light) transparent
+  scrollbar-color: var(--scroll-thumb) transparent
 }
 
 .gs-results::-webkit-scrollbar {
@@ -849,7 +942,7 @@ h3,
 }
 
 .gs-results::-webkit-scrollbar-thumb {
-  background: var(--brand-light);
+  background: var(--scroll-thumb);
   border-radius: 6px
 }
 
@@ -887,7 +980,9 @@ h3,
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  width: 169px;
+  width: max-content;
+  min-width: 169px;
+  max-width: min(360px, calc(100vw - 24px));
   box-sizing: border-box;
   background: var(--card);
   border: 1px solid var(--line);
@@ -925,17 +1020,30 @@ h3,
   flex-shrink: 0
 }
 
-/* A label that overflows the 169px-wide menu (e.g. "Send Indemnity Bond
- * for eSign") fades out at its own right edge — via a mask, not
- * text-overflow:ellipsis's "…" — rather than wrapping to a second line or
- * silently clipping mid-letter. */
+/* The menu sizes to its longest label (max-content, capped to the viewport),
+ * so labels such as "Partial Receipt — Malayalam" show in full. A label only
+ * wraps if it exceeds the capped width. */
 .docs-dd-menu a .tx {
   flex: 1;
   min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* `.fit`: the menu is exactly as wide as its trigger button, and a label longer than that ends in "…"
+ * (the item's title shows it in full on hover). */
+.docs-dd-menu.fit {
+  left: 0;
+  right: 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.docs-dd-menu.fit a .tx {
   white-space: nowrap;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 85%, transparent 100%);
-  mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+  text-overflow: ellipsis;
 }
 
 /* Side picker under a Documents item (Print Slip → Normal print / eSign): a small
@@ -1179,6 +1287,12 @@ button.fi-trigger {
   flex: 0 0 150px
 }
 
+/* Any date field in a modal form fills its grid cell, level with the inputs and selects beside it. */
+.modal .frow .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
+}
+
 /* NewLoan.tsx's Loan Date shares a `.frow.c2` row with Loan No, and every
  * other field in that form fills its grid cell — a 230px picker beside a
  * full-width input read as a misaligned column. Fill the cell instead. */
@@ -1196,7 +1310,8 @@ button.fi-trigger {
  * modal only, so every other DatePicker app-wide keeps its normal fixed
  * width. */
 .repledge-modal-bd .dp.dp-date,
-.register-customer-bd .dp.dp-date {
+.register-customer-bd .dp.dp-date,
+.ledger-edit-bd .dp.dp-date {
   width: 100%;
   flex: 1 1 auto
 }
@@ -1218,6 +1333,13 @@ button.fi-trigger {
    instead of filling the column, leaving a large empty gap beside each
    field. Stretched to the column's own width instead. */
 .filter-popover .dp.dp-date {
+  width: 100%;
+  flex: 1 1 auto
+}
+
+/* Gold Rates' date filter sits in a 170px box in the card header: fill that box instead of keeping the fixed 230px
+ * that pushed it past the card's edge. */
+.rate-filter-dp .dp.dp-date {
   width: 100%;
   flex: 1 1 auto
 }
@@ -1524,6 +1646,15 @@ button.fi-trigger {
   box-sizing: border-box
 }
 
+/* Download button in the ledger header: compact (the .hd:has(.search) rule
+ * pins it to 34px, which made it look oversized next to the filter icon). */
+.hd .cash-filter-row .btn.ghost.sm {
+  height: 31px;
+  padding: 0 10px;
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
 .dp-trigger {
   display: flex;
   align-items: center;
@@ -1568,7 +1699,8 @@ button.fi-trigger {
 }
 
 .ss-input {
-  padding-right: 26px
+  padding-right: 26px;
+  text-overflow: ellipsis
 }
 
 /* A locked SearchableSelect reads like a locked native select — faint fill,
@@ -1867,6 +1999,11 @@ button.fi-trigger {
   min-width: 0;
   height: 100%;
   overflow-y: auto;
+  scrollbar-width: none; /* hide the bar, the pane still scrolls */
+}
+
+.set-pane::-webkit-scrollbar {
+  display: none;
 }
 
 .set-sub {
@@ -1905,6 +2042,12 @@ button.fi-trigger {
   align-items: center;
   margin-top: 6px;
 }
+
+/* Link Mobile: QR and Code views share one layout, so switching never moves the text or buttons. */
+.set-link-fixed { align-items: start; }
+/* Fixed (not min) heights: the QR text wraps to more lines than the code text, and a modal width change re-wraps both. */
+.set-link-fixed .set-steps { height: 184px; overflow: hidden; }
+.set-link-fixed .set-meta { height: 32px; min-height: 32px; }
 
 .set-visual {
   display: flex;
@@ -3085,14 +3228,13 @@ button.fi-trigger {
   overflow-y: auto;
 }
 
-/* Auto layout sizes each column to its content, and the min-width keeps the
- * table the same shape on every screen — a narrow right column scrolls the
- * table sideways (.tbl-wrap's overflow-x:auto above) instead of squeezing
- * equal fixed-width columns until dates and "Particulars" broke mid-word. */
+/* Each table sets its own column proportions (<TableCols>), and the min-width
+ * keeps them readable on a narrow right column: below it the table scrolls
+ * sideways (.tbl-wrap's overflow-x:auto above) instead of squeezing the
+ * columns until dates and "Particulars" broke mid-word. */
 .cust-360 .tbl {
-  table-layout: auto;
   width: 100%;
-  min-width: 0
+  min-width: 560px
 }
 
 /* Grid items default to min-width:auto, so the right column refused to
@@ -3147,7 +3289,7 @@ button.fi-trigger {
  * widths fit without scrolling at all. */
 .cust-360 .tbl-wrap {
   scrollbar-width: thin;
-  scrollbar-color: var(--brand-pale) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
   -ms-overflow-style: auto;
 }
 .cust-360 .tbl-wrap::-webkit-scrollbar {
@@ -3156,7 +3298,7 @@ button.fi-trigger {
   width: 8px;
 }
 .cust-360 .tbl-wrap::-webkit-scrollbar-thumb {
-  background: var(--brand-pale);
+  background: var(--scroll-thumb);
   border-radius: 4px;
 }
 
@@ -3278,6 +3420,28 @@ button.fi-trigger {
  * (non-transparent) background + blur is needed here, unlike the plain
  * .card .ft above, so table rows scrolling underneath don't show through
  * the sticky bar. */
+/* Release modals' ornament lists: about five rows show at once, the rest scroll (header stays put). */
+.tbl-wrap.rel-orn-wrap {
+  max-height: 262px;
+  overflow-y: auto;
+}
+/* Tighter columns so the table fits the modal width instead of being clipped. */
+.tbl-wrap.rel-orn-wrap .tbl {
+  min-width: 0;
+  width: 100%;
+}
+.tbl-wrap.rel-orn-wrap .tbl th,
+.tbl-wrap.rel-orn-wrap .tbl td {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.tbl-wrap.rel-orn-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ivory);
+}
+
 .tbl-wrap + .ft {
   position: sticky;
   bottom: 0;
@@ -3352,7 +3516,8 @@ button.fi-trigger {
 .kpi .s {
   font-size: 11.5px;
   margin-top: 5px;
-  color: var(--muted)
+  color: var(--muted);
+  text-transform: capitalize
 }
 
 /* Cash.tsx's KPI row shows full rupee amounts ("₹1,23,456.00") rather than
@@ -3378,6 +3543,10 @@ button.fi-trigger {
    * same line even when one card also carries a breakdown list below. */
   justify-content: flex-start;
   padding-top: 20px;
+}
+.kpis-money .kpi .l,
+.kpis-money .kpi .kpi-fit {
+  text-transform: capitalize;
 }
 .kpis-money .kpi .l {
   white-space: nowrap;
@@ -3540,6 +3709,14 @@ button.fi-trigger {
 .kpi-link:focus-visible {
   outline: 2px solid var(--brand-deep);
   outline-offset: 2px
+}
+
+.kpi.amber::after {
+  background: linear-gradient(180deg, oklch(0.78 0.13 75), var(--amber))
+}
+
+.kpi.info::after {
+  background: linear-gradient(180deg, oklch(0.72 0.1 245), var(--info))
 }
 
 .kpi.ok::after {
@@ -3755,7 +3932,7 @@ button.fi-trigger {
  * wants the full row. Rows size to their content (both tables are paged) and
  * the cards never shrink below it — a shrinking card used to spill its pager
  * over the card beneath on a short or zoomed-in window. */
-.pl-detail-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);grid-auto-rows:auto;gap:15px;align-items:start;flex:0 0 auto}
+.pl-detail-grid{display:grid;grid-template-columns:minmax(380px,4fr) minmax(0,7fr);grid-auto-rows:auto;gap:15px;align-items:start;flex:0 0 auto}
 .pl-detail-grid > .card{flex-shrink:0;min-height:auto}
 /* Schedule has only 4 short columns, so it gives up its 640px table floor and
  * the (7-column) Payment Ledger gets the wider share; the ledger's date stays
@@ -3812,6 +3989,19 @@ textarea.inp {
 select.inp {
   height: 38px;
   box-sizing: border-box;
+}
+
+/* Placeholders are lighter than field headings (label.f uses --muted). */
+::placeholder {
+  color: color-mix(in oklab, var(--muted) 55%, #fff);
+  opacity: 1;
+}
+
+/* Textareas grow vertically only (JS auto-grow up to 4 lines): never resized by hand. */
+textarea,
+textarea.inp {
+  resize: none;
+  max-width: 100%;
 }
 
 .inp:focus {
@@ -3994,6 +4184,11 @@ input[type="number"] {
  * costs nothing. */
 .calc-card .dp {
   width: 100%
+}
+
+/* Keeps the Scheme row's implicit grid column at the card's width; a long scheme label otherwise widened it past the card edge. */
+.calc-card .frow:not(.c2) {
+  grid-template-columns: minmax(0, 1fr)
 }
 
 .calc-card input.inp {
@@ -4310,12 +4505,20 @@ label.f {
   z-index: 1
 }
 
+/* Fixed layout: a column's width comes from the table's <TableCols> (or its header cell's CSS
+ * width), never from the rows on screen, so the columns hold still whatever data a page, filter or
+ * refresh brings. A value longer than its column wraps inside the cell instead of widening it. */
 table.tbl {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13.5px;
-  min-width: 640px
+  min-width: 640px;
+  table-layout: fixed
+}
+
+table.tbl td {
+  overflow-wrap: anywhere
 }
 
 .tbl {
@@ -4526,7 +4729,7 @@ table.tbl {
   white-space: nowrap
 }
 
-/* Loans page only (.tbl.tbl-center) — center every column's content,
+/* Opt-in (.tbl.tbl-center) — center every column's content,
  * including the numeric ones that .tbl .num otherwise right-aligns. */
 .tbl.tbl-center th,
 .tbl.tbl-center td {
@@ -4541,7 +4744,11 @@ table.tbl {
  * Edit column was clipped (scrollbars are hidden, so it looked cut off).
  * Tighter cell padding + no forced min-width lets it fit at any width. */
 .tbl.plans-tbl {
-  min-width: 0
+  min-width: 640px
+}
+
+.modal .tbl-wrap.tbl-scroll-paged {
+  overflow-x: auto;
 }
 
 .tbl.plans-tbl th,
@@ -4744,6 +4951,22 @@ table.tbl {
   width: 150px;
 }
 
+/* Charge method dropdown: fixed width whatever the selected label, flush right with the Amount field. */
+.charge-method-select,
+.charge-method-select .dp,
+.charge-method-select .dp-trigger {
+  width: 170px !important;
+  min-width: 170px !important;
+  max-width: 170px !important;
+  box-sizing: border-box;
+}
+
+/* The label stays put at the left edge; only its own text is clipped, never the box. */
+.charge-method-select .dp-trigger {
+  justify-content: space-between;
+  text-align: left;
+}
+
 .loans-date-sep {
   font-size: 12.5px;
   color: var(--muted);
@@ -4772,6 +4995,42 @@ table.tbl {
     width: 100%;
     flex-basis: 100%;
     justify-content: flex-end
+  }
+}
+
+/* Right-hand column beside the KPI cards: the summary date on top, the tabs
+ * at the bottom, stretched to the cards' height. Below 1400px both share
+ * one right-aligned line under the cards, wrapping on phones. */
+.cash-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  align-self: stretch;
+  gap: 10px;
+  margin-left: auto
+}
+
+.cash-date-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px
+}
+
+@media (max-width: 1400px) {
+  .cash-side {
+    width: 100%;
+    flex-basis: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    /* date on the table's left edge, tabs on the right */
+    justify-content: space-between
+  }
+
+  .cash-side .cash-tabs-row {
+    width: auto;
+    flex-basis: auto
   }
 }
 
@@ -5028,6 +5287,50 @@ table.tbl {
   padding-left: 34px
 }
 
+/* Row-scoped `.inp` padding rules (e.g. .cash-filter-row) must not pull the text under the icon. */
+.search .inp,
+.cash-filter-row .search .inp {
+  padding-left: 34px
+}
+
+/* The clear (×) button inside a search box, vertically centred at its right edge. */
+.search .search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 50%
+}
+
+.search .search-clear:hover {
+  color: var(--ink);
+  background: var(--brand-faint)
+}
+
+.search .search-clear svg {
+  position: static;
+  transform: none;
+  width: 13px;
+  height: 13px
+}
+
+/* Room for the × is always reserved (not only once text is typed). Adding the padding
+ * when the × appeared made the auto-width input jump wider as soon as you typed. */
+.search input,
+.search .inp {
+  padding-right: 46px
+}
+
 .search svg {
   position: absolute;
   left: 11px;
@@ -5043,7 +5346,6 @@ table.tbl {
   position: fixed;
   inset: 0;
   background: color-mix(in oklab, var(--nav) 55%, transparent);
-  backdrop-filter: blur(3px);
   display: none;
   /* Vertical centering is done with `margin:auto` on `.modal` below, NOT
    * `align-items:center` here. This container scrolls (`overflow-y:auto`),
@@ -5060,6 +5362,20 @@ table.tbl {
 
 .modal-bg.open {
   display: flex
+}
+
+/* The blur lives on a pseudo-element, not on `.modal-bg`: a backdrop-filter makes its element the containing block of
+ * every `position:fixed` descendant, so the dropdown panels (Select, SearchableSelect, DatePicker) opened inside a modal
+ * were placed relative to `.modal-bg` — 32px too low in the desktop app, whose title bar pushes `.modal-bg` down. */
+.modal-bg::before {
+  content: "";
+  position: fixed;
+  top: var(--titlebar-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  backdrop-filter: blur(3px);
+  pointer-events: none;
 }
 
 .modal {
@@ -5083,11 +5399,52 @@ table.tbl {
 .modal.wide:has(.disburse-modal-bd) {
   max-width: 590px
 }
+/* The before / after preview table must fit the narrow modal (a table keeps its own min-width otherwise and the
+ * After column scrolls out of sight). */
+.ledger-edit-bd .tbl {
+  min-width: 0;
+  width: 100%
+}
+
+/* The ledger edit / delete modals: narrower than the shared wide size, still wide enough for the date picker and the
+ * Mode / Amount / Bank breakdown row. */
+.modal.wide:has(.ledger-edit-bd) {
+  max-width: 560px
+}
+
+/* Edit Loan: narrower than the shared wide size so its inputs are not stretched across the full width. */
+.modal.wide:has(.edit-loan-bd) {
+  max-width: 640px
+}
+
 
 /* PaymentModal's confirmation popup — a second, default-width modal stacked
  * over the open Record Payment modal (z-index 80) instead of replacing it. */
 .modal-bg.pay-confirm-bg {
   z-index: 90
+}
+
+/* Closing: the box slides down and fades, the backdrop fades (ModalProvider.tsx, CLOSE_MS = 200). */
+.modal-bg.closing {
+  animation: modalBgOut .2s ease forwards;
+  pointer-events: none
+}
+
+.modal-bg.closing .modal {
+  animation: popOut .2s ease forwards
+}
+
+@keyframes modalBgOut {
+  to {
+    opacity: 0
+  }
+}
+
+@keyframes popOut {
+  to {
+    transform: translateY(14px);
+    opacity: 0
+  }
 }
 
 @keyframes pop {
@@ -5257,12 +5614,43 @@ table.tbl {
   font-size: 12px
 }
 
+/* Collapsible "Additional Information" section: always rendered and grown
+ * smoothly (0fr → 1fr) instead of popping in at full height, which made the
+ * modal jump and the inputs shake. Hidden fields are visibility:hidden so
+ * they can't be tabbed into while collapsed. */
+.addl-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .22s ease
+}
+
+.addl-wrap.open {
+  grid-template-rows: 1fr
+}
+
+.addl-inner {
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition: visibility 0s linear .22s
+}
+
+.addl-wrap.open .addl-inner {
+  visibility: visible;
+  transition-delay: 0s
+}
+
 .modal .inp {
   font-size: 12.5px
 }
 
+/* Messages inside any dialog are plain text: no box, background or border. */
 .modal .notice {
-  font-size: 11.5px
+  font-size: 11.5px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0
 }
 
 .modal .f {
@@ -5288,6 +5676,16 @@ table.tbl {
  *
  * An opaque background is required, not inherited — rows scroll underneath
  * this bar. */
+.modal .ft .ft-err {
+  flex: 1;
+  align-self: center;
+  text-align: left;
+  color: var(--red);
+  font-size: 12.5px;
+  line-height: 1.35;
+  min-width: 0
+}
+
 .modal .ft {
   padding: 14px 22px;
   border-top: 1px solid var(--line);
@@ -5332,7 +5730,8 @@ table.tbl {
 
 .modal:has(> .bd-scroll) {
   height: auto;
-  max-height: calc(100dvh - 32px);
+  /* the standard modal cap: 640px, or the screen when that is shorter */
+  max-height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
   display: flex;
   flex-direction: column;
   margin: auto;
@@ -5345,16 +5744,25 @@ table.tbl {
  * the modal. Short screens keep the tighter cap from the ≤850px block below. */
 @media (min-height: 851px) {
   .modal:has(> .bd-scroll .scheme-frow) {
-    max-height: min(660px, calc(100dvh - 32px));
+    max-height: min(660px, calc(100dvh - var(--titlebar-h) - 32px));
   }
 }
 
 /* Credit / Debit / Self Transfer entry modals: capped so a long payment breakdown scrolls inside
  * `.bd-scroll` instead of growing the modal. Short screens keep the tighter viewport cap above. */
 @media (min-height: 700px) {
-  .modal:has(> .bd-scroll.entry-form) {
-    max-height: min(640px, calc(100dvh - 32px));
+  /* Personal-loan New / Renew modals share the same cap. */
+  .modal:has(> .bd-scroll.entry-form),
+  .modal:has(> .bd-scroll.pl-modal),
+  .modal:has(> .bd-scroll.bank-pledge-edit) {
+    max-height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
   }
+}
+
+/* Record Payment modal: its content is a little taller than the 640px standard cap, which showed a
+ * needless scrollbar; allow a taller cap (still bounded by the screen, so short screens still scroll). */
+.modal:has(> .bd-scroll.pay-record-modal) {
+  max-height: min(740px, calc(100dvh - var(--titlebar-h) - 32px));
 }
 
 /* Neither bar may absorb the shrink */
@@ -5371,7 +5779,14 @@ table.tbl {
   overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
+  /* Space between the inputs and the scrollbar. */
+  padding-right: 30px;
+  /* Reserve the scrollbar's width always: typing can add/remove a line (error or
+   * hint text), flipping the scrollbar on/off, which narrowed the content, re-wrapped
+   * the fields and made the inputs visibly jitter. The track is transparent, so
+   * nothing is drawn when the content fits. */
+  scrollbar-gutter: stable;
 }
 
 /* A bd-scroll modal whose body is one table (Banks.tsx's BanksModalContent):
@@ -5394,7 +5809,7 @@ table.tbl {
 .modal .bd.bd-scroll.bd-tbl > .tbl-card.tbl-scroll-paged > .tbl-wrap,
 .modal .tbl-wrap.tbl-scroll-paged {
   flex: 0 1 auto;
-  max-height: min(360px, calc(100dvh - 260px));
+  max-height: min(360px, calc(100dvh - var(--titlebar-h) - 260px));
   overflow-y: auto;
 }
 
@@ -5508,13 +5923,16 @@ table.tbl {
 .mini-list .tx b {
   font-weight: 600;
   font-size: 13.5px;
-  color: var(--nav-ink)
+  color: var(--nav-ink);
+  overflow-wrap: anywhere
 }
 
 .mini-list .tx small {
   display: block;
   color: var(--muted);
-  font-size: 11.5px
+  font-size: 11.5px;
+  white-space: normal;
+  overflow-wrap: anywhere
 }
 
 .mini-list .rt {
@@ -5580,8 +5998,10 @@ table.tbl {
 .donut {
   width: 120px;
   height: 120px;
+  min-width: 120px;
+  min-height: 120px;
   border-radius: 50%;
-  flex-shrink: 0;
+  flex: 0 0 120px;
   position: relative
 }
 
@@ -5800,6 +6220,14 @@ table.tbl {
   font-size: 21px;
   box-shadow: 0 0 0 3px #fff, 0 0 0 4px color-mix(in oklab, var(--brand) 40%, transparent);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.dhead .big-av img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .kv {
@@ -5866,6 +6294,14 @@ table.tbl {
 
 .tbl td.tbl-acts > * + * {
   margin-left: 6px;
+}
+
+.tbl.tbl-center td.tbl-acts {
+  text-align: center;
+}
+
+.tbl td.tbl-acts > a + a {
+  margin-left: 14px;
 }
 
 .tbl-ibtn {
@@ -6086,6 +6522,10 @@ table.tbl {
   .pl-detail-grid {
     grid-template-columns: 1fr
   }
+  /* stacked cards: a long table scrolls inside its card (the usual max-height cap), not the page */
+  .pl-detail-grid .tbl-wrap {
+    max-height: calc(100vh - 350px)
+  }
 }
 
 /* Big screens (the exact complement of the stacking query above): like every
@@ -6098,8 +6538,17 @@ table.tbl {
   .pl-detail-grid {
     flex: 1 1 auto;
     min-height: 0;
-    grid-template-rows: minmax(min-content, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     align-items: stretch
+  }
+  /* the row takes only the height left on the page; each table scrolls inside its card, so the page does not */
+  .pl-detail-grid > .card {
+    min-height: 0
+  }
+  .pl-detail-grid .tbl-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto
   }
 }
 
@@ -6107,7 +6556,21 @@ table.tbl {
  * (the ledger gets the wider share, it has seven columns) and stack — as before — below the same
  * width/height boundary `.pl-detail-grid` uses. Both tables are paged, so rows size to their content
  * and the cards never shrink below it. */
-.inv-detail-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
+.inv-detail-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);grid-auto-rows:auto;gap:16px;align-items:start;flex:0 0 auto}
+/* The payout schedule's due dates, and a Pending chip with its Mark Paid, stay on one line. */
+.inv-schedule-tbl td:nth-child(2),.inv-schedule-tbl td:nth-child(5),.inv-schedule-tbl .btn{white-space:nowrap}
+/* Side by side, each card has half the width: narrower amount columns, tighter cell gaps and header tracking keep
+ * the ledger's Balance inside the card; anything still too wide scrolls sideways rather than being clipped. */
+@media (min-width: 1101px) {
+  .inv-detail-grid{--ledger-amt-w:104px;--ledger-bal-w:132px}
+  .inv-detail-grid .tbl th,.inv-detail-grid .tbl td{padding-left:10px;padding-right:10px}
+  .inv-detail-grid .tbl th{letter-spacing:.1em}
+  .inv-detail-grid .tbl th:first-child,.inv-detail-grid .tbl td:first-child{padding-left:16px}
+  .inv-detail-grid .tbl th:last-child,.inv-detail-grid .tbl td:last-child{padding-right:16px}
+  .inv-detail-grid .tbl.ledger-amt th.num:last-child,.inv-detail-grid .tbl.ledger-amt td.num:last-child{padding-right:30px}
+  .inv-detail-grid .tbl.ledger-amt td.num:last-child .ledger-info{right:8px}
+  .inv-detail-grid .tbl-wrap{overflow-x:auto}
+}
 .inv-detail-grid > .card{flex-shrink:0;min-height:auto;margin-bottom:0}
 .inv-detail-grid .tbl{min-width:0}
 .inv-detail-grid .tbl-wrap{max-height:none}
@@ -6623,8 +7086,9 @@ table.tbl {
  * (plus the same 1px margin-top the mark already uses) guarantees their
  * first lines share one center regardless of surrounding font-size
  * overrides. */
-.cradio>span:last-child,
-.ccheck>span:last-child {
+/* :not(.mark) — a box with no label text after it has its own mark as the last span, which must stay a grid */
+.cradio>span:last-child:not(.mark),
+.ccheck>span:last-child:not(.mark) {
   display: inline-block;
   line-height: 18px
 }
@@ -6658,10 +7122,10 @@ table.tbl {
   cursor: not-allowed
 }
 
+/* no focus ring around a radio or a checkbox */
 .cradio input:focus-visible+.mark,
 .ccheck input:focus-visible+.mark {
-  outline: 2px solid var(--brand-deep);
-  outline-offset: 2px
+  outline: none
 }
 
 /* Consistent title/hint sizing for every .ccheck (checklist-style checkbox)
@@ -6691,6 +7155,224 @@ table.tbl {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px 12px;
+}
+
+/* ── ReleaseReviewModal: one flowing c2 grid ──
+ * Gold Release → Customer Check → Release Date → Release Payment → Top-Up, in
+ * that order. A cell that does not apply (no gold left to release, nothing to
+ * pay) is simply not rendered, and every cell after it moves up one slot.
+ * Every cell is a label.f plus one 38px control, so the columns line up.
+ *
+ * minmax(0, 1fr), not 1fr: a ticked "Customer has seen the gold" label must
+ * never widen its column (a plain 1fr track grows to its min-content). Stacks
+ * at the same 900px breakpoint as every other .frow.c2. */
+.modal .frow.c2.rel-c2 {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
+}
+
+/* A checklist tick drawn as a field: the same 38px box, border and radius as
+ * .inp, so it lines up with the date picker and payment button beside it. */
+.rel-tick {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  transition: border-color .15s, background .15s
+}
+
+.rel-tick .ccheck {
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 7px
+}
+
+.rel-tick .ccheck>span:last-child:not(.mark) {
+  min-width: 0;
+  overflow: hidden
+}
+
+.rel-tick .ccheck b {
+  display: block;
+  font-size: 12px;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis
+}
+
+.rel-tick.on {
+  border-color: var(--brand);
+  background: var(--brand-faint)
+}
+
+.rel-tick.locked {
+  background: var(--brand-faint);
+  opacity: .7
+}
+
+/* The release payment once recorded: just the amount paid, in the same box in green. */
+.rel-paid {
+  height: 38px;
+  border: 1px solid color-mix(in oklab, var(--green) 45%, #fff);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--green-bg) 55%, #fff);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--green);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden
+}
+
+/* Release Date and its tick-only save share the cell, so showing the tick
+ * never shifts the grid. */
+.rel-date {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px
+}
+
+.rel-date.has-save {
+  grid-template-columns: minmax(0, 1fr) 38px
+}
+
+.rel-icon-btn {
+  width: 38px;
+  padding: 0
+}
+
+/* The only line ever shown under a control: the minimum still to pay. */
+.rel-hint {
+  font-size: 11.5px;
+  margin-top: 5px;
+  color: var(--red);
+  font-weight: 500
+}
+
+/* Footer on the same two columns as the body: Reject left, Approve right,
+ * equal width; Approve keeps the right column when Reject is hidden. The same
+ * right padding and reserved scrollbar gutter as .bd-scroll keep the columns
+ * level with the cells above. */
+.modal .ft.rel-ft {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding-right: 22px;
+  overflow: hidden;
+  scrollbar-gutter: stable
+}
+
+.modal .ft.rel-ft .btn {
+  width: 100%;
+  white-space: nowrap
+}
+
+.modal .ft.rel-ft .rel-approve {
+  grid-column: 2
+}
+
+/* Compact modal: a narrower box (500px, not the 520px standard) and every
+ * control one step smaller — 34px instead of the app-wide 38px, tighter type.
+ * Scoped to this modal only (its body carries .rel-review); the 38px house
+ * height stays everywhere else. Body and footer share a 22px right inset so
+ * the footer's two columns stay level with the grid's. */
+.modal:has(> .bd.rel-review) {
+  max-width: 500px
+}
+
+/* Selected Ornaments: a long ornament name stays on one line and ends in an
+ * ellipsis (full name in the cell's title) instead of wrapping the row taller. */
+.rel-review .rel-orn-wrap .tbl td.rel-orn-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal
+}
+
+.modal:has(> .bd.rel-review) .hd h3 {
+  font-size: 19px
+}
+
+.modal .bd.bd-scroll.rel-review {
+  padding-right: 22px
+}
+
+.rel-review .kv {
+  gap: 10px 20px
+}
+
+.rel-review .kv .i .v {
+  font-size: 13px
+}
+
+.rel-review .inp:not(textarea),
+.rel-review .btn,
+.modal .ft.rel-ft .btn,
+.rel-review .rel-tick,
+.rel-review .rel-paid {
+  height: 34px
+}
+
+.rel-review .btn,
+.modal .ft.rel-ft .btn {
+  font-size: 11.5px;
+  letter-spacing: .12em;
+  padding: 0 12px
+}
+
+.rel-review .inp,
+.rel-review .rel-paid {
+  font-size: 12px
+}
+
+.rel-review .rel-tick .ccheck b {
+  font-size: 11.5px
+}
+
+.rel-review .rel-date.has-save {
+  grid-template-columns: minmax(0, 1fr) 34px
+}
+
+.rel-review .rel-icon-btn {
+  width: 34px;
+  padding: 0
+}
+
+@media (max-width: 900px) {
+  .modal .frow.c2.rel-c2 {
+    grid-template-columns: minmax(0, 1fr)
+  }
+}
+
+/* .bd-scroll drops to 16px side padding on short screens; follow it. */
+@media (max-height: 850px) {
+  .modal .bd.bd-scroll.rel-review,
+  .modal .ft.rel-ft {
+    padding-right: 16px
+  }
+
+  .modal .ft.rel-ft {
+    gap: 16px
+  }
+}
+
+@media (max-width: 480px) {
+  .modal .ft.rel-ft {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px
+  }
+
+  .modal .ft.rel-ft .rel-approve {
+    grid-column: 1
+  }
 }
 
 /* ── additive small-phone / orientation rules (new requirement) ──
@@ -6901,7 +7583,7 @@ table.tbl {
   }
   .modal:has(> .bd-scroll) {
     height: auto;
-    max-height: min(500px, calc(100dvh - 32px));
+    max-height: min(500px, calc(100dvh - var(--titlebar-h) - 32px));
     display: flex;
     flex-direction: column;
     margin: auto;
@@ -6921,7 +7603,7 @@ table.tbl {
     overflow-x: hidden;
     overscroll-behavior: contain;
     scrollbar-width: thin;
-    scrollbar-color: var(--line) transparent;
+    scrollbar-color: var(--scroll-thumb) transparent;
   }
   .modal .ft {
     padding: 7px 16px;
@@ -6999,8 +7681,8 @@ table.tbl {
  * body scrolls instead of the modal growing. The extra class outranks the
  * auto-height `.modal:has(> .bd-scroll)` rules (including the short-screen cap). */
 .modal:has(> .bd-scroll.edit-loan-bd) {
-  height: min(720px, calc(100dvh - 32px));
-  max-height: min(720px, calc(100dvh - 32px));
+  height: min(720px, calc(100dvh - var(--titlebar-h) - 32px));
+  max-height: min(720px, calc(100dvh - var(--titlebar-h) - 32px));
 }
 
 /* Vertical gap between ornament cards (EditLoanModal.tsx) — wider on small
@@ -7010,6 +7692,80 @@ table.tbl {
  * distinct blocks rather than running together. */
 .eln-card {
   margin-bottom: 10px;
+}
+
+/* Edit Loan ornament card: name | purity | qty, then gross | less | net | photos.
+ * Every input here is the standard 38px (the shared 31px ornament-row pins don't apply). */
+.eln-top,
+.eln-wt {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.eln-top {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(70px, .5fr);
+}
+
+/* gross | less | net | photo | remove — the two icon buttons are 38px squares
+ * pinned to the row's bottom, so they line up with the inputs. */
+.eln-wt {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 38px 38px;
+  align-items: end;
+}
+
+.eln-sq {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eln-card .orn-type-td .inp {
+  height: 38px;
+  padding: 9px 12px;
+}
+
+.eln-card .pur-row {
+  height: 38px;
+}
+
+/* the purity field matches the toggle beside it (and the other inputs on the card), not the 31px default */
+.eln-card .pur-search,
+.eln-card .pur-search .ss,
+.eln-card .pur-search .inp {
+  height: 38px;
+  box-sizing: border-box;
+}
+
+.eln-card .pur-search .inp {
+  padding: 9px 12px;
+}
+
+@media (max-width: 700px) {
+  .eln-top {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .eln-top > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .eln-wt {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 38px 38px;
+  }
+}
+
+@media (max-width: 420px) {
+  .eln-wt {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .eln-wt > .eln-sq,
+  .eln-wt > .ss-wrap {
+    justify-self: start;
+  }
 }
 
 @media (max-width: 900px) {
@@ -7114,6 +7870,12 @@ table.tbl {
 .ledger-ref-chip-bank {
   background: var(--info-bg);
   color: var(--info);
+  /* a long bank name ends in "…" instead of stretching the cell */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 
 .ledger-ref-chip-category {
@@ -7616,6 +8378,14 @@ table.tbl {
 
 .wf-option:hover:not(:disabled) {
   background: var(--brand-faint);
+}
+
+/* The option the arrow keys are on — same highlight as hover, plus a ring so it is easy to follow. */
+.wf-option:focus,
+.wf-option:focus-visible {
+  background: var(--brand-faint);
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
 }
 
 .wf-option.sel {
@@ -8137,6 +8907,11 @@ table.tbl {
   font-weight: 700;
 }
 
+.modal .inp.pay-amt[readonly] {
+  background: var(--brand-faint);
+  cursor: not-allowed;
+}
+
 .pay-chips {
   display: flex;
   flex-wrap: wrap;
@@ -8159,6 +8934,169 @@ table.tbl {
 
 .pay-chip:hover {
   background: var(--brand-pale);
+}
+
+/* Request Extension / Review Extension (RequestExtensionModalContent, ExtensionReviewModalContent): the
+ * Record Payment layout (form + receipt panel) at a narrower width, since the form side is short. The panel is
+ * wider than Record Payment's so the new due date sits on one line. */
+.modal.wide:has(.ext-modal-bd) {
+  max-width: 760px
+}
+
+.ext-modal-bd .pay-layout {
+  grid-template-columns: minmax(0, 1fr) 290px;
+}
+
+.ext-modal-bd .pay-r-big {
+  white-space: nowrap;
+}
+
+/* Release Complete (ReleaseCompleteModalContent): the payment receipt panel used as the summary's header — it
+ * scrolls with the body rather than sticking. */
+.modal.wide:has(.rel-done-bd) {
+  max-width: 640px
+}
+
+/* The ornaments table fits the modal instead of keeping the base `.tbl` min-width:640px and scrolling sideways. */
+.rel-done-bd .tbl {
+  min-width: 0;
+}
+
+/* Tighter column gaps so all five columns sit inside the modal; the base `.tbl` pads cells 14px a side. */
+.rel-done-bd .tbl th,
+.rel-done-bd .tbl td {
+  padding-left: 8px;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+
+.rel-done-bd .tbl th:first-child,
+.rel-done-bd .tbl td:first-child {
+  padding-left: 12px;
+  white-space: normal;
+}
+
+.rel-done-bd .tbl th:last-child,
+.rel-done-bd .tbl td:last-child {
+  padding-right: 12px;
+}
+
+.pay-receipt.rel-done-hero {
+  position: static;
+}
+
+/* No divider rule above this section. */
+.ext-modal-bd .pay-sec.ext-sec-plain {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+/* "Interest must be cleared first" — the one thing blocking the extension, with its Pay button. */
+.ext-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--red) 30%, transparent);
+  border-radius: 10px;
+  background: var(--red-bg);
+}
+
+.ext-block-tx {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--nav-ink);
+}
+
+.ext-block-tx b {
+  color: var(--red);
+  font-size: 12.5px;
+}
+
+/* Current → new due date pair; the arrow icon is the shared arrowUp turned to point right. */
+.ext-dates {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+
+.ext-dates > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ext-dates > div:last-child {
+  text-align: right;
+}
+
+.ext-dates span {
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ext-dates b {
+  font-variant-numeric: tabular-nums;
+  color: var(--nav-ink);
+  white-space: nowrap;
+}
+
+.ext-dates > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--brand);
+  transform: rotate(90deg);
+}
+
+.ext-dates-lg {
+  margin-top: 10px;
+  padding: 14px 16px;
+  background: var(--brand-faint);
+}
+
+.ext-dates-lg b {
+  font-size: 16px;
+}
+
+.ext-review-hero {
+  margin-bottom: 14px;
+}
+
+.ext-review-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  font-size: 13px;
+}
+
+.ext-review-grid span {
+  color: var(--muted);
+}
+
+.ext-review-grid b {
+  text-align: right;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .ext-modal-bd .pay-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .pay-receipt {
@@ -8316,6 +9254,11 @@ html.has-titlebar {
 html.has-titlebar body {
   padding-top: var(--titlebar-h);
 }
+/* Modals centre in the area below the title bar — `inset:0` otherwise centres them in the whole window
+ * and the bar covers the top of the modal (its header). The modal height caps subtract --titlebar-h too. */
+html.has-titlebar .modal-bg {
+  top: var(--titlebar-h);
+}
 .dtb {
   position: fixed;
   top: 0;
@@ -8453,9 +9396,24 @@ html.has-titlebar body {
   position: relative;
 }
 
+/* Ledger / register tables: tighter gaps between columns, and the last cell that holds the info icon keeps a
+ * clear gutter for it, so the icon is never cut off by the card edge. */
+.tbl.ledger-amt th,
+.tbl.ledger-amt td,
+.tbl.ledger-nowrap th,
+.tbl.ledger-nowrap td {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.tbl td:last-child:has(> .ledger-info),
+.tbl.ledger-nowrap td:last-child:has(> .ledger-info) {
+  padding-right: 42px !important;
+}
+
 .ledger-info {
   position: absolute;
-  right: 2px;
+  right: 12px;
   top: 50%;
   transform: translateY(-50%);
   display: inline-flex;
@@ -8607,7 +9565,8 @@ html.has-titlebar body {
     padding-right: 0;
   }
 
-  .tbl-stack td.ledger-ref {
+  /* Two classes on .tbl so it outranks `.tbl.ledger-amt td.ledger-ref{max-width:96px}` (≤1500px). */
+  .tbl.tbl-stack td.ledger-ref {
     max-width: none;
   }
 
@@ -8793,6 +9752,16 @@ html.has-titlebar body {
 }
 .loan-risk-page .kpis-compact .kpi {
   height: 84px;
+  width: 168px;
+}
+
+/* A floor under the table so it always shows several rows; the page scrolls instead of squeezing it. */
+.loan-risk-page > .tbl-card-fill {
+  min-height: 360px;
+}
+
+.page:has(> .page-fill.loan-risk-page) {
+  overflow-y: auto;
 }
 .loan-risk-page .kpis-compact + .filter-wrap,
 .loan-risk-page .loan-risk-bar {
@@ -8879,12 +9848,43 @@ table.tbl.lockers-tbl {
   min-width: 0;
 }
 
+/* Lockers card header: the search gives up width so the filter button stays inside the card. */
+.card .hd .search.lockers-search {
+  flex: 1 1 auto;
+  min-width: 0
+}
+
+/* Packets table: loan numbers and packet codes stay on one line; branch names break between words only. */
+table.tbl.packets-tbl td:nth-child(-n+2),
+table.tbl.lockers-tbl td {
+  overflow-wrap: normal;
+  word-break: normal
+}
+
+table.tbl.packets-tbl td:nth-child(-n+2) {
+  white-space: nowrap
+}
+
+/* Headers wrap onto two lines rather than clipping when these side-by-side cards get narrow. */
+table.tbl.packets-tbl th,
+table.tbl.lockers-tbl th {
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  padding-left: 8px;
+  padding-right: 8px
+}
+
 /* ── Narrow windows: opt-in `.tbl-cards` tables become a 2-column grid of
  * cards (one per row), using each cell's data-label. The page scrolls
  * instead of the table, so the pagination footer is always reachable. ── */
 .tbl-cards-more { display: none; }
 
+/* Row action buttons: centered in the table, flush right once the table becomes cards. */
+.req-acts { justify-content: center; }
+
 @media (max-width: 1100px) {
+  .req-acts { justify-content: flex-end; }
   table.tbl.tbl-cards {
     display: block;
     width: 100%;
@@ -8984,11 +9984,11 @@ table.tbl.lockers-tbl {
   table.tbl.tbl-cards tbody { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Packets & Lockers: once the two cards stack (<=1060px) each takes its own
- * natural height (table still capped by .tbl-wrap's max-height) instead of
- * sharing one squeezed 1fr row, which made them overlap. */
-@media (max-width: 1060px) {
+/* Packets & Lockers: below 1300px the two cards are too narrow side by side, so they stack, each at its own
+ * natural height (table still capped by .tbl-wrap's max-height) instead of sharing one squeezed 1fr row. */
+@media (max-width: 1300px) {
   .grid.packets-grid {
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
     grid-auto-rows: auto;
     align-items: start;
@@ -9146,6 +10146,63 @@ table.tbl.lockers-tbl {
   }
 }
 
+/* Headers are `white-space: nowrap` in fixed-width columns, so a long label
+ * ("Surplus Disposition") is cut off. On the auction history tables let them
+ * wrap onto a second line and tighten the tracking so every label stays readable. */
+.auction-history-tbl-wrap > table.tbl th {
+  white-space: normal;
+  overflow-wrap: break-word;
+  letter-spacing: .1em;
+  line-height: 1.35;
+  padding-left: 8px;
+  padding-right: 8px;
+  vertical-align: middle;
+}
+.auction-history-tbl-wrap > table.tbl td:not(:first-child):not(:last-child) {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* ── Auction history tables have 10 columns, so their headers get clipped
+ * ("AUCTION DAT", "SURPLUS / SHORT") well before the global 1100px card
+ * breakpoint. Between 1101px and 1400px they switch to cards too — the same
+ * card layout as the ≤1100px rules above, scoped to these two tables. ── */
+@media (min-width: 1101px) and (max-width: 1400px) {
+  .auction-history-tbl-wrap > table.tbl.tbl-cards { display: block; width: 100%; min-width: 0; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards colgroup,
+  .auction-history-tbl-wrap > table.tbl.tbl-cards thead { display: none; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards tbody {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px;
+  }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards tr {
+    display: block; min-width: 0; padding: 6px 14px; border-radius: 10px;
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
+    background: rgba(255, 255, 255, .5);
+  }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td,
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td.num {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0;
+    padding: 7px 0 !important; text-align: right; background: none; white-space: normal; overflow-wrap: anywhere;
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+  }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:last-child { border-bottom: 0; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td::before {
+    content: attr(data-label); flex-shrink: 0; font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); text-align: left;
+  }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:first-child { display: block; text-align: left; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:first-child::before,
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:not([data-label])::before,
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td.empty::before { display: none; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td:not([data-label]):not(:first-child) { justify-content: flex-end; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards tr:has(> td.empty) { grid-column: 1 / -1; border: 0; background: none; }
+  .auction-history-tbl-wrap > table.tbl.tbl-cards td.empty { display: block; text-align: center; }
+  .tbl-wrap.auction-history-tbl-wrap:has(> table.tbl-cards) { max-height: none !important; overflow: visible; }
+  .tbl-card:has(> .tbl-wrap.auction-history-tbl-wrap > table.tbl-cards) { flex: 0 0 auto; min-height: auto; }
+  /* Auctions page scroll-loads (see useScrollPageSize(…, 1400)) instead of Prev/Next here. */
+  .page:has(.auction-history-tbl-wrap, .auctions-tabs) .ft.ft-scroll-hide { display: none; }
+}
+
 /* ── Ledger KPI tiles: share the row evenly instead of leaving dead space
  * beside fixed-width tiles; an odd last tile spans the full row. ── */
 @media (max-width: 1279px) {
@@ -9184,7 +10241,7 @@ table.tbl.lockers-tbl {
  * many fit (the inline 3 x 180px minimum overflowed the modal), and the
  * ornament table tightens so the Value column is never cut off. ── */
 .modal .repledge-modal-bd .frow.rp-compact {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }
 .repledge-modal-bd .rp-tbl {
   overflow-x: auto;
@@ -9245,6 +10302,8 @@ table.tbl.lockers-tbl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
     padding: 10px;
+    /* width:100% plus this padding otherwise overflows the wrap and clips the right-hand card. */
+    box-sizing: border-box;
   }
   .tbl-stack tr {
     margin-bottom: 0;
@@ -9310,9 +10369,11 @@ table.tbl.lockers-tbl {
   min-width: 160px !important;
 }
 
-/* ── Customer detail tables as cards: the page stacks and scrolls at <=1100px
- * (it used to switch at 1060px), so the 2-column cards have room. ── */
-@media (max-width: 1100px) {
+/* ── Customer detail: the profile card stacks above the table and the page
+ * scrolls at <=1280px, so the table gets the full width instead of a ~550px
+ * column that needed a sideways scrollbar. Below 1100px the tables
+ * additionally become cards (block further down). ── */
+@media (max-width: 1280px) {
   .page:has(> .page-fill) { overflow-y: auto; }
   .page-fill { flex: 0 0 auto; }
 
@@ -9357,6 +10418,11 @@ table.tbl.lockers-tbl {
     flex: 0 0 auto;
     min-height: auto;
   }
+  /* Stacked but still a table (1101-1280px): full width, so no sideways scroll is needed. */
+  .cust-360 .tbl { min-width: 0; }
+}
+
+@media (max-width: 1100px) {
   .cust-360 .tbl-card-fill .tbl-wrap:has(> table.tbl-cards) {
     flex: 0 0 auto;
     max-height: none;
@@ -9510,4 +10576,387 @@ table.tbl.lockers-tbl {
     padding-left: 0 !important;
     padding-right: 0 !important;
   }
+}
+
+/* Stacked ledger cards: the table's "no line under the last row" rule must not strip the dashed dividers inside the
+ * last card — only the card's own final line (its last cell) stays open. */
+@media (max-width: 1279px) {
+  .tbl.tbl-stack tr:last-child td:not(:last-child) {
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+  }
+}
+
+/* Card-mode tables (.tbl-cards) with an entry info icon: like the stacked ledgers, the icon moves to the top-left of
+ * the card and its action cell collapses, instead of the icon floating loose at the page edge. */
+@media (max-width: 1100px) {
+  table.tbl.tbl-cards tr:has(.ledger-info) {
+    position: relative;
+    padding-top: 30px;
+  }
+  table.tbl.tbl-cards tr:has(.ledger-info) td:has(> .ledger-info) {
+    position: static;
+    display: block;
+    height: 0;
+    min-height: 0;
+    padding: 0 !important;
+    border: 0;
+  }
+  table.tbl.tbl-cards tr:has(.ledger-info) .ledger-info {
+    position: absolute;
+    top: 7px;
+    left: 12px;
+    right: auto !important;
+    transform: none !important;
+    margin: 0;
+  }
+}
+
+/* Bug 105: list tables used automatic layout, so a column's width followed that page's content and the same
+ * table looked different from page to page. On desktop the card tables now share fixed column sizing (equal
+ * columns unless a <col> says otherwise). Skipped at <=1100px, where these tables are cards, and for the loans
+ * table (loans-tbl) and customer 360 tables, which size their own columns. */
+@media (min-width: 1101px) {
+  table.tbl.tbl-cards:not(.loans-tbl) {
+    table-layout: fixed;
+  }
+  table.tbl.tbl-cards:not(.loans-tbl) th,
+  table.tbl.tbl-cards:not(.loans-tbl) td {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* New Loan: the ornament list keeps a fixed height — about five rows — and scrolls inside
+ * itself, so adding ornaments never stretches the form. On shorter windows the cap shrinks
+ * with the viewport, so the list starts scrolling sooner instead of pushing the page. */
+.orn-table-view {
+  max-height: min(310px, 45vh);
+  overflow-y: auto;
+}
+.orn-table-view thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card, #fff);
+}
+.orn-cards-view {
+  max-height: min(430px, 55vh);
+  overflow-y: auto;
+}
+
+/* One height for a search box, the filter button and the buttons beside them in a toolbar. The
+ * !important beats inline heights some search inputs still carry. */
+.search .inp,
+.cash-filter-row .search .inp {
+  height: 34px !important;
+}
+.dp > button[aria-label="Filters"],
+.hd:has(.search) .btn.sm,
+.page-h .search ~ .btn {
+  height: 34px;
+  box-sizing: border-box;
+}
+
+/* The ornament list still scrolls (wheel, touch, keys) but without a visible scrollbar. */
+.orn-table-view,
+.orn-cards-view {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.orn-table-view::-webkit-scrollbar,
+.orn-cards-view::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Very narrow windows: opt-in `.tbl-cards-sm` tables (used inside modals)
+ * turn into one card per row, using each cell's data-label. ── */
+@media (max-width: 860px) {
+  .modal .tbl-wrap.tbl-scroll-paged { overflow-x: hidden; }
+  .modal .tbl-wrap:has(> table.tbl-cards-sm) { border: 0; background: none; box-shadow: none; border-radius: 0; }
+  table.tbl.tbl-cards-sm tr:has(> td[colspan]) { padding: 0; border: 0; background: none; }
+  table.tbl.tbl-cards-sm td[colspan] { background: none !important; padding: 0; border: 0; }
+  table.tbl.tbl-cards-sm { display: block; width: 100%; min-width: 0; }
+  table.tbl.tbl-cards-sm thead { display: none; }
+  table.tbl.tbl-cards-sm tbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 8px 0; }
+  table.tbl.tbl-cards-sm tr {
+    display: block;
+    min-width: 0;
+    padding: 4px 12px;
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .5);
+  }
+  table.tbl.tbl-cards-sm td,
+  table.tbl.tbl-cards-sm td.num {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    padding: 6px 0;
+    text-align: right;
+    background: none;
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  table.tbl.tbl-cards-sm td:last-child { border-bottom: 0; }
+  table.tbl.tbl-cards-sm td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+  }
+  table.tbl.tbl-cards-sm td:first-child { display: block; text-align: left; }
+  table.tbl.tbl-cards-sm td:first-child::before { display: none; }
+  /* Expand chevron sits in the card's top-right corner. */
+  table.tbl.tbl-cards-sm tr { position: relative; }
+  table.tbl.tbl-cards-sm td.td-chev {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    padding: 0;
+    border: 0;
+    width: auto;
+  }
+  table.tbl.tbl-cards-sm td.td-chev::before { display: none; }
+  table.tbl.tbl-cards-sm td[colspan] { display: block; text-align: left; }
+  table.tbl.tbl-cards-sm td[colspan]::before { display: none; }
+  table.tbl.tbl-cards-sm tr:has(> td.empty) { border: 0; background: none; }
+}
+
+/* Shorter rows for the tables inside modals (investors, plans). */
+.tbl.tbl-compact td { padding-top: 6px; padding-bottom: 6px; }
+.tbl.tbl-compact th { padding-top: 8px; padding-bottom: 8px; }
+.tbl.tbl-compact td .sub { margin-top: 0; line-height: 1.2; }
+
+/* Scrolls without a visible scrollbar (an investor's investments inside the Investors modal). */
+.inv-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.inv-scroll::-webkit-scrollbar { display: none; }
+
+/* Offline: a red ring around the profile picture (nothing extra while online) */
+.top .user .av.av-offline,
+.top .user:hover .av.av-offline,
+.top .user[aria-expanded="true"] .av.av-offline {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #f4a0a0;
+}
+
+/* Syncing / pulling: a ring around the profile picture that spins while it lasts */
+.acct .av.av-syncing::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--brand);
+  border-right-color: var(--brand);
+  animation: av-sync-spin .8s linear infinite;
+  pointer-events: none;
+}
+@keyframes av-sync-spin { to { transform: rotate(360deg) } }
+
+/* The offline copy's progress bar in Settings: fills while the first download runs, slides while a later sync checks */
+.off-bar { height: 10px; border-radius: 999px; background: var(--line, #e3e5ea); overflow: hidden; position: relative; }
+.off-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--brand); transition: width .35s ease; }
+.off-bar.done > i { background: var(--green, #1f9d55); }
+.off-bar.ind > i { position: absolute; width: 35%; transition: none; animation: off-bar-slide 1.2s ease-in-out infinite; }
+@keyframes off-bar-slide { from { left: -35% } to { left: 100% } }
+@media (prefers-reduced-motion: reduce) {
+  .off-bar > i { transition: none; }
+  .off-bar.ind > i { animation-duration: 3s; }
+}
+
+/* The first download of the offline copy: a ring around the profile picture that fills as it goes */
+.acct .av .av-progress {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  transform: rotate(-90deg);
+  pointer-events: none;
+  overflow: visible;
+}
+.acct .av .av-progress circle { fill: none; stroke-width: 3; }
+.acct .av .av-progress-track { stroke: var(--line, #d9dce3); }
+.acct .av .av-progress-bar { stroke: var(--brand); stroke-linecap: round; transition: stroke-dashoffset .35s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .acct .av .av-progress-bar { transition: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acct .av.av-syncing::after { animation-duration: 2.4s }
+}
+
+/* Big screens only (1560px and wider, the app's own small-screen width): Loan Risk and Ledger
+   get wider KPI cards and more room between the cards and the table. */
+@media (min-width: 1560px) {
+  .loan-risk-page .gold-rule { margin-bottom: 16px; }
+  .loan-risk-page .loan-risk-bar { margin-bottom: 20px !important; }
+  .loan-risk-page .kpis.kpis-compact { gap: 16px; }
+  .loan-risk-page .kpis-compact .kpi { width: 220px; height: 92px; }
+
+  .cash-kpi-row { gap: 16px !important; margin-bottom: 20px !important; }
+  /* The 980px basis keeps the date and tabs beside the cards from the same width as before. */
+  .cash-kpi-row > .kpis.kpis-money { flex: 1 1 980px; min-width: 0; max-width: none !important; gap: 16px; }
+  .cash-kpi-row > .cash-side { flex: 0 0 auto; }
+}
+
+/* At laptop/desktop widths where the date + tabs wrap onto their own line under the Ledger cards:
+   one row spanning the table's width — date on the left, tabs on the right. */
+@media (min-width: 1401px) and (max-width: 1800px) {
+  .cash-kpi-row > .cash-side {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-left: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .cash-side .cash-tabs-row {
+    width: auto;
+    flex-basis: auto;
+    margin-left: 0;
+    align-self: center;
+  }
+}
+
+/* ── Phone widths: every plain `.tbl` (labelled by TableCardsObserver) becomes
+ * a stack of cards — column name on the left, value on the right. ── */
+@media (max-width: 760px) {
+  table.tbl.tbl-auto,
+  table.tbl.tbl-auto tbody,
+  table.tbl.tbl-auto tr {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  table.tbl.tbl-auto thead { display: none; }
+  table.tbl.tbl-auto tbody { padding: 10px; }
+  table.tbl.tbl-auto tr {
+    margin-bottom: 10px;
+    padding: 4px 14px;
+    border: 1px solid color-mix(in oklab, var(--brand2, var(--brand)) 35%, transparent);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .5);
+  }
+  table.tbl.tbl-auto tr:last-child { margin-bottom: 0; }
+  table.tbl.tbl-auto td,
+  table.tbl.tbl-auto td.num {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    padding: 8px 0 !important;
+    text-align: right !important;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    background: none;
+    border-bottom: 1px dashed color-mix(in oklab, var(--brand2, var(--brand)) 30%, transparent);
+  }
+  table.tbl.tbl-auto td:last-child { border-bottom: 0; }
+  table.tbl.tbl-auto td[data-label]::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+  }
+  table.tbl.tbl-auto td:not([data-label]) { justify-content: flex-end; }
+  /* Loading / empty rows are plain centred text, not label/value pairs. */
+  table.tbl.tbl-auto td[colspan] { display: block; text-align: center !important; }
+  .tbl-wrap:has(> table.tbl-auto) { overflow-x: visible; }
+}
+
+/* Grouped filter always sits at the right edge of its row. */
+.filter-row-right { display: flex; justify-content: flex-end; width: 100%; }
+
+/* Narrow screens: tables that became cards must not keep a bounded, scrolling
+ * box (its sticky footer would ride over the cards), and the personal-loan
+ * summary strip becomes an ordered grid — label above value. */
+@media (max-width: 760px) {
+  .tbl-wrap:has(> table.tbl-auto) { max-height: none; overflow: visible; }
+  .tbl-wrap:has(> table.tbl-auto) + .ft { position: static; }
+}
+@media (max-width: 900px) {
+  .kpis-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    align-items: start;
+    gap: 14px 16px;
+  }
+  .kpis-strip-item { flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+  .kpis-strip-item .v { overflow-wrap: anywhere; }
+}
+
+/* Loan detail "Additional Information": about four lines, then scrolls with no visible scrollbar */
+.addl-info {
+  max-height: 4.5em;
+  line-height: 1.5;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  scrollbar-width: none;
+  -ms-overflow-style: none
+}
+
+.addl-info.boxed { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; min-height: 40px }
+
+.addl-info::-webkit-scrollbar {
+  display: none
+}
+
+/* Dashboard list cards (Needs Attention / Upcoming Reminders): fixed height, rows never scroll. */
+.card.fixed-list {
+  display: flex;
+  flex-direction: column;
+  /* One page of rows (--rows, set on the card from its page size) plus the header and pager, so a full page
+   * leaves no blank space; a shorter last page just scrolls/rests inside the same height. */
+  height: calc(var(--rows, 5) * 54px + 112px);
+  flex: none
+}
+
+.card.fixed-list > .bd {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden
+}
+
+.card.fixed-list > .hd,
+.card.fixed-list > .ft {
+  flex: none
+}
+
+/* A Documents menu is exactly as wide as the button that opens it. */
+.docs-dd-fit { left: 0; right: 0; width: auto; min-width: 0; max-width: none; }
+.docs-dd-fit a .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Roles and Investors modals: a fixed height, so the pop-up does not grow or shrink as rows open, a search
+ * narrows the list or a page has fewer rows — the list scrolls inside `.bd-scroll` instead. Same 640px cap
+ * (or the screen, when shorter) as every other modal. */
+.modal:has(> .bd-scroll.fixed-h) {
+  height: min(640px, calc(100dvh - var(--titlebar-h) - 32px));
+}
+
+/* In those fixed-height modals the table must not clip or scroll on its own: an opened row (a role's employees,
+ * an investor's investments) makes the table taller and the modal body scrolls to it. */
+.modal .bd.bd-scroll.fixed-h .tbl-wrap {
+  max-height: none;
+  height: auto;
+  overflow-y: visible;
+}
+
+/* Global search results: every section still scrolls (and loads more as it does) but no scrollbar is drawn,
+ * neither on the results box nor on each section's own list. */
+.gs-results,
+.gs-results .gs-sec {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.gs-results::-webkit-scrollbar,
+.gs-results .gs-sec::-webkit-scrollbar {
+  display: none;
 }

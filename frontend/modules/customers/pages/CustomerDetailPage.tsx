@@ -1,16 +1,21 @@
 "use client";
 
+import { clipText } from "@/modules/cash/utils/ledgerCells";
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
+import { useDebouncedValue } from "@/common/hooks/use-debounced-value";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
+import { DeleteWithBlockersModalContent, type DeleteBlocker } from "@/common/components/modals/DeleteWithBlockersModalContent";
+import { listPersonalLoansForCustomer } from "@/modules/personal-loans/services/personalLoanService";
 import { fmt, fmtW, initials, fmtDate, ageFromDob } from "@/common/utils/format";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { LoanRow } from "@/modules/loans/components/LoanRow";
 import { Icon } from "@/common/components/Icon";
-import { getCustomer360, verifyCustomerPan, startAadhaarVerify, checkAadhaarVerify, hardDeleteCustomer, listCustomerLoansPage, listCustomerOrnamentsPage, listCustomerPaymentsPage, listCustomerBankPledgesPage, listCustomerAuctionHistoryPage } from "@/modules/customers/services/customerService";
+import { getCustomer360, getCustomerByRef, isNumericCustomerRef,verifyCustomerPan, startAadhaarVerify, checkAadhaarVerify, hardDeleteCustomer, listCustomerLoansPage, listCustomerOrnamentsPage, listCustomerPaymentsPage, listCustomerBankPledgesPage, listCustomerAuctionHistoryPage } from "@/modules/customers/services/customerService";
 import { type Customer360View } from "@/modules/customers/types/customer-types";
 import { useResponsivePageSize, useIsSmallScreen } from "@/common/utils/responsive";
 import type { LoanView, CustomerOrnamentRowView, CustomerPaymentRowView, CustomerBankPledgeRowView, CustomerAuctionRowView } from "@/modules/loans/types/loan-types";
@@ -34,57 +39,121 @@ import { useSubTablePage } from "@/modules/customers/hooks/use-sub-table-page";
 
 type CustomerDetailPageProps = { id?: string };
 
-export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
+/* Ported from legacy/app.js's `renderCustomerDetail(id)`. Now a real
+ * Customer 360° view backed by one aggregation call
+ * (`GET /api/v1/customers/:id/profile360`) instead of KYC/profile data
+ * from `GET /api/v1/customers/:id` plus a client-side filter over the
+ * shared loans list — that older approach only ever showed a bare loan
+ * table, with no ornament/payment/bank-pledge/auction history in one
+ * place. SMS reminder / follow-up history is still omitted — no data
+ * source exists anywhere yet. */
+export function CustomerDetailPage({ id: routeRef }: CustomerDetailPageProps) {
+  /* The URL names the customer by code (/customer/CUST-04); every call below
+   * wants the numeric id, so the code is resolved to it first. Older numeric
+   * links skip the lookup and get the code written into the address bar once
+   * the profile loads. */
+  const [id, setId] = useState<string | undefined>(routeRef && isNumericCustomerRef(routeRef) ? routeRef : undefined);
   const { openModal } = useModal();
   const showBranch = useShowBranch();
   const toast = useToast();
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
   const smallScreen = useIsSmallScreen();
+  // Hidden rather than shown as a form that can only fail with a 403.
   const canCreateLoans = can("Loan_Management", "can_create_loan");
+  // Loan numbers link to the loan only for a role that can open it.
   const canOpen = useCanOpenRoute();
   const canViewLoans = canOpen("loan");
   const canViewAuctions = canOpen("auctions");
+  // The Ledger tab reads cash movements — only fetched with cash view.
   const canViewCash = can("Cash_Management", "can_view_cash_module");
+  // KYC verification writes back to the customer record, so it's an update;
+  // logging an extension/release request against a loan is a loan update.
+  // Anything not granted is hidden, not disabled (see Customers.tsx).
   const canUpdateCustomers = can("Customer_Management", "can_update_customer");
   const canUpdateLoans = can("Loan_Management", "can_update_loan");
   const canHardDeleteCustomers = can("Customer_Management", "can_hard_delete_customer");
 
   const [profile, setProfile] = useState<Customer360View | null>(null);
   const [error, setError] = useState("");
+  // Separate loading flags per verification — sharing one flag made the PAN
+  // and Aadhaar buttons both show "Verifying…"/"Starting…" whenever either
+  // one was clicked, even though they're independent calls.
   const [verifyingPan, setVerifyingPan] = useState(false);
   const [startingAadhaar, setStartingAadhaar] = useState(false);
-  // "started": the DigiLocker login URL was sent; "Check Status" replaces "Send Verification Link" until resolved.
+  // DigiLocker Aadhaar verify is a redirect flow — "started" means the
+  // customer's been sent the DigiLocker login URL and we're waiting for
+  // them to complete it on their own device, so a "Check Status" button
+  // replaces "Send Verification Link" until they confirm or we give up.
   const [aadhaarStarted, setAadhaarStarted] = useState(false);
   const [checkingAadhaar, setCheckingAadhaar] = useState(false);
+  // Opened-date window for the whole profile. Empty = unbounded on that
+  // side; both are handed to the backend, which filters the loans and
+  // recomputes the relationship totals over the narrowed set — nothing here
+  // is filtered client-side.
+  // Opened-date filter for the 5 non-Ledger tables (Loan History, Pledged
+  // Ornaments, Payment History, Bank Pledges, Auction History) — rendered as
+  // a FilterPanel in the table card's own header (same spot/pattern as the
+  // Ledger tab's filter) rather than a standalone row above the whole 360
+  // view, so it reads as belonging to "this table" instead of the page.
   const [openedDateFilter, setOpenedDateFilter] = useState<FilterValue>({});
   const openedDateCategories: FilterCategory[] = [{ key: "__date", label: "Date", kind: "date" }];
   const from = openedDateFilter.__dateFrom || "";
   const to = openedDateFilter.__dateTo || "";
   const [reloading, setReloading] = useState(false);
+  // Header avatar falls back to initials when the photo URL fails to load.
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  // A new photo URL (after the photo is replaced) gets a fresh try — the earlier failure was for the old URL.
+  const photoUrlNow = profile?.customer.photoUrl;
+  useEffect(() => { setAvatarFailed(false); }, [photoUrlNow]);
+
+  useEffect(() => {
+    if (!routeRef) { setId(undefined); return; }
+    if (isNumericCustomerRef(routeRef)) { setId(routeRef); return; }
+    let cancelled = false;
+    setError("");
+    getCustomerByRef(routeRef)
+      .then((c) => { if (!cancelled) setId(c.id); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load customer."); });
+    return () => { cancelled = true; };
+  }, [routeRef]);
 
   useEffect(() => {
     if (!id) return;
     setError("");
+    setAvatarFailed(false);
     setReloading(true);
     getCustomer360(id, { from, to })
-      .then(setProfile)
+      .then((p) => {
+        setProfile(p);
+        if (routeRef && isNumericCustomerRef(routeRef) && p.customer.code) {
+          window.history.replaceState(window.history.state, "", routeHref("customer", p.customer.code) + window.location.search);
+        }
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load customer."))
       .finally(() => setReloading(false));
   }, [id, from, to]);
 
   const subtablePageSize = useResponsivePageSize(15, 15);
   const range = { from, to };
-  const listLoans = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerLoansPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerOrnamentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listPayments = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
-  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listLoans = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerLoansPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listOrnaments = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerOrnamentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listPayments = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerPaymentsPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listBankPledges = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerBankPledgesPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  const listAuctionHistory = useCallback((page: number, r?: { from?: string; to?: string; search?: string }) => listCustomerAuctionHistoryPage(id || "", page, r, subtablePageSize), [id, subtablePageSize]);
+  // Every CashMovement tagged to this customer (PartyCustomerID) — same
+  // underlying query as the standalone Party Transactions page
+  // (PartyLedger.tsx), reached here instead via this customer's own 360
+  // view. listCashMovementsByCustomer's {items,total,totals} envelope is
+  // adapted to useSubTablePage's {items,hasMore,total} contract.
   const numericCustomerId = Number(id);
 
-  // Ledger tab's own filters, kept separate from the shared 360-view from/to since it filters independently.
+  // Ledger tab's own filters — a Loan picker (scroll-paginated, backend-
+  // driven via listCustomerLoansPage) plus a Date range, kept separate from
+  // the shared 360-view `from`/`to` above since the ledger can be filtered
+  // independently of the rest of the profile.
   const [ledgerFilters, setLedgerFilters] = useState<FilterValue>({});
-  const ledgerLoanFilters = Array.isArray(ledgerFilters.loan) ? ledgerFilters.loan : [];
+  const ledgerLoanFilters = Array.isArray(ledgerFilters.loan) ? ledgerFilters.loan : []; // multi-select — any of these loans
   const ledgerFrom = ledgerFilters.__dateFrom;
   const ledgerTo = ledgerFilters.__dateTo;
   const ledgerCategories: FilterCategory[] = [
@@ -104,8 +173,8 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
     { key: "__date", label: "Date", kind: "date" },
   ];
   const listTransactions = useCallback(
-    (page: number) =>
-      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters }, subtablePageSize)
+    (page: number, r?: { search?: string }) =>
+      listCashMovementsByCustomer(numericCustomerId, page, { fromDate: ledgerFrom, toDate: ledgerTo, loanNumbers: ledgerLoanFilters, search: r?.search }, subtablePageSize)
         .then((res) => ({
           items: res.items,
           total: res.total,
@@ -128,10 +197,19 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
   const [activeTable, setActiveTable] = useState(0);
   const TABLE_TABS = ["Loan History", "Pledged Ornaments", "Payment History", "Bank Pledges", "Auction History", "Ledger"];
+  // One icon per tab, same order as TABLE_TABS — shown on the rail so each
+  // stop says which table it selects.
   const TABLE_TAB_ICONS = ["list", "scale", "coin", "bank", "gavel", "chart"];
+  // Tables are switched only by clicking the rail buttons — the mouse wheel /
+  // trackpad no longer changes tab (it scrolls the table or page as usual).
   const railRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
 
+  // Edit Customer / Request Extension-Release / New Loan / Delete Customer
+  // used to be 4 separate header buttons — collapsed into one "Actions"
+  // dropdown the same way LoanDetail.tsx's "Documents"/"Loan Actions" menus
+  // are, since the header outgrew the space next to the customer name on
+  // anything but a very wide screen.
   const {
     open: actionsMenuOpen,
     setOpen: setActionsMenuOpen,
@@ -140,17 +218,41 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
     onKeyDown: onActionsMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
 
-  const loanPager = useSubTablePage<LoanView>(listLoans, range, !!id);
-  const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, range, !!id);
-  const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, range, !!id);
-  const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, range, !!id);
-  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, range, !!id && canViewAuctions);
-  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo }, !!id && canViewCash);
+  // One search box on the header, one text per table (same order as TABLE_TABS).
+  const [tabQ, setTabQ] = useState<string[]>(["", "", "", "", "", ""]);
+  const tabSearch = useDebouncedValue(tabQ).map((s) => s.trim() || undefined);
+  const loanPager = useSubTablePage<LoanView>(listLoans, { ...range, search: tabSearch[0] }, !!id);
+  const ornamentPager = useSubTablePage<CustomerOrnamentRowView>(listOrnaments, { ...range, search: tabSearch[1] }, !!id);
+  const paymentPager = useSubTablePage<CustomerPaymentRowView>(listPayments, { ...range, search: tabSearch[2] }, !!id);
+  const bankPledgePager = useSubTablePage<CustomerBankPledgeRowView>(listBankPledges, { ...range, search: tabSearch[3] }, !!id);
+  // Auction history needs "can view auction module" — not fetched without it.
+  const auctionPager = useSubTablePage<CustomerAuctionRowView>(listAuctionHistory, { ...range, search: tabSearch[4] }, !!id && canViewAuctions);
+  const transactionPager = useSubTablePage<LedgerRowView>(listTransactions, { from: ledgerFrom, to: ledgerTo, search: tabSearch[5] }, !!id && canViewCash);
+  const TAB_SEARCH: { placeholder: string; searches: string }[] = [
+    { placeholder: "Search loan, status…", searches: "loan number, customer name, customer code" },
+    { placeholder: "Search loan, ornament, purity…", searches: "loan number, ornament, purity" },
+    { placeholder: "Search loan, type, amount…", searches: "loan number, type, method, date, amount" },
+    { placeholder: "Search loan, bank, status…", searches: "loan number, bank, status, pledged date" },
+    { placeholder: "Search loan, stage, reference…", searches: "loan number, auction reference, stage, sale amount" },
+    { placeholder: "Search date, ref no, amount…", searches: "date, ref no, particulars, method, bank, debit, credit" },
+  ];
   useEffect(() => { transactionPager.setPage(1); }, [JSON.stringify(ledgerLoanFilters)]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // profile.loans still backs the "Request Extension / Release" picker
+  // below — that's a full-set picker, not a paginated table, so it keeps
+  // reading straight off getCustomer360's response.
   const cLoans = profile?.loans || [];
 
+  // A range change keeps the previously loaded profile on screen (dimmed
+  // via `reloading`) so the page doesn't blank out between fetches.
   if (error && !profile) return <div className="empty">Customer not found — {error}</div>;
+  // `page-fade-in` on both the loading placeholder and the loaded content
+  // below smooths the swap between them — without it, switching into a
+  // customer's page from elsewhere (e.g. the dashboard) hard-cut from the
+  // page's header/sidebar (already on screen) to this bare loading line,
+  // then hard-cut again to the full hero once the fetch resolved. Now both
+  // states fade in the same way, so the hero doesn't feel like a separate,
+  // late-arriving element next to a header that "loaded" first.
   if (!profile) return <div className="empty page-fade-in">Loading customer…</div>;
 
   const c = profile.customer;
@@ -237,7 +339,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
         loans={cLoans}
         onPicked={(pickedLoan: LoanView, type: "Extension" | "Release") => {
           if (type === "Extension") {
-            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => { }} />);
+            openModal(<RequestExtensionModalContent loan={pickedLoan} onSaved={() => { }} />, true);
           } else {
             openModal(<RequestReleaseModalContent loan={pickedLoan} onSaved={() => { }} />);
           }
@@ -250,7 +352,11 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
     <div className="page-fade-in page-fill">
       <div className="page-h">
         <div className="dhead">
-          <div className="big-av">{initials(c.name)}</div>
+          <div className="big-av">
+            {c.photoUrl && !avatarFailed
+              ? <img src={c.photoUrl} alt={c.name} onError={() => setAvatarFailed(true)} />
+              : initials(c.name)}
+          </div>
           <div><h1 style={{ fontSize: 26 }}>{c.name}</h1><p>{c.code}{showBranch && <> · {c.branchName} branch</>}</p></div>
         </div>
         <div className="sp" />
@@ -266,7 +372,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               <Icon name="gear" /> Actions <Icon name="chevronDown" className="docs-dd-chev" />
             </button>
             {actionsMenuOpen && (
-              <div className="docs-dd-menu" role="menu">
+              <div className="docs-dd-menu fit" role="menu">
                 {canUpdateCustomers && (
                   <a href="#" title="Edit Customer" onClick={(e) => { e.preventDefault(); setActionsMenuOpen(false); openEditCustomer(); }}>
                     <Icon name="edit" /><span className="tx">Edit Customer</span>
@@ -280,62 +386,36 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                     onClick={(e) => {
                       e.preventDefault();
                       setActionsMenuOpen(false);
-                      const activeLoans = cLoans.filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Auctioned");
-                      const hasActiveLoans = activeLoans.length > 0 || (profile?.activeLoanCount ?? 0) > 0;
-                      const activeLoanRefs = activeLoans.map((l) => l.loanNumber || l.id).filter(Boolean);
+                      const customerId = id;
+                      if (!customerId) return;
+                      // Fetched fresh (not from the page's cached loan list) every time the dialog opens,
+                      // regains focus or is refreshed, so deleting a loan in another tab clears it here.
+                      const loadBlockers = async (): Promise<DeleteBlocker[]> => {
+                        const [gold, personal] = await Promise.all([
+                          listCustomerLoansPage(customerId, 1, undefined, 200).then((r) => r.items).catch(() => []),
+                          listPersonalLoansForCustomer(Number(customerId)).catch(() => []),
+                        ]);
+                        return [
+                          ...gold
+                            .filter((l) => l.status !== "Closed" && l.status !== "Rejected" && l.status !== "Auctioned")
+                            .map((l): DeleteBlocker => ({ key: `g${l.id}`, kind: "Gold loan", ref: l.loanNumber || String(l.id), status: l.status, href: canViewLoans ? routeHref("loan", l.loanNumber || String(l.id)) : undefined })),
+                          ...(personal ?? []).map((p): DeleteBlocker => ({ key: `p${p.id}`, kind: "Personal loan", ref: p.loanNumber, status: p.status, href: canOpen("personalloan") ? routeHref("personalloan", String(p.id)) : undefined })),
+                        ];
+                      };
 
                       openModal(
-                        <ConfirmModalContent
+                        <DeleteWithBlockersModalContent
                           title="Delete Customer Permanently"
-                          confirmLabel="Delete Permanently"
-                          busyLabel="Deleting…"
-                          disabled={hasActiveLoans}
-                          message={
-                            <>
-                              This permanently deletes <strong>{c.name}</strong> ({c.code}). This cannot be undone.
-                            </>
-                          }
-                          onConfirm={async () => {
-                            if (!id || hasActiveLoans) return;
-                            await hardDeleteCustomer(id);
+                          name={c.name}
+                          code={c.code}
+                          loadBlockers={loadBlockers}
+                          blockedHint="Delete or close these first (they open in a new tab), then come back — this updates by itself."
+                          onDelete={async () => {
+                            await hardDeleteCustomer(customerId);
                             toast("Customer deleted permanently");
                             navigate("customers");
                           }}
-                        >
-                          {hasActiveLoans && (
-                            <div
-                              style={{
-                                marginTop: 14,
-                                padding: "12px 14px",
-                                background: "rgba(239, 68, 68, 0.08)",
-                                border: "1px solid var(--red)",
-                                borderRadius: 6,
-                                color: "var(--red)",
-                                fontSize: 13,
-                                lineHeight: 1.5,
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                                <Icon name="warning" /> Active Loans Warning
-                              </div>
-                              Cannot delete this customer — {activeLoanRefs.length > 0 ? (
-                                <>
-                                  the following loan(s) are still active:{" "}
-                                  {activeLoanRefs.map((ref, i) => (
-                                    <span key={ref}>
-                                      {i > 0 && ", "}
-                                      {canViewLoans ? (
-                                        <a href={routeHref(`loan/${ref}`)} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", fontWeight: 700, textDecoration: "underline" }}>{ref}</a>
-                                      ) : (
-                                        <strong>{ref}</strong>
-                                      )}
-                                    </span>
-                                  ))}
-                                </>
-                              ) : <>this customer has active loan(s)</>}. Active loans must be closed or deleted first.
-                            </div>
-                          )}
-                        </ConfirmModalContent>
+                        />
                       );
                     }}
                   >
@@ -348,16 +428,39 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
         )}
         {canUpdateLoans && <button className="btn ghost" onClick={openRequestPicker}><Icon name="unlock" /> Extension / Release</button>}
         {canCreateLoans && <a className="btn" href={routeHref("newloan", c.id)}><Icon name="plus" /> New Loan</a>}
+        {/* Edit Customer + Delete Customer collapsed into one "Actions"
+         * dropdown — same pattern as LoanDetail.tsx's "Documents"/"Loan
+         * Actions" menus. Delete stays the ONLY delete action offered here —
+         * no separate "soft delete" alternative next to it. Gated by its own
+         * permission ("can hard delete customer"), independent of ordinary
+         * update/delete rights. */}
+        
       </div>
+      {/* Small-screen margin override (matches Loans.tsx's own hr override)
+       * — without it this rule was reading as missing on small/short
+       * (useIsSmallScreen) windows, sitting too close to the header above
+       * to read as its own divider line. */}
       <hr className="gold-rule" style={{ margin: smallScreen ? "4px 0 6px" : "4px 0 10px" }} />
       {error && (
         <div style={{ marginBottom: 12, fontSize: 12.5, color: "var(--red)" }}>{error}</div>
       )}
+      {/* cust-360 pins the left card column to a fixed width so it stays put
+          when the tab switches between tables of different column counts, and
+          makes the tables fit their column instead of scrolling sideways. */}
       <div className="grid cols12 cust-360" style={{ alignItems: "stretch", ...(reloading ? { opacity: 0.6 } : {}) }}>
         <div className="grid">
+          {/* KYC & Verification, Identity & KYC Documents, Nominee Information and
+              Overall Loan Details were 4 separate cards stacked in this column —
+              merged into one card with a divider + sub-heading per section so the
+              column reads as one profile panel instead of four short ones. */}
           <div className="card gtop"><div className="hd"><h3>Customer Profile</h3></div>
             <div className="bd cust-profile">
               <div className="kv">
+                {/* Label and chip inline (one line), matching KYC's own
+                 * pattern below — the masked value and any verify action
+                 * move to their own line underneath, rather than all three
+                 * (label / value / chip) competing to fit on one line the
+                 * way this used to render. */}
                 <div className="i">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">PAN</div><StatusChip status={c.panStatus} /></div>
                   <div className="v" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -385,9 +488,19 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                     )}
                   </div>
                 </div>
+                {/* Label and chip inline (one line) rather than the usual
+                 * stacked .k-above-.v — with no accompanying value text to
+                 * flow beside, KYC's chip alone under its label read as two
+                 * disconnected lines instead of one field. */}
                 <div className="i"><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div className="k">KYC</div><StatusChip status={c.kycStatus} /></div></div>
+                {/* Each field is its own .kv item, so the grid's auto-fill
+                 * columns lay them out two-up in a wide card and one per
+                 * line in a narrow one — a forced single row here cropped
+                 * the phone number and wrapped the labels. */}
                 <div className="i"><div className="k">Phone</div><div className="v">{c.phone || "—"}</div></div>
                 <div className="i"><div className="k">Date of Birth</div><div className="v">{fmtDate(c.dob)}</div></div>
+                {/* Computed from the DOB so it stays current; the manually
+                 * entered Age is only the fallback when no DOB is on file. */}
                 <div className="i"><div className="k">Age</div><div className="v">{(() => { const age = ageFromDob(c.dob) ?? c.age; return age != null ? `${age} years` : "—"; })()}</div></div>
                 <div className="i"><div className="k">Address</div><div className="v">{c.address || "—"}</div></div>
               </div>
@@ -404,6 +517,14 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                 <>
                   <h4 className="cust-profile-h4">Nominee Information</h4>
                   <div className="kv">
+                    {/* Name and Relation share one flex-wrap row, with
+                     * Relation+Phone bundled as a single atomic item within
+                     * it (their own inner flex row) — a short name leaves
+                     * room for Name and Relation to sit on the same line;
+                     * once the name is long enough to fill the row, the
+                     * Relation+Phone pair wraps down together onto the next
+                     * line instead of Relation stranding alone away from
+                     * the Phone it belongs beside. */}
                     <div className="i" style={{ gridColumn: "1 / -1" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
                         <div style={{ flex: "1 1 auto", minWidth: 100 }}><div className="k">Name</div><div className="v">{c.nomineeName || "—"}</div></div>
@@ -420,10 +541,17 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               <h4 className="cust-profile-h4">Overall Loan Details</h4>
               <div className="kv">
                 <div className="i"><div className="k">Total Disbursed</div><div className="v">{fmt(profile.totalDisbursed)}</div></div>
+                {/* Outstanding and Total Paid read as one pair (what's left
+                 * vs. what's already come in) — kept on one line the same
+                 * way as the others here, rather than splitting across two
+                 * rows at this card's narrow width. */}
                 <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Outstanding</div><div className="v">{fmt(profile.totalOutstanding)}</div></div>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Total Paid</div><div className="v">{fmt(profile.totalPaid)}</div></div>
                 </div>
+                {/* Active/Closed read as one loan-status summary — kept on
+                 * one line the same way as the pairs above, rather than
+                 * splitting across two rows at this card's narrow width. */}
                 <div className="i" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Active Loans</div><div className="v">{profile.activeLoanCount}</div></div>
                   <div style={{ flex: 1, minWidth: 0 }}><div className="k">Closed Loans</div><div className="v">{profile.closedLoanCount}</div></div>
@@ -433,6 +561,10 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
           </div>
         </div>
         <div ref={rowRef} className="cust-360-tabrow" style={{ display: "flex", gap: 16, alignItems: "stretch", height: "100%" }}>
+          {/* The rail selects the table below. Each stop carries the icon for
+            its own table (loans / ornaments / payments / bank / auction) so
+            the rail reads without hovering for the tooltip. (No wheel handler:
+            tabs change by click only.) */}
           <div className="tab-rail" ref={railRef}>
             <div className="tab-rail-line" />
             {TABLE_TABS.map((label, i) => (
@@ -456,6 +588,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
               {activeTable === 5 ? (
                 <>
                   <div className="sp" />
+                  <TableSearch value={tabQ[5]} onChange={(v) => setTabQ((q) => q.map((x, i) => (i === 5 ? v : x)))} placeholder={TAB_SEARCH[5].placeholder} searches={TAB_SEARCH[5].searches} />
                   <FilterPanel categories={ledgerCategories} value={ledgerFilters} onChange={setLedgerFilters} hideChips hideClearAll />
                   {canExport && (
                     <button className="btn ghost sm" disabled={ledgerExporting} onClick={onExportLedger}>
@@ -467,14 +600,22 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                 <>
                   <div className="sp" />
                   {reloading && <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Loading…</span>}
+                  <TableSearch value={tabQ[activeTable]} onChange={(v) => setTabQ((q) => q.map((x, i) => (i === activeTable ? v : x)))} placeholder={TAB_SEARCH[activeTable].placeholder} searches={TAB_SEARCH[activeTable].searches} />
                   <FilterPanel categories={openedDateCategories} value={openedDateFilter} onChange={setOpenedDateFilter} hideChips hideClearAll />
                 </>
               )}
             </div>
 
-            {/* Panels stay mounted (hidden, not unmounted) so switching tabs never re-triggers a fetch. */}
+            {/* All 6 panels stay mounted and are only shown/hidden via
+              * `hidden` — a conditional `{activeTable === i && <div>...}`
+              * used to unmount/remount the whole table (rows, pager, DOM)
+              * on every tab click, which read as the page reloading even
+              * though no data was ever refetched. `hidden` keeps each
+              * panel's DOM and the tab-slide-up entrance animation intact,
+              * without re-running any of the fetches above. */}
             <div hidden={activeTable !== 0} className={activeTable === 0 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 20, 17, 15, 15, 11, 10]} />
                   <thead><tr><th>Loan</th><th>Scheme</th><th className="th-opened-due">Opened / <span className="th-due-part">Due</span></th><th className="num">Principal</th><th className="num">Outstanding</th><th>Pledge</th><th>Status</th></tr></thead>
                   <tbody>
                     {loanPager.items.length === 0 ? (
@@ -487,6 +628,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 1} className={activeTable === 1 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 30, 14, 20, 24]} />
                   <thead><tr><th>Loan</th><th>Ornament</th><th>Purity</th><th className="num">Net (g)</th><th className="num">Gold Value</th></tr></thead>
                   <tbody>
                     {ornamentPager.items.length === 0 ? (
@@ -507,6 +649,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 2} className={activeTable === 2 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 14, 20, 28, 26]} />
                   <thead><tr><th>Loan</th><th>Date</th><th>Type</th><th className="num">Amount</th><th>Method</th></tr></thead>
                   <tbody>
                     {paymentPager.items.length === 0 ? (
@@ -527,6 +670,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 3} className={activeTable === 3 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[12, 28, 22, 20, 18]} />
                   <thead><tr><th>Loan</th><th>Bank</th><th className="num">Amount</th><th>Pledged On</th><th>Status</th></tr></thead>
                   <tbody>
                     {bankPledgePager.items.length === 0 ? (
@@ -547,19 +691,22 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 4} className={activeTable === 4 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
-                  <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
+                  <TableCols widths={[11, 15, 14, 15, 15, 15, 15]} />
+                  <thead><tr><th>Loan</th><th>Stage</th><th>Auction Date</th><th className="num">Sale Amount</th><th className="num">Expenses</th><th className="num">Net Proceeds</th><th className="num th-surplus-shortfall">Surplus / <span className="th-shortfall-part">Shortfall</span></th></tr></thead>
                   <tbody>
                     {!canViewAuctions ? (
-                      <tr><td colSpan={5} className="empty compact">You don't have permission to view auction history.</td></tr>
+                      <tr><td colSpan={7} className="empty compact">You don't have permission to view auction history.</td></tr>
                     ) : auctionPager.items.length === 0 ? (
-                      <tr><td colSpan={5} className="empty compact">No auction records yet.</td></tr>
+                      <tr><td colSpan={7} className="empty compact">No auction records yet.</td></tr>
                     ) : auctionPager.items.map((a) => (
                       <tr key={a.id}>
                         <td data-label="Loan">{canViewLoans ? <a href={routeHref(`loan/${a.loanNumber}`)}>{a.loanNumber}</a> : a.loanNumber}</td>
                         <td data-label="Stage"><StatusChip status={a.stage} /></td>
                         <td data-label="Auction Date" className="td-date">{fmtDate(a.auctionDate)}</td>
                         <td data-label="Sale Amount" className="num">{a.saleAmount ? fmt(a.saleAmount) : "—"}</td>
-                        <td data-label="Surplus / Shortfall" className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? fmt(Math.abs(a.surplusShortfall)) : "—"}</td>
+                        <td data-label="Expenses" className="num">{a.saleAmount && a.auctionExpenses ? fmt(a.auctionExpenses) : "—"}</td>
+                        <td data-label="Net Proceeds" className="num">{a.saleAmount ? fmt(a.saleAmount - (a.auctionExpenses || 0)) : "—"}</td>
+                        <td data-label="Surplus / Shortfall" className="num" style={{ color: a.surplusShortfall >= 0 ? "var(--green)" : "var(--red)" }}>{a.saleAmount ? `${a.surplusShortfall >= 0 ? "+" : "−"}${fmt(Math.abs(a.surplusShortfall))}` : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -569,6 +716,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
 
             <div hidden={activeTable !== 5} className={activeTable === 5 ? "tab-slide-up" : undefined}>
                 <div className="tbl-wrap tbl-wrap-auto"><table className="tbl tbl-center tbl-cards">
+                  <TableCols widths={[13, 11, 24, 14, 13, 13, 12]} />
                   <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
                   <tbody>
                     {!canViewCash ? (
@@ -576,13 +724,17 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                     ) : transactionPager.items.length === 0 ? (
                       <tr><td colSpan={7} className="empty compact">No ledger entries recorded yet.</td></tr>
                     ) : transactionPager.items.map((r, i) => {
+                      // Same reference detection as PartyLedger: the loan /
+                      // investment / personal-loan number is either the row's
+                      // reference or trails its description ("… — LN-00048").
                       const refOf = (re: RegExp, tail: RegExp) =>
                         (r.reference && r.reference.match(re)?.[0]) || r.description.match(tail)?.[1] || null;
                       const loanRef = refOf(/^LN-\d+/i, /—\s*(LN-\S+)\s*$/i);
                       const invRef = refOf(/^INV-\d+/i, /—\s*(INV-\S+)\s*$/i);
                       const plRef = refOf(/^PL-\d+/i, /—\s*(PL-\S+)\s*$/i);
                       return (
-                      // A split payment yields one row per method, all sharing the movement's id.
+                      // A split payment yields one row per method, all sharing
+                      // the movement's id — so the id alone isn't unique.
                       <tr key={`${r.type}-${r.id}-${r.method}-${i}`}>
                         <td data-label="Date" className="td-date">{fmtDate(r.d)}</td>
                         <td data-label="Ref No" className="ledger-ref" title={r.reference || undefined}>
@@ -593,7 +745,7 @@ export function CustomerDetailPage({ id }: CustomerDetailPageProps) {
                             : r.reference || "—"}
                         </td>
                         <td data-label="Particulars" className="td-particulars">
-                          {r.description || r.type}
+                          {clipText(r.description || r.type)}
                           {r.bankId ? (
                             <div style={{ marginTop: 4 }}>
                               <LedgerRefLink kind="bank" id={r.bankId} label={r.bankName || "Bank"} />

@@ -7,8 +7,9 @@ import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { ApiError } from "@/common/services/httpClient";
 import { Select } from "@/common/components/ui/Select";
-import { fetchRoleMatrix, fetchRoles, updateRolePermissions, setAllRolePermissions, createRole, updateRole, deleteRole } from "@/common/services/permissionService";
-import { type PermissionRef, type PermissionRow, type Role } from "@/common/types/permission-types";
+import { fetchRoleMatrix, fetchRoles, updateRolePermissions, createRole, updateRole, deleteRole } from "@/common/services/permissionService";
+import { ROLE_DESCRIPTION_MAX, type PermissionRef, type PermissionRow, type Role } from "@/common/types/permission-types";
+import { RolesListModalContent } from "@/modules/roles/components/RolesListModalContent";
 
 /* "can create loan" -> "create loan", for "cannot enable …" messages. */
 function actionLabel(name: string) {
@@ -36,9 +37,7 @@ function CascadeOffModalContent({ row, dependents, onConfirm }: CascadeOffModalC
         </ul>
       </div>
       <div className="ft" style={{ display: "flex", gap: 8 }}>
-        <div className="sp" />
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={() => { onConfirm(); closeModal(); }}>Turn off {dependents.length + 1}</button>
+        <div className="sp" />        <button className="btn" onClick={() => { onConfirm(); closeModal(); }}>Turn off {dependents.length + 1}</button>
       </div>
     </>
   );
@@ -106,7 +105,7 @@ function EditRoleModalContent({
             <input className="inp" value={name} onChange={(e) => setName(e.target.value)} disabled={!canUpdate} maxLength={80} />
           </div>
           <div><label className="f">Description</label>
-            <input className="inp" value={desc} onChange={(e) => setDesc(e.target.value)} disabled={!canUpdate} placeholder="What this role is for" />
+            <input className="inp" value={desc} onChange={(e) => setDesc(e.target.value)} disabled={!canUpdate} maxLength={ROLE_DESCRIPTION_MAX} placeholder="What this role is for" />
           </div>
         </div>
         {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
@@ -115,9 +114,7 @@ function EditRoleModalContent({
         {canDelete && (
           <button className="btn ghost" style={{ color: "var(--red)" }} onClick={onDelete} disabled={busy}>Delete role</button>
         )}
-        <div className="sp" />
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        {canUpdate && (
+        <div className="sp" />        {canUpdate && (
           <button className="btn" onClick={onSave} disabled={busy || !name.trim()}><Icon name="check" /> Save</button>
         )}
       </div>
@@ -125,15 +122,11 @@ function EditRoleModalContent({
   );
 }
 
-// Hidden the same way, and for the same reason, as EmployeeModal's role
-// picker: Administrator stays a real role with its own permissions and
-// IsSystem protections, every business still has and needs one — it's just
-// not something a tenant should be casually re-permissioning from a
-// dropdown. Never hidden if it's already the selected role, so a deep link
-// or an already-open view doesn't silently disappear.
-function visibleRoles(roles: Role[] | null, currentId: number | null) {
-  if (!roles) return roles;
-  return roles.filter((r) => !r.isSystem || r.id === currentId);
+// Every role is listed, system roles (Administrator) included: they can be
+// opened to see what they hold, but stay read-only — the matrix, Grant/Revoke
+// all, Save and Edit are all gated on !role.isSystem below.
+function visibleRoles(roles: Role[] | null) {
+  return roles;
 }
 
 /* The permissions admin screen — one toggle per permission, grouped by
@@ -165,7 +158,7 @@ export function RolesPermissionsPage() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  // Brief "Changes saved" confirmation beside Save after a successful save.
+  // Save briefly reads "Saved" after a successful save.
   const [justSaved, setJustSaved] = useState(false);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
@@ -236,19 +229,32 @@ export function RolesPermissionsPage() {
     return pending[ref.permissionId] ?? ref.granted;
   }
 
-  // Parents still off — while any is, this permission can't be switched on.
-  function missingParents(row: PermissionRow) {
-    return (row.parents ?? []).filter((p) => !isOn(p));
+  // Everything this permission needs (its whole chain upward) that is still off — switched on along with it.
+  function missingRequirements(row: PermissionRow) {
+    return (row.all_parents ?? row.parents ?? []).filter((p) => !isOn(p));
   }
 
-  function blockedMessage(row: PermissionRow) {
-    const missing = missingParents(row);
-    if (missing.length === 0) return "";
-    return `Please turn on ${missing.map((p) => p.label).join(", ")} first.`;
+  // Records an unsaved change, or drops the entry when the value is back to what is saved —
+  // so the Save count only ever counts real differences.
+  function withValue(p: Record<number, boolean>, id: number, value: boolean, saved: boolean) {
+    const next = { ...p };
+    if (value === saved) delete next[id]; else next[id] = value;
+    return next;
   }
+
+  // The saved (server) state of every loaded permission. `row` comes from
+  // `effective`, which already includes unsaved edits, so comparing against
+  // row.permission left a "reverted" toggle in `pending` and the Save count
+  // never went down.
+  const savedById = useMemo(() => {
+    const m = new Map<number, boolean>();
+    for (const rows of Object.values(matrix ?? {})) for (const r of rows) m.set(r.permissionId, r.permission);
+    return m;
+  }, [matrix]);
 
   function toggle(row: PermissionRow) {
     if (!canUpdateRole || role?.isSystem) return;
+    const savedValue = savedById.get(row.permissionId) ?? row.permission;
     // An out-of-date backend omits the hierarchy; toggling then would skip the
     // blocked/cascade rules silently, so refuse and say why.
     if (row.parents === undefined || row.dependents === undefined) {
@@ -257,17 +263,20 @@ export function RolesPermissionsPage() {
     }
     const current = pending[row.permissionId] ?? row.permission;
     if (!current) {
-      if (missingParents(row).length > 0) {
-        toast(blockedMessage(row));
-        return;
-      }
-      setPending((p) => ({ ...p, [row.permissionId]: true }));
+      // Switching a permission on also switches on every permission it depends on.
+      const alsoOn = missingRequirements(row);
+      setPending((p) => {
+        let next = withValue(p, row.permissionId, true, savedValue);
+        for (const r of alsoOn) next = withValue(next, r.permissionId, true, r.granted);
+        return next;
+      });
+      if (alsoOn.length > 0) toast(`Also turned on: ${alsoOn.map((r) => r.label).join(", ")}`);
       return;
     }
     const goingOff = (row.dependents ?? []).filter(isOn);
     const turnOff = () => setPending((p) => {
-      const next = { ...p, [row.permissionId]: false };
-      for (const d of goingOff) next[d.permissionId] = false;
+      let next = withValue(p, row.permissionId, false, savedValue);
+      for (const d of goingOff) next = withValue(next, d.permissionId, false, d.granted);
       return next;
     });
     if (goingOff.length === 0) {
@@ -304,17 +313,22 @@ export function RolesPermissionsPage() {
     }
   }
 
+  // Grant all / Revoke all only mark every permission as pending — nothing is
+  // saved until Save is clicked, same as ticking the boxes one by one.
   async function setAll(allowed: boolean) {
     if (!employee || !roleId || role?.isSystem || !canUpdateRole) return;
     setSaving(true);
     try {
-      await setAllRolePermissions(employee.id, roleId, allowed);
-      if (role?.name === employee.role) refetchPermissions();
-      toast(`All permissions ${allowed ? "granted" : "revoked"} for ${role?.name}`);
-      const res = await fetchRoleMatrix(employee.id, roleId, search || undefined);
-      setRole(res.role);
-      setMatrix(res.data);
-      setPending({});
+      // A search narrows the loaded matrix, but these buttons cover every permission of the role.
+      const all = search ? (await fetchRoleMatrix(employee.id, roleId)).data : matrix;
+      if (!all) return;
+      const next: Record<number, boolean> = {};
+      for (const rows of Object.values(all)) {
+        for (const r of rows) {
+          if (r.permission !== allowed) next[r.permissionId] = allowed;
+        }
+      }
+      setPending(next);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not save your changes. Please try again.");
     } finally {
@@ -370,6 +384,11 @@ export function RolesPermissionsPage() {
           <p>Grant or revoke what each role may view and change, across every module, and choose the approval workflow.</p>
         </div>
         <div className="sp" />
+        {activeTab === "permissions" && (
+          <button className="btn ghost" onClick={() => openModal(<RolesListModalContent onOpenRole={(id) => setRoleId(id)} />, true)}>
+            <Icon name="list" /> Roles
+          </button>
+        )}
         {canCreateRole && activeTab === "permissions" && (
           <button className="btn ghost" onClick={() => setShowNewRole((v) => !v)}>
             <Icon name="plus" /> New Role
@@ -398,7 +417,7 @@ export function RolesPermissionsPage() {
             </div>
             <div style={{ flex: 2 }}>
               <label className="f">Description</label>
-              <input className="inp" value={newRoleDesc} onChange={(e) => setNewRoleDesc(e.target.value)} placeholder="What this role is for" />
+              <input className="inp" value={newRoleDesc} onChange={(e) => setNewRoleDesc(e.target.value)} maxLength={ROLE_DESCRIPTION_MAX} placeholder="What this role is for" />
             </div>
           </div>
           <p style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0" }}>
@@ -421,7 +440,7 @@ export function RolesPermissionsPage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <label className="f">Role</label>
             <Select
-              options={(visibleRoles(roles, roleId) ?? []).map((r) => ({ value: String(r.id), label: `${r.name}${r.isSystem ? " (system)" : ""}` }))}
+              options={(visibleRoles(roles) ?? []).map((r) => ({ value: String(r.id), label: `${r.name}${r.isSystem ? " (system)" : ""}` }))}
               value={roleId != null ? String(roleId) : ""}
               onChange={(v) => setRoleId(Number(v))}
               disabled={!roles}
@@ -440,9 +459,6 @@ export function RolesPermissionsPage() {
             <>
               <button className="btn ghost" onClick={() => setAll(true)} disabled={saving}>Grant all</button>
               <button className="btn ghost" onClick={() => setAll(false)} disabled={saving}>Revoke all</button>
-              {justSaved && (
-                <span className="save-msg" role="status"><Icon name="check" /> Changes saved</span>
-              )}
               <button
                 className={`btn save-btn${justSaved ? " saved" : ""}`}
                 onClick={save}
@@ -487,22 +503,21 @@ export function RolesPermissionsPage() {
                   <div className="bd" style={{ padding: 0 }}>
                     <div className="perm-list-rows">
                       {rows.map((row) => {
-                        const blocked = !row.permission ? blockedMessage(row) : "";
+                        const requires = row.parents ?? [];
                         const softMissing = (row.soft_parents ?? []).filter((p) => !isOn(p));
                         // Indented under a parent that lives in this same card.
                         const nested = (row.parents ?? []).some((p) => rows.some((r) => r.permissions.name === p.name));
                         return (
                           <label
                             key={`${row.permissionId}-${row.permissions.name}`}
-                            className={`ccheck perm-list-row${blocked ? " blocked" : ""}`}
-                            title={blocked || undefined}
+                            className="ccheck perm-list-row"
                             style={{ paddingLeft: nested ? 28 : undefined }}
                           >
                             <input
                               type="checkbox"
                               checked={row.permission}
                               onChange={() => toggle(row)}
-                              disabled={!canUpdateRole || role?.isSystem || !!blocked}
+                              disabled={!canUpdateRole || role?.isSystem}
                             />
                             <span className="mark" />
                             <span>
@@ -510,7 +525,17 @@ export function RolesPermissionsPage() {
                               {row.permissions.description && (
                                 <span className="sub" style={{ display: "block", fontSize: 11.5 }}>{row.permissions.description}</span>
                               )}
-                              {!blocked && row.permission && softMissing.length > 0 && (
+                              {requires.length > 0 && (
+                                <span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>
+                                  Requires:{" "}
+                                  {requires.map((p, i) => (
+                                    <span key={p.permissionId} style={isOn(p) ? undefined : { color: "var(--red)", fontWeight: 600 }}>
+                                      {i > 0 && ", "}{p.label}
+                                    </span>
+                                  ))}
+                                </span>
+                              )}
+                              {row.permission && softMissing.length > 0 && (
                                 <span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>
                                   Works best with {softMissing.map((p) => p.label).join(", ")}
                                 </span>

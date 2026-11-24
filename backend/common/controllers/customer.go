@@ -15,9 +15,12 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var customerPhoneRe = regexp.MustCompile(`^\d{10}$`)
+var customerPANRe = regexp.MustCompile(`^[A-Z]{5}\d{4}[A-Z]$`)
+var customerAadhaarRe = regexp.MustCompile(`^\d{12}$`)
 
 type customerRequest struct {
 	Name              string `json:"name" binding:"required"`
@@ -88,6 +91,9 @@ type CustomerCreateInput struct {
 	BankAccountName   string
 	BankAccountNumber string
 	BankIFSC          string
+	// ConfirmSamePerson: an investor being added shares a phone / PAN / Aadhaar with one under another name, and
+	// the user has confirmed they are the same person (investors only; see checkInvestorIdentity).
+	ConfirmSamePerson bool
 }
 
 type CustomerUpdateInput = CustomerCreateInput
@@ -178,10 +184,17 @@ func insertCustomer(ctx context.Context, c *commonModels.Customer) error {
 func findCustomers(ctx context.Context, f CustomerFilter) ([]commonModels.Customer, int64, error) {
 	var customers []commonModels.Customer
 	q := config.DB.
-		WithContext(ctx).Preload("Branch").Order("id asc")
+		WithContext(ctx).Preload("Branch")
 	if f.Query != "" {
-		like := "%" + f.Query + "%"
-		q = q.Where("name ILIKE ? OR code ILIKE ? OR phone ILIKE ?", like, like, like)
+		if IsDigitQuery(f.Query) {
+			q = q.Order(clause.Expr{SQL: NumericExactFirstOrder("code"), Vars: []any{NumericExactFirstArg(f.Query)}})
+			// A number finds a customer by ID or by the start of a phone number — not by
+			// digits that merely occur somewhere inside a phone number or code.
+			q = q.Where("("+NumericPrefixSQL("code")+" OR phone LIKE ?)", NumericPrefixArg(f.Query), f.Query+"%")
+		} else {
+			like := "%" + f.Query + "%"
+			q = q.Where("(name ILIKE ? OR code ILIKE ? OR phone ILIKE ?)", like, like, f.Query+"%")
+		}
 	}
 	if f.BranchID != nil {
 		q = q.Where("branch_id = ?", *f.BranchID)
@@ -199,6 +212,7 @@ func findCustomers(ctx context.Context, f CustomerFilter) ([]commonModels.Custom
 	if f.CustomerType != "" {
 		q = q.Where("customer_type = ?", f.CustomerType)
 	}
+	q = q.Order("id asc")
 	var total int64
 	if f.Limit > 0 {
 		if err := q.Session(&gorm.Session{}).Model(&commonModels.Customer{}).Count(&total).Error; err != nil {
@@ -214,6 +228,15 @@ func FindCustomerByID(ctx context.Context, id uint) (*commonModels.Customer, err
 	var c commonModels.Customer
 	if err := config.DB.
 		WithContext(ctx).Preload("Branch").First(&c, id).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func findCustomerByCode(ctx context.Context, code string) (*commonModels.Customer, error) {
+	var c commonModels.Customer
+	if err := config.DB.
+		WithContext(ctx).Preload("Branch").Where("code = ?", code).First(&c).Error; err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -276,7 +299,18 @@ func customerMaxCodeSuffix(ctx context.Context) (int, error) {
 	return maxSuffix, err
 }
 
+// customerValidate checks a borrower. Investors live in their own table (see investor.go), so a
+// customer can no longer be typed "Investor".
 func customerValidate(in CustomerCreateInput) error {
+	if in.CustomerType != "" && in.CustomerType != "Borrower" {
+		return NewBadRequest("customer type must be Borrower — investors are managed under Investments")
+	}
+	return partyValidate(in, false)
+}
+
+// partyValidate holds the checks a borrower and an investor share; an investor must also carry
+// bank details, PAN and Aadhaar.
+func partyValidate(in CustomerCreateInput, investor bool) error {
 	if in.Name == "" {
 		return NewBadRequest("name is required")
 	}
@@ -289,17 +323,28 @@ func customerValidate(in CustomerCreateInput) error {
 	if in.BranchID == 0 {
 		return NewBadRequest("branch is required")
 	}
-	switch in.CustomerType {
-	case "", "Borrower":
-	case "Investor":
-		if in.BankAccountName == "" || in.BankAccountNumber == "" || in.BankIFSC == "" {
-			return NewBadRequest("bank account name, number and IFSC are required for an investor")
-		}
+	// PAN and Aadhaar are optional for a borrower, but never malformed when given
+	// (normalizeKYC has already upper-cased the PAN and stripped Aadhaar spaces).
+	if in.PAN != "" && !customerPANRe.MatchString(in.PAN) {
+		return NewBadRequest("PAN must look like ABCDE1234F")
+	}
+	if in.Aadhaar != "" && !customerAadhaarRe.MatchString(in.Aadhaar) {
+		return NewBadRequest("Aadhaar must be exactly 12 digits")
+	}
+	if strings.ContainsAny(in.NomineeName, "0123456789") {
+		return NewBadRequest("nominee name must not contain digits")
+	}
+	if strings.ContainsAny(in.NomineeRelation, "0123456789") {
+		return NewBadRequest("nominee relation must not contain digits")
+	}
+	if in.BankAccountNumber != "" && (len(in.BankAccountNumber) > 18 || strings.Trim(in.BankAccountNumber, "0123456789") != "") {
+		return NewBadRequest("bank account number must be digits only, up to 18 digits")
+	}
+	if investor {
+		// The bank details are optional for an investor; when given, the account number is checked above.
 		if in.PAN == "" || in.Aadhaar == "" {
 			return NewBadRequest("PAN and Aadhaar are required for an investor")
 		}
-	default:
-		return NewBadRequest("customer type must be Borrower or Investor")
 	}
 	return nil
 }
@@ -459,6 +504,10 @@ func SaveCustomer(ctx context.Context, in CustomerCreateInput) (*commonModels.Cu
 		KYCStatus:         "Pending",
 		PANStatus:         "Pending",
 		AadhaarStatus:     "Pending",
+	}
+	// a customer queued on a PC keeps the id that PC gave them
+	if entry, queued := config.SyncEntryFromContext(ctx); queued {
+		rec.UUID = entry.ClientUUID
 	}
 	if err := insertCustomer(ctx, rec); err != nil {
 		return nil, kycConflict(customerPhoneConflict(err))
@@ -665,7 +714,7 @@ func startAadhaarVerify(ctx context.Context, id uint, branchID *uint, redirectUR
 		return nil, NewUnavailable("Aadhaar verification is not configured")
 	}
 	if rec.AadhaarLast4 == "" {
-		return nil, NewBadRequest("add the customer's Aadhaar number before verifying via DigiLocker")
+		return nil, NewBadRequest("add the Aadhaar number first")
 	}
 	if tenantID, ok := config.TenantFromContext(ctx); ok {
 		if err := CheckAndRecordUsage(config.BaseDB,
@@ -734,6 +783,36 @@ func checkAadhaarVerify(ctx context.Context, id uint, branchID *uint) (*commonMo
 	return updated, status, aadhaar, reasons, nil
 }
 
+// CheckCustomerIdentity tells the Register Customer form, before anything is saved, which existing investors share
+// the phone number, PAN or Aadhaar being typed — the same comparison CreateCustomer makes, so the form can offer to
+// fill itself from that investor straight away instead of failing on Register. Nothing is written. The Aadhaar
+// number travels in the body (never the URL) and is only hashed here.
+func CheckCustomerIdentity(c echo.Context) error {
+	var req struct {
+		Phone   string `json:"phone"`
+		PAN     string `json:"pan"`
+		Aadhaar string `json:"aadhaar"`
+	}
+	if err := BindJSON(c, &req); err != nil {
+		return FailErr(c, NewBadRequest("Invalid input"))
+	}
+	in := CustomerCreateInput{Phone: strings.TrimSpace(req.Phone), PAN: req.PAN, Aadhaar: req.Aadhaar}
+	normalizeKYC(&in)
+	aadhaarHash := ""
+	if in.Aadhaar != "" {
+		aadhaarHash = config.AadhaarCipher.Fingerprint(in.Aadhaar)
+	}
+	matches := []DuplicateIdentityMatch{}
+	if err := checkBorrowerIdentity(auth.RequestContext(c), aadhaarHash, in, false); err != nil {
+		var dup *DuplicateIdentityError
+		if !errors.As(err, &dup) {
+			return FailErr(c, err)
+		}
+		matches = dup.Matches
+	}
+	return Success(c, http.StatusOK, echo.Map{"matches": matches})
+}
+
 func CreateCustomer(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	var req customerRequest
@@ -746,6 +825,23 @@ func CreateCustomer(c echo.Context) error {
 	}
 	branchID := auth.EnforceBranchOnWrite(c, input.BranchID)
 	input.BranchID = branchID
+	// A new borrower who is also an investor (same phone / PAN / Aadhaar) is held until the user confirms.
+	if input.CustomerType != "Investor" && c.QueryParam("confirm_same_person") != "true" {
+		var aadhaarHash string
+		if in := strings.TrimSpace(input.Aadhaar); in != "" {
+			aadhaarHash = config.AadhaarCipher.Fingerprint(in)
+		}
+		phoneIn := input
+		phoneIn.Phone = strings.TrimSpace(phoneIn.Phone)
+		normalizeKYC(&phoneIn)
+		if err := checkBorrowerIdentity(ctx, aadhaarHash, phoneIn, false); err != nil {
+			var dup *DuplicateIdentityError
+			if errors.As(err, &dup) {
+				return c.JSON(http.StatusConflict, echo.Map{"success": false, "error": dup.Error(), "code": "same_identity_different_name", "matches": dup.Matches})
+			}
+			return FailErr(c, err)
+		}
+	}
 	rec, err := SaveCustomer(ctx, input)
 	if err != nil {
 		return FailErr(c, err)
@@ -765,6 +861,9 @@ func ListCustomers(c echo.Context) error {
 		CustomerType:  c.QueryParam("customer_type"),
 	}
 	if limit == 0 {
+		// Never the whole customer book in one response: a business can hold
+		// tens of thousands of customers. Pickers and tables page instead.
+		f.Limit = unpagedCustomerCap
 		rec, _, err := listCustomers(ctx, f)
 		if err != nil {
 			return FailErr(c, err)
@@ -776,7 +875,46 @@ func ListCustomers(c echo.Context) error {
 	if err != nil {
 		return FailErr(c, err)
 	}
-	return SuccessPage(c, page, limit, total, ToResponseList(rec))
+	out := ToResponseList(rec)
+	if err := attachLoanCounts(ctx, out); err != nil {
+		return FailErr(c, err)
+	}
+	return SuccessPage(c, page, limit, total, out)
+}
+
+const unpagedCustomerCap = 500
+
+// attachLoanCounts sets each listed customer's number of loans (one grouped
+// query for the page) for the Customers table's Loans column.
+func attachLoanCounts(ctx context.Context, out []commonModels.CustomerResponse) error {
+	if len(out) == 0 {
+		return nil
+	}
+	ids := make([]uint, len(out))
+	for i := range out {
+		ids[i] = out[i].ID
+	}
+	var rows []struct {
+		CustomerID uint
+		N          int64
+	}
+	if err := config.DB.
+		WithContext(ctx).Table("loans").
+		Select("customer_id, COUNT(*) AS n").
+		Where("customer_id IN ? AND deleted_at IS NULL", ids).
+		Group("customer_id").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	counts := make(map[uint]int64, len(rows))
+	for _, r := range rows {
+		counts[r.CustomerID] = r.N
+	}
+	for i := range out {
+		n := counts[out[i].ID]
+		out[i].LoanCount = &n
+	}
+	return nil
 }
 
 func GetCustomerById(c echo.Context) error {
@@ -788,6 +926,20 @@ func GetCustomerById(c echo.Context) error {
 	rec, err := getCustomer(ctx, id, auth.GetBranchScope(c))
 	if err != nil {
 		return FailErr(c, err)
+	}
+	return Success(c, http.StatusOK, CustomerToResponse(rec))
+}
+
+// GetCustomerByCode backs the console's /customer/CUST-04 links: the address bar shows the
+// customer's code, and the page resolves it to the record (and its numeric id) here.
+func GetCustomerByCode(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	rec, err := findCustomerByCode(ctx, c.Param("code"))
+	if err != nil {
+		return FailErr(c, NewNotFound("customer not found"))
+	}
+	if branchID := auth.GetBranchScope(c); branchID != nil && rec.BranchID != *branchID {
+		return FailErr(c, NewNotFound("customer not found"))
 	}
 	return Success(c, http.StatusOK, CustomerToResponse(rec))
 }

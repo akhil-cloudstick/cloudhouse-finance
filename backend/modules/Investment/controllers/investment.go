@@ -132,10 +132,15 @@ type CreateInput struct {
 type ListInput struct {
 	BranchID   *uint
 	CustomerID *uint
-	Status     string
-	Query      string
-	Limit      int
-	Offset     int
+	// CustomerIDs / PlanIDs narrow to any of several investors / plans (the list page's filters).
+	CustomerIDs []uint
+	PlanIDs     []uint
+	Status      string
+	Query       string
+	From        *time.Time
+	To          *time.Time
+	Limit       int
+	Offset      int
 }
 
 type MarkPayoutPaidInput struct {
@@ -178,12 +183,17 @@ type WithdrawInput struct {
 }
 
 type ListFilter struct {
-	BranchID   *uint
-	CustomerID *uint
-	Status     string
-	Query      string
-	Limit      int
-	Offset     int
+	BranchID    *uint
+	CustomerID  *uint
+	CustomerIDs []uint
+	PlanIDs     []uint
+	Status      string
+	Query       string
+	// From / To bound start_date; To is exclusive (the day after the chosen end date).
+	From   *time.Time
+	To     *time.Time
+	Limit  int
+	Offset int
 }
 
 type CalendarPayout struct {
@@ -255,20 +265,15 @@ func engineOrDefault(e string) string {
 	return e
 }
 
+// Every plan is a Bond. A blank or the retired "Deposit" value (an older client, an old import) is read as Bond.
 func productTypeOrDefault(t string) string {
-	if t == "" {
-		return "Deposit"
+	if t == "" || t == "Deposit" {
+		return "Bond"
 	}
 	return t
 }
 
-func validateProductType(t string) bool {
-	switch t {
-	case "Deposit", "Bond":
-		return true
-	}
-	return false
-}
+func validateProductType(t string) bool { return t == "Bond" }
 
 func SaveInvestmentPlan(ctx context.Context, in PlanInput) (*models.InvestmentPlan, error) {
 	engine := engineOrDefault(in.Engine)
@@ -297,7 +302,7 @@ func SaveInvestmentPlan(ctx context.Context, in PlanInput) (*models.InvestmentPl
 	rec := &models.InvestmentPlan{
 		Name:                in.Name,
 		InterestRateType:    in.InterestRateType,
-		InterestRatePercent: common.RoundMoney(in.InterestRatePercent),
+		InterestRatePercent: common.RoundDecimal2(in.InterestRatePercent),
 		PayoutFrequency:     in.PayoutFrequency,
 		TenureMonths:        in.TenureMonths,
 		MinPrincipal:        common.RoundMoney(in.MinPrincipal),
@@ -346,7 +351,7 @@ func updatePlan(ctx context.Context, id uint, in PlanInput) (*models.InvestmentP
 	rec.ProductType = productType
 	rec.Name = in.Name
 	rec.InterestRateType = in.InterestRateType
-	rec.InterestRatePercent = common.RoundMoney(in.InterestRatePercent)
+	rec.InterestRatePercent = common.RoundDecimal2(in.InterestRatePercent)
 	rec.PayoutFrequency = in.PayoutFrequency
 	rec.TenureMonths = in.TenureMonths
 	rec.MinPrincipal = common.RoundMoney(in.MinPrincipal)
@@ -376,8 +381,9 @@ func SaveInvestment(ctx context.Context, in CreateInput) (*models.Investment, er
 	if in.PrincipalAmount <= 0 {
 		return nil, common.NewBadRequest("principal amount must be greater than zero")
 	}
-	if _, err := common.FindCustomerByID(ctx, in.CustomerID); err != nil {
-		return nil, err
+	// CustomerID names the investor (investors are their own table; the column kept its old name).
+	if _, err := common.FindInvestorByID(ctx, in.CustomerID); err != nil {
+		return nil, common.NewNotFound("investor not found")
 	}
 	plan, err := findPlanByID(ctx, in.PlanID)
 	if err != nil {
@@ -501,6 +507,8 @@ func getInvestment(ctx context.Context, id uint, branchID *uint) (*models.Invest
 			return nil, err
 		}
 		rec.OutstandingInterest = clampMoney(rec.AccruedInterest - rec.InterestWithdrawn)
+	} else {
+		fillSchedSettlement(ctx, rec)
 	}
 	return rec, nil
 }
@@ -511,12 +519,16 @@ func listInvestments(ctx context.Context, in ListInput) ([]models.Investment, bo
 		limit = 10
 	}
 	recs, total, err := findInvestments(ctx, ListFilter{
-		BranchID:   in.BranchID,
-		CustomerID: in.CustomerID,
-		Status:     in.Status,
-		Query:      in.Query,
-		Limit:      limit,
-		Offset:     in.Offset,
+		BranchID:    in.BranchID,
+		CustomerID:  in.CustomerID,
+		CustomerIDs: in.CustomerIDs,
+		PlanIDs:     in.PlanIDs,
+		Status:      in.Status,
+		Query:       in.Query,
+		From:        in.From,
+		To:          in.To,
+		Limit:       limit,
+		Offset:      in.Offset,
 	})
 	if err != nil {
 		return nil, false, 0, err
@@ -666,6 +678,11 @@ func matureInvestment(ctx context.Context, investmentID uint, branchID *uint, ac
 	if inv.Engine == models.EngineLive && action == "Close" {
 		return closeLiveInvestment(ctx, investmentID, branchID, pay, employeeID)
 	}
+	// A fixed-payout investment closed with a payment breakdown is settled in one step (see closeScheduledInvestment).
+	// Without one, closing keeps its old meaning: the principal return is only queued for staff to pay later.
+	if inv.Engine != models.EngineLive && action == "Close" && pay != nil && pay.CashAmount+pay.UpiAmount+pay.BankTransferAmount+pay.ChequeAmount > epsilon {
+		return closeScheduledInvestment(ctx, investmentID, branchID, pay, employeeID)
+	}
 	if inv.Status != models.StatusMatured {
 		return nil, common.NewConflict("investment has not matured yet")
 	}
@@ -774,7 +791,8 @@ func matureInvestment(ctx context.Context, investmentID uint, branchID *uint, ac
 	}
 }
 
-func listPendingPayoutsForCalendar(ctx context.Context, branchID *uint) ([]CalendarPayout, error) {
+// ListPendingPayoutsForCalendar returns every pending payout of an active or matured investment, for the reminder calendar.
+func ListPendingPayoutsForCalendar(ctx context.Context, branchID *uint) ([]CalendarPayout, error) {
 	return findPendingPayoutsForCalendar(ctx, branchID)
 }
 
@@ -803,7 +821,7 @@ func addCash(ctx context.Context, investmentID uint, branchID *uint, in AddCashI
 			return err
 		}
 		if inv.Engine != models.EngineLive {
-			return common.NewBadRequest("this action is only available for investments using the live accrual engine")
+			return common.NewBadRequest("needs a live-accrual investment")
 		}
 		if inv.Status != models.StatusActive {
 			return common.NewConflict("investment is not active")
@@ -865,6 +883,10 @@ func withdrawInvestment(ctx context.Context, investmentID uint, branchID *uint, 
 	if in.InterestAmount < 0 || in.PrincipalAmount < 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
 	}
+	// a fixed-payout investment is withdrawn from by taking principal out of its schedule
+	if cur, err := findInvestmentByID(ctx, investmentID, branchID); err == nil && cur.Engine != models.EngineLive {
+		return withdrawScheduled(ctx, investmentID, branchID, in)
+	}
 	total := common.RoundMoney(in.InterestAmount + in.PrincipalAmount)
 	if total <= 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
@@ -889,7 +911,7 @@ func withdrawInvestment(ctx context.Context, investmentID uint, branchID *uint, 
 			return err
 		}
 		if inv.Engine != models.EngineLive {
-			return common.NewBadRequest("this action is only available for investments using the live accrual engine")
+			return common.NewBadRequest("needs a live-accrual investment")
 		}
 		if inv.Status != models.StatusActive && inv.Status != models.StatusMatured {
 			return common.NewConflict("investment is not active")
@@ -970,7 +992,7 @@ func getTransactions(ctx context.Context, investmentID uint, branchID *uint, lim
 		return nil, false, err
 	}
 	if inv.Engine != models.EngineLive {
-		return nil, false, common.NewBadRequest("this action is only available for investments using the live accrual engine")
+		return nil, false, common.NewBadRequest("needs a live-accrual investment")
 	}
 	if limit <= 0 {
 		limit = 20
@@ -1001,27 +1023,18 @@ func clampMoney(v float64) float64 {
 }
 
 func ensureCustomerExists(ctx context.Context, customerID uint) error {
-	if _, err := common.FindCustomerByID(ctx, customerID); err != nil {
-		return common.NewNotFound("customer not found")
+	if _, err := common.FindInvestorByID(ctx, customerID); err != nil {
+		return common.NewNotFound("investor not found")
 	}
 	return nil
 }
 
-func notifyInterestPayout(ctx context.Context, customerID uint, investmentNumber string, amount float64) error {
-	common.NotifyCustomer(ctx, customerID, "investment_interest_payout",
-		"Interest payout received",
-		fmt.Sprintf("Your interest payout of %.2f for investment %s has been paid.", amount, investmentNumber),
-		"Investment", 0)
-	return nil
-}
+// notifyInterestPayout / notifyInvestmentMatured used to push an in-app notification to the investor
+// as a customer. Investors are no longer customers (they have no customer-app login, and an investor
+// id can equal an unrelated customer's id), so there is nobody to notify and these do nothing.
+func notifyInterestPayout(_ context.Context, _ uint, _ string, _ float64) error { return nil }
 
-func notifyInvestmentMatured(ctx context.Context, customerID uint, investmentNumber string) error {
-	common.NotifyCustomer(ctx, customerID, "investment_matured",
-		"Investment matured",
-		fmt.Sprintf("Your investment %s has matured. Please contact us to close or renew it.", investmentNumber),
-		"Investment", 0)
-	return nil
-}
+func notifyInvestmentMatured(_ context.Context, _ uint, _ string) error { return nil }
 
 func investmentDB() config.Conn { return config.DB }
 
@@ -1111,6 +1124,19 @@ func lockByID(ctx context.Context, tx *gorm.DB, id uint, branchID *uint) (*model
 	return &rec, nil
 }
 
+// queryDayRange reads optional from/to YYYY-MM-DD query parameters as a local
+// [from, to) range, the end day inclusive. Either end is nil when absent or malformed.
+func queryDayRange(fromV, toV string) (from, to *time.Time) {
+	if t, err := time.ParseInLocation("2006-01-02", fromV, time.Local); err == nil {
+		from = &t
+	}
+	if t, err := time.ParseInLocation("2006-01-02", toV, time.Local); err == nil {
+		end := t.AddDate(0, 0, 1)
+		to = &end
+	}
+	return from, to
+}
+
 func findInvestments(ctx context.Context, f ListFilter) ([]models.Investment, int64, error) {
 	var recs []models.Investment
 	q := config.DB.
@@ -1121,13 +1147,32 @@ func findInvestments(ctx context.Context, f ListFilter) ([]models.Investment, in
 	if f.CustomerID != nil {
 		q = q.Where("investments.customer_id = ?", *f.CustomerID)
 	}
-	if f.Status != "" {
-		q = q.Where("investments.status = ?", f.Status)
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("investments.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.PlanIDs) > 0 {
+		q = q.Where("investments.plan_id IN ?", f.PlanIDs)
+	}
+	// Status is one value or a comma-separated list.
+	var statuses []string
+	for _, s := range strings.Split(f.Status, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			statuses = append(statuses, s)
+		}
+	}
+	if len(statuses) > 0 {
+		q = q.Where("investments.status IN ?", statuses)
+	}
+	if f.From != nil {
+		q = q.Where("investments.start_date >= ?", *f.From)
+	}
+	if f.To != nil {
+		q = q.Where("investments.start_date < ?", *f.To)
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
-		q = q.Joins("JOIN customers ON customers.id = investments.customer_id").
-			Where("investments.investment_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
+		q = q.Joins("JOIN investors ON investors.id = investments.customer_id").
+			Where("investments.investment_number ILIKE ? OR investors.name ILIKE ? OR investors.code ILIKE ?", like, like, like)
 	}
 	var total int64
 	if f.Limit > 0 {
@@ -1200,11 +1245,13 @@ func findPendingPayoutsForCalendar(ctx context.Context, branchID *uint) ([]Calen
 		WithContext(ctx).Table("investment_payouts").
 		Select("investment_payouts.due_date AS due_date, investment_payouts.amount AS amount, "+
 			"investments.id AS investment_id, investments.investment_number AS investment_number, "+
-			"investments.customer_id AS customer_id, customers.name AS customer_name, "+
+			"investments.customer_id AS customer_id, investors.name AS customer_name, "+
 			"investments.branch_id AS branch_id").
 		Joins("JOIN investments ON investments.id = investment_payouts.investment_id").
-		Joins("JOIN customers ON customers.id = investments.customer_id").
+		Joins("JOIN investors ON investors.id = investments.customer_id").
 		Where("investment_payouts.status = ?", "Pending").
+		// A payout dated on the day the investment was created needs no reminder.
+		Where("investment_payouts.due_date::date > investments.start_date::date").
 		Where("investments.status IN ?", []string{models.StatusActive, models.StatusMatured})
 	if branchID != nil {
 		q = q.Where("investments.branch_id = ?", *branchID)
@@ -1334,6 +1381,43 @@ func GetInvestmentPlan(c echo.Context) error {
 	return common.Success(c, http.StatusOK, rec)
 }
 
+func DeleteInvestmentPlan(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	if err := deletePlan(ctx, id); err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"deleted": true})
+}
+
+// deletePlan refuses a plan any investment still points at, since that investment's terms come from it.
+func deletePlan(ctx context.Context, id uint) error {
+	rec, err := findPlanByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return common.NewNotFound("investment plan not found")
+		}
+		return err
+	}
+	var used int64
+	if err := config.DB.WithContext(ctx).Model(&models.Investment{}).Where("plan_id = ?", rec.ID).Count(&used).Error; err != nil {
+		return err
+	}
+	if used > 0 {
+		var numbers []string
+		config.DB.WithContext(ctx).Raw("SELECT investment_number FROM investments WHERE plan_id = ? ORDER BY id LIMIT 5", rec.ID).Scan(&numbers)
+		listed := ""
+		if len(numbers) > 0 {
+			listed = " (" + common.RecordList(numbers, used) + ")"
+		}
+		return common.NewConflict(fmt.Sprintf("This plan is used by %d investment(s)%s and can't be deleted — mark it inactive instead.", used, listed))
+	}
+	return config.DB.WithContext(ctx).Delete(rec).Error
+}
+
 func CreateInvestment(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	var req createRequest
@@ -1381,13 +1465,18 @@ func ListInvestments(c echo.Context) error {
 	if limit == 0 {
 		page, limit = 1, 10
 	}
+	from, to := queryDayRange(c.QueryParam("from"), c.QueryParam("to"))
 	recs, _, total, err := listInvestments(ctx, ListInput{
-		BranchID:   branchID,
-		CustomerID: customerID,
-		Status:     c.QueryParam("status"),
-		Query:      c.QueryParam("search"),
-		Limit:      limit,
-		Offset:     offset,
+		BranchID:    branchID,
+		CustomerID:  customerID,
+		CustomerIDs: parseUintCSV(c.QueryParam("customer_ids")),
+		PlanIDs:     parseUintCSV(c.QueryParam("plan_ids")),
+		Status:      c.QueryParam("status"),
+		Query:       c.QueryParam("search"),
+		From:        from,
+		To:          to,
+		Limit:       limit,
+		Offset:      offset,
 	})
 	if err != nil {
 		return common.FailErr(c, err)
@@ -1652,13 +1741,18 @@ func closeLiveInvestment(ctx context.Context, investmentID uint, branchID *uint,
 			return err
 		}
 		if locked.Engine != models.EngineLive {
-			return common.NewBadRequest("this action is only available for investments using the live accrual engine")
+			return common.NewBadRequest("needs a live-accrual investment")
 		}
-		if locked.Status != models.StatusMatured {
-			return common.NewConflict("investment has not matured yet")
+		if locked.Status != models.StatusMatured && locked.Status != models.StatusActive {
+			return common.NewConflict("investment is not active")
 		}
-		// interest stops at the maturity date (projectAccrual caps it)
-		if err := settleAndSave(ctx, tx, locked, locked.MaturityDate); err != nil {
+		// A matured investment earns to its maturity date; one closed early earns up to today (simple or compound per
+		// its plan, same daily accrual as any other settle). projectAccrual caps interest at maturity either way.
+		settleOn := locked.MaturityDate
+		if locked.Status == models.StatusActive {
+			settleOn = time.Now()
+		}
+		if err := settleAndSave(ctx, tx, locked, settleOn); err != nil {
 			return err
 		}
 		interest := clampMoney(locked.AccruedInterest - locked.InterestWithdrawn)
@@ -1790,7 +1884,7 @@ func SaveInterestPayments(ctx context.Context, investmentID uint, branchID *uint
 		return nil, err
 	}
 	if inv.Engine == models.EngineLive {
-		return nil, common.NewBadRequest("this investment pays interest through withdrawals, not a payout schedule")
+		return nil, common.NewBadRequest("no payout schedule for this investment")
 	}
 	if inv.Status != models.StatusActive && inv.Status != models.StatusMatured && inv.Status != "Closed" && inv.Status != "Renewed" {
 		return nil, common.NewConflict("investment is not active")

@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 )
@@ -15,6 +16,11 @@ type ExtensionRequestInput struct {
 	Months      int
 	Detail      string
 	RequestedBy string
+	// The staff member raising it. When their role is the chain's first approver, that first stage is approved
+	// as part of raising it (zero for customer and demo requests, which never self-approve).
+	ActorEmployeeID uint
+	ActorRole       string
+	ActorRoleID     uint
 }
 
 type ExtensionApprovalInput struct {
@@ -33,6 +39,9 @@ type extensionRequestRequest struct {
 }
 
 func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestInput) (*models.LoanRequest, error) {
+	if utf8.RuneCountInString(in.Detail) > 150 {
+		return nil, common.NewBadRequest("note can be at most 150 characters")
+	}
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")
@@ -41,13 +50,16 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 		return nil, common.NewBadRequest("requested extension months must be greater than zero")
 	}
 	if l.Status == models.StatusPendingApproval {
-		return nil, common.NewBadRequest("this loan is still pending approval — extension or release can only be requested once it is approved and disbursed")
+		return nil, common.NewBadRequest("loan is not approved yet")
+	}
+	if isGoldSold(l.Status) {
+		return nil, common.NewBadRequest("this loan's gold has been auctioned — extension or release can no longer be requested")
 	}
 	accrueAndSave(
 		ctx, l)
 	enrichLoan(ctx, l)
 	if l.OutstandingInterest > moneyEpsilon || l.OutstandingPenalInterest > moneyEpsilon {
-		return nil, common.NewBadRequest("outstanding interest and penal interest must be paid before an extension can be requested")
+		return nil, common.NewBadRequest("pay the outstanding interest first")
 	}
 	requestedBy := in.RequestedBy
 	if requestedBy == "" {
@@ -59,7 +71,7 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 	}
 	first, needsApproval := chain.First()
 	if !needsApproval && isLoanTerminal(l.Status) {
-		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+		return nil, common.NewBadRequest("loan is closed — nothing to extend")
 	}
 	months := in.Months
 	req := &models.LoanRequest{
@@ -83,6 +95,22 @@ func SaveExtensionRequest(ctx context.Context, loanID uint, in ExtensionRequestI
 			return nil, err
 		}
 		notifyExtensionApproved(ctx, l, req)
+	} else if in.ActorRoleID != 0 && common.CanAct(ctx, in.ActorRoleID, common.FlowLoanExtension, first.Key) {
+		// The requester approves the first stage themselves — asking them to approve their own request again
+		// on the next screen is a step with no second pair of eyes. Goes through the ordinary approval, so the
+		// audit row, the next-stage move (or the extension itself on a one-stage chain) and the customer
+		// message are the same as a separate Approve click. Should it be refused the request just stays at
+		// the first stage, as it would have without this.
+		if approved, err := ApproveExtensionRequest(ctx, req.ID, nil, ExtensionApprovalInput{
+			Stage:           first.Key,
+			Action:          models.ApprovalStageApproved,
+			ActorEmployeeID: in.ActorEmployeeID,
+			ActorRole:       in.ActorRole,
+			ActorRoleID:     in.ActorRoleID,
+			Remarks:         "Approved by the requester when raising it",
+		}); err == nil {
+			return approved, nil
+		}
 	}
 	return findLoanRequestByID(ctx, req.ID)
 }
@@ -93,7 +121,7 @@ func applyExtension(ctx context.Context, req *models.LoanRequest, actorEmployeeI
 		return nil, common.NewNotFound("loan not found")
 	}
 	if isLoanTerminal(l.Status) {
-		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+		return nil, common.NewBadRequest("loan is closed — nothing to extend")
 	}
 	months := 0
 	if req.RequestedExtensionMonths != nil {
@@ -140,6 +168,12 @@ func ApproveExtensionRequest(ctx context.Context, requestID uint, branchID *uint
 	if req.ApprovalStage == models.ApprovalStageApproved || req.ApprovalStage == models.ApprovalStageRejected {
 		return nil, common.NewBadRequest("loan request has already been decided")
 	}
+	// Rejecting stays possible so a stale request can be cleared; approving is not.
+	if in.Action == models.ApprovalStageApproved {
+		if err := ensureGoldNotSold(ctx, req.LoanID); err != nil {
+			return nil, err
+		}
+	}
 	stage := req.ApprovalStage
 	if stage == "" {
 		stage = "PendingLoanOfficer"
@@ -150,10 +184,10 @@ func ApproveExtensionRequest(ctx context.Context, requestID uint, branchID *uint
 	}
 	step, ok := chain.ByPending(stage)
 	if !ok || in.Stage != step.Key {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if !common.CanAct(ctx, in.ActorRoleID, common.FlowLoanExtension, step.Key) {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	next, hasNext := chain.Next(step.Key)
 	if in.Action == models.ApprovalStageApproved {
@@ -161,7 +195,7 @@ func ApproveExtensionRequest(ctx context.Context, requestID uint, branchID *uint
 			accrueAndSave(ctx, l)
 			enrichLoan(ctx, l)
 			if l.OutstandingInterest > moneyEpsilon || l.OutstandingPenalInterest > moneyEpsilon {
-				return nil, common.NewBadRequest("outstanding interest and penal interest must be paid before an extension can be requested")
+				return nil, common.NewBadRequest("pay the outstanding interest first")
 			}
 		}
 	}
@@ -234,10 +268,14 @@ func CreateExtensionRequest(c echo.Context) error {
 	if err := common.BindJSON(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
+	actorEmployeeID, actorRole, actorRoleID := auth.ActorFromContext(c)
 	rec, err := SaveExtensionRequest(ctx, loanID, ExtensionRequestInput{
-		Months:      req.Months,
-		Detail:      req.Detail,
-		RequestedBy: req.RequestedBy,
+		Months:          req.Months,
+		Detail:          req.Detail,
+		RequestedBy:     req.RequestedBy,
+		ActorEmployeeID: actorEmployeeID,
+		ActorRole:       actorRole,
+		ActorRoleID:     actorRoleID,
 	})
 	if err != nil {
 		return common.FailErr(c, err)

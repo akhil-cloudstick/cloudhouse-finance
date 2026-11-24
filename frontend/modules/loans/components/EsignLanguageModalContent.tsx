@@ -39,6 +39,12 @@ type EsignLanguageModalContentProps = {
   // delivery/witness sections appear and confirming calls onConfirm like the plain eSign modal.
   allowEsign?: boolean;
   onPrint?: (lang: BondLang) => void | Promise<void>;
+  // A pick-one list shown above the language (e.g. which partial release). When given, confirming calls
+  // onConfirmChoice(lang, chosenValue) instead of onConfirm.
+  choices?: { value: number; label: string }[];
+  onConfirmChoice?: (lang: BondLang, choice: number) => void | Promise<void>;
+  // Heading over the language cards; defaults to the bond wording.
+  languageLabel?: string;
 };
 
 export function EsignLanguageModalContent({
@@ -53,7 +59,11 @@ export function EsignLanguageModalContent({
   options,
   allowEsign = false,
   onPrint,
+  choices,
+  onConfirmChoice,
+  languageLabel,
 }: EsignLanguageModalContentProps) {
+  const [choice, setChoice] = useState<number>(choices?.[0]?.value ?? 0);
   const { closeModal } = useModal();
   const [lang, setLang] = useState<BondLang>(options?.[0]?.value ?? "en");
   // Only the languages this business was granted. English always survives
@@ -89,6 +99,11 @@ export function EsignLanguageModalContent({
     }
     setBusy(true);
     try {
+      if (choices && onConfirmChoice) {
+        await onConfirmChoice(lang, choice);
+        closeModal();
+        return;
+      }
       if (!esignOn) {
         await onPrint?.(lang);
         closeModal();
@@ -135,8 +150,20 @@ export function EsignLanguageModalContent({
         <button className="x" onClick={closeModal}>×</button>
       </div>
       <div className="bd bd-scroll">
+        {choices && choices.length > 1 && (
+          <>
+            <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 8 }}>Release</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+              {choices.map((c) => (
+                <label key={c.value} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+                  <input type="radio" name="release-choice" checked={choice === c.value} onChange={() => setChoice(c.value)} /> {c.label}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
         <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 8 }}>
-          {showDelivery ? "1. Bond language" : "Bond language"}
+          {languageLabel ?? (showDelivery ? "1. Bond language" : "Bond language")}
         </span>
         <div className="esign-lang-grid" style={{ marginBottom: showDelivery ? 16 : 0 }}>
           {langOptions.map((o) => (
@@ -226,9 +253,7 @@ export function EsignLanguageModalContent({
 
         {err && <p style={{ color: "var(--red)", fontSize: 12.5, marginTop: 12 }}>{err}</p>}
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal} disabled={busy}>Cancel</button>
-        <button className="btn" onClick={confirm} disabled={busy}>
+      <div className="ft">        <button className="btn" onClick={confirm} disabled={busy}>
           {busy ? "Preparing…" : effectiveConfirmContent}
         </button>
       </div>

@@ -5,7 +5,9 @@ import (
 	common "cloudhouse/backend/common/controllers"
 	commonModels "cloudhouse/backend/common/models"
 	"cloudhouse/backend/config"
+	investment "cloudhouse/backend/modules/Investment/controllers"
 	loan "cloudhouse/backend/modules/Loan/controllers"
+	loanModels "cloudhouse/backend/modules/Loan/models"
 	personalLoan "cloudhouse/backend/modules/PersonalLoan/controllers"
 	"cloudhouse/backend/modules/Reminder/models"
 	"context"
@@ -15,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
@@ -46,6 +49,8 @@ type Filter struct {
 	Query      string
 	Limit      int
 	Offset     int
+	// Open keeps only actionable reminders: not Done and not on a closed/rejected/auctioned loan.
+	Open bool
 }
 
 type CreateInput struct {
@@ -118,6 +123,11 @@ func findReminders(ctx context.Context, f Filter) ([]models.Reminder, int64, err
 	if f.Status != "" {
 		q = q.Where("reminders.status = ?", f.Status)
 	}
+	if f.Open {
+		q = q.Where("reminders.status <> ?", "Done").
+			Where("NOT EXISTS (SELECT 1 FROM loans cl WHERE cl.id = reminders.loan_id AND cl.status IN ?)",
+				[]string{"Closed", "Rejected", "Auctioned", "Auctioned - Balance Due"})
+	}
 	if f.From != nil {
 		q = q.Where("reminders.due_date >= ?", *f.From)
 	}
@@ -164,8 +174,21 @@ func validate(customerID uint, typ string, dueDate time.Time) error {
 	return nil
 }
 
+// maxNoteLength is the one limit for every free-text note in the app.
+const maxNoteLength = 150
+
+func validateNote(note string) error {
+	if utf8.RuneCountInString(note) > maxNoteLength {
+		return common.NewBadRequest("note can be at most 150 characters")
+	}
+	return nil
+}
+
 func SaveReminder(ctx context.Context, in CreateInput) (*models.Reminder, error) {
 	if err := validate(in.CustomerID, in.Type, in.DueDate); err != nil {
+		return nil, err
+	}
+	if err := validateNote(in.Note); err != nil {
 		return nil, err
 	}
 	if _, err := common.FindCustomerByID(ctx, in.CustomerID); err != nil {
@@ -207,6 +230,9 @@ func updateReminder(ctx context.Context, id uint, in UpdateInput) (*models.Remin
 		return nil, common.NewNotFound("reminder not found")
 	}
 	if err := validate(rec.CustomerID, in.Type, in.DueDate); err != nil {
+		return nil, err
+	}
+	if err := validateNote(in.Note); err != nil {
 		return nil, err
 	}
 	rec.Type = in.Type
@@ -279,7 +305,7 @@ func deleteReminder(ctx context.Context, id uint) error {
 	return removeReminder(ctx, id)
 }
 
-func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, query string, page, pageSize int) ([]models.CalendarEvent, int, error) {
+func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, query string, page, pageSize int, withInvestments bool) ([]models.CalendarEvent, int, error) {
 	from = truncateDay(from)
 	to = truncateDay(to)
 	var events []models.CalendarEvent
@@ -288,6 +314,10 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		return nil, 0, err
 	}
 	now := truncateDay(time.Now())
+	interestPaid, err := interestPaymentDates(ctx, loans)
+	if err != nil {
+		return nil, 0, err
+	}
 	for _, l := range loans {
 		if branchID != nil && l.BranchID != *branchID {
 			continue
@@ -325,7 +355,13 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 				CustomerCode: l.Customer.Code,
 			})
 		}
-		for _, occ := range monthlyOccurrences(l.OpenedDate, from, to) {
+		// Interest is only due until the loan's due date; after that the loan is
+		// chased through its overdue reminder, not a monthly interest one.
+		interestTo := to
+		if due.Before(interestTo) {
+			interestTo = due
+		}
+		for _, occ := range unsettledInterestOccurrences(l.OpenedDate, from, interestTo, due, interestPaid[l.ID]) {
 			events = append(events, models.CalendarEvent{
 				Date:         occ.Format("2006-01-02"),
 				Type:         "InterestDue",
@@ -344,39 +380,144 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		if err != nil {
 			return nil, 0, err
 		}
+		// A loan that missed several installments gets ONE overdue reminder
+		// (listing how many were missed), not one per installment. Installments
+		// not yet due still get their own due-date reminder.
+		type overdueLoan struct {
+			first  personalLoan.CalendarInstallment
+			missed int
+		}
+		overdue := map[uint]*overdueLoan{}
+		var overdueOrder []uint
 		for _, inst := range installments {
 			due := truncateDay(inst.DueDate)
-			loanID := inst.LoanID
-			if !due.Before(from) && !due.After(to) {
-				evType, title := "PersonalLoanDue", "Installment due"
-				if due.Before(now) {
-					evType, title = "PersonalLoanOverdue", "Installment overdue"
+			if due.Before(now) {
+				o, ok := overdue[inst.LoanID]
+				if !ok {
+					overdue[inst.LoanID] = &overdueLoan{first: inst, missed: 1}
+					overdueOrder = append(overdueOrder, inst.LoanID)
+					continue
 				}
-				events = append(events, models.CalendarEvent{
-					Date:           due.Format("2006-01-02"),
-					Type:           evType,
-					Title:          fmt.Sprintf("%s — %s", title, inst.LoanNumber),
-					Detail:         inst.CustomerName,
-					PersonalLoanID: &loanID,
-					LoanNumber:     inst.LoanNumber,
-					CustomerID:     &inst.CustomerID,
-					CustomerName:   inst.CustomerName,
-					CustomerCode:   inst.CustomerCode,
-				})
+				o.missed++
+				if due.Before(truncateDay(o.first.DueDate)) {
+					o.first = inst
+				}
+				continue
 			}
-			if due.Before(now) && (due.Before(from) || due.After(to)) && !now.Before(from) && !now.After(to) {
-				events = append(events, models.CalendarEvent{
-					Date:           now.Format("2006-01-02"),
-					Type:           "PersonalLoanOverdue",
-					Title:          fmt.Sprintf("Installment overdue — %s", inst.LoanNumber),
-					Detail:         inst.CustomerName,
-					PersonalLoanID: &loanID,
-					LoanNumber:     inst.LoanNumber,
-					CustomerID:     &inst.CustomerID,
-					CustomerName:   inst.CustomerName,
-					CustomerCode:   inst.CustomerCode,
-				})
+			if due.Before(from) || due.After(to) {
+				continue
 			}
+			loanID := inst.LoanID
+			events = append(events, models.CalendarEvent{
+				Date:           due.Format("2006-01-02"),
+				Type:           "PersonalLoanDue",
+				Title:          fmt.Sprintf("Installment due — %s", inst.LoanNumber),
+				Detail:         inst.CustomerName,
+				PersonalLoanID: &loanID,
+				LoanNumber:     inst.LoanNumber,
+				CustomerID:     &inst.CustomerID,
+				CustomerName:   inst.CustomerName,
+				CustomerCode:   inst.CustomerCode,
+			})
+		}
+		for _, id := range overdueOrder {
+			o := overdue[id]
+			// Shown on the first missed due date when that falls in the window,
+			// otherwise on today while today is in the window.
+			at := truncateDay(o.first.DueDate)
+			if at.Before(from) || at.After(to) {
+				if now.Before(from) || now.After(to) {
+					continue
+				}
+				at = now
+			}
+			loanID := o.first.LoanID
+			title := fmt.Sprintf("Installment overdue — %s", o.first.LoanNumber)
+			if o.missed > 1 {
+				title = fmt.Sprintf("Installments overdue (%d missed) — %s", o.missed, o.first.LoanNumber)
+			}
+			events = append(events, models.CalendarEvent{
+				Date:           at.Format("2006-01-02"),
+				Type:           "PersonalLoanOverdue",
+				Title:          title,
+				Detail:         o.first.CustomerName,
+				PersonalLoanID: &loanID,
+				LoanNumber:     o.first.LoanNumber,
+				CustomerID:     &o.first.CustomerID,
+				CustomerName:   o.first.CustomerName,
+				CustomerCode:   o.first.CustomerCode,
+			})
+		}
+	}
+	if withInvestments {
+		payouts, err := investment.ListPendingPayoutsForCalendar(ctx, branchID)
+		if err != nil {
+			return nil, 0, err
+		}
+		// Payouts not yet due get a reminder on their due date. Overdue ones are grouped per investment, like
+		// personal-loan installments: one reminder on the first missed date, or on today when that is outside the window.
+		type overduePayout struct {
+			first  investment.CalendarPayout
+			missed int
+			amount float64
+		}
+		overdue := map[uint]*overduePayout{}
+		var overdueOrder []uint
+		for _, p := range payouts {
+			due := truncateDay(p.DueDate)
+			if due.Before(now) {
+				o, ok := overdue[p.InvestmentID]
+				if !ok {
+					overdue[p.InvestmentID] = &overduePayout{first: p, missed: 1, amount: p.Amount}
+					overdueOrder = append(overdueOrder, p.InvestmentID)
+					continue
+				}
+				o.missed++
+				o.amount += p.Amount
+				if due.Before(truncateDay(o.first.DueDate)) {
+					o.first = p
+				}
+				continue
+			}
+			if due.Before(from) || due.After(to) {
+				continue
+			}
+			invID, custID := p.InvestmentID, p.CustomerID
+			events = append(events, models.CalendarEvent{
+				Date:             due.Format("2006-01-02"),
+				Type:             "InvestmentPayoutDue",
+				Title:            fmt.Sprintf("Investment payout due — %s", p.InvestmentNumber),
+				Detail:           fmt.Sprintf("%s · ₹%.2f", p.CustomerName, p.Amount),
+				InvestmentID:     &invID,
+				InvestmentNumber: p.InvestmentNumber,
+				CustomerID:       &custID,
+				CustomerName:     p.CustomerName,
+			})
+		}
+		for _, id := range overdueOrder {
+			o := overdue[id]
+			at := truncateDay(o.first.DueDate)
+			if at.Before(from) || at.After(to) {
+				if now.Before(from) || now.After(to) {
+					continue
+				}
+				at = now
+			}
+			invID, custID := o.first.InvestmentID, o.first.CustomerID
+			title := fmt.Sprintf("Investment payout overdue — %s", o.first.InvestmentNumber)
+			if o.missed > 1 {
+				title = fmt.Sprintf("Investment payouts overdue (%d missed) — %s", o.missed, o.first.InvestmentNumber)
+			}
+			events = append(events, models.CalendarEvent{
+				Date:             at.Format("2006-01-02"),
+				Type:             "InvestmentPayoutOverdue",
+				Title:            title,
+				Detail:           fmt.Sprintf("%s · ₹%.2f", o.first.CustomerName, o.amount),
+				InvestmentID:     &invID,
+				InvestmentNumber: o.first.InvestmentNumber,
+				CustomerID:       &custID,
+				CustomerName:     o.first.CustomerName,
+			})
 		}
 	}
 	scheduledAuctions, err := loan.FindScheduledForCalendar(ctx)
@@ -406,11 +547,34 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 		})
 	}
 	from2, to2 := from, to
-	reminders, _, err := findReminders(ctx, Filter{From: &from2, To: &to2, BranchID: branchID})
+	reminders, _, err := findReminders(ctx, Filter{From: &from2, To: &to2, BranchID: branchID, Open: true})
 	if err != nil {
 		return nil, 0, err
 	}
+	// Loan numbers for reminders that are about a specific loan.
+	loanNumbers := map[uint]string{}
+	var loanIDs []uint
 	for _, r := range reminders {
+		if r.LoanID != nil {
+			loanIDs = append(loanIDs, *r.LoanID)
+		}
+	}
+	if len(loanIDs) > 0 {
+		var lns []struct {
+			ID         uint
+			LoanNumber string
+		}
+		if err := config.DB.WithContext(ctx).Table("loans").Select("id, loan_number").Where("id IN ?", loanIDs).Scan(&lns).Error; err == nil {
+			for _, l := range lns {
+				loanNumbers[l.ID] = l.LoanNumber
+			}
+		}
+	}
+	for _, r := range reminders {
+		// A completed reminder is finished work: it must not keep showing on the calendar.
+		if r.Status == "Done" {
+			continue
+		}
 		evType := "Custom"
 		switch r.Type {
 		case "Follow-Up":
@@ -426,6 +590,7 @@ func getCalendarEvents(ctx context.Context, from, to time.Time, branchID *uint, 
 			Title:        fmt.Sprintf("%s — %s", r.Type, r.Customer.Name),
 			Detail:       r.Note,
 			LoanID:       r.LoanID,
+			LoanNumber:   loanNumbers[derefUint(r.LoanID)],
 			CustomerID:   &custID,
 			CustomerName: r.Customer.Name,
 			CustomerCode: r.Customer.Code,
@@ -478,28 +643,113 @@ func truncateDay(t time.Time) time.Time {
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
+// interestPaymentDates is, per loan, the dates its interest payments were recorded (oldest first).
+// Discounts and waivers are not payments, so they do not count.
+func interestPaymentDates(ctx context.Context, loans []loanModels.Loan) (map[uint][]time.Time, error) {
+	out := map[uint][]time.Time{}
+	if len(loans) == 0 {
+		return out, nil
+	}
+	ids := make([]uint, len(loans))
+	for i, l := range loans {
+		ids[i] = l.ID
+	}
+	var rows []struct {
+		LoanID uint
+		PaidOn time.Time
+	}
+	if err := config.DB.WithContext(ctx).Table("loan_payments").
+		Select("loan_id, paid_on").
+		Where("loan_id IN ? AND interest_applied > 0 AND type NOT IN ?", ids, []string{loanModels.PaymentTypeDiscount, loanModels.PaymentTypeWaiver}).
+		Order("paid_on asc, id asc").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.LoanID] = append(out[r.LoanID], truncateDay(r.PaidOn))
+	}
+	return out, nil
+}
+
+// unsettledInterestOccurrences are the monthly interest reminders in [from, to] that have NOT been paid.
+// Each interest payment settles the earliest still-open reminder that falls on or before the next one
+// due after the payment: paying ahead clears the coming reminder, paying late clears the oldest overdue
+// one. The reminder on the day the loan was opened is not a payable one and is never settled.
+func unsettledInterestOccurrences(openedDate, from, to, due time.Time, paid []time.Time) []time.Time {
+	all := monthlyOccurrences(openedDate, openedDate, due)
+	settled := make([]bool, len(all))
+	opened := truncateDay(openedDate)
+	for i, occ := range all {
+		if occ.Equal(opened) {
+			settled[i] = true
+		}
+	}
+	for _, p := range paid {
+		limit := len(all) - 1
+		for i, occ := range all {
+			// Interest taken on the opening day (paid in advance) belongs to the first month, so the
+			// opening-day entry is skipped when working out which reminder a payment is for.
+			if occ.Equal(opened) {
+				continue
+			}
+			if !occ.Before(p) {
+				limit = i
+				break
+			}
+		}
+		for j := 0; j <= limit; j++ {
+			if !settled[j] {
+				settled[j] = true
+				break
+			}
+		}
+	}
+	var out []time.Time
+	for _, occ := range monthlyOccurrences(openedDate, from, to) {
+		for i, a := range all {
+			if a.Equal(occ) {
+				if !settled[i] && !occ.Equal(opened) {
+					out = append(out, occ)
+				}
+				break
+			}
+		}
+	}
+	return out
+}
+
+// monthlyOccurrences returns the monthly anniversaries of openedDate that fall
+// within [from, to]. Each month's date is built from the original day of month,
+// clamped to the last day of that month, so a loan opened on the 30th still gets
+// a February reminder (28th/29th) and returns to the 30th in March.
 func monthlyOccurrences(openedDate, from, to time.Time) []time.Time {
 	var out []time.Time
 	if openedDate.IsZero() || to.Before(openedDate) {
 		return out
 	}
-	day := openedDate.Day()
-	// Start at the first monthly anniversary on/after `from` (but never before openedDate itself).
-	year, month := from.Year(), from.Month()
-	if from.Before(openedDate) {
-		year, month = openedDate.Year(), openedDate.Month()
+	anchor := openedDate.Day()
+	loc := openedDate.Location()
+	year, month := openedDate.Year(), int(openedDate.Month())
+	if from.After(openedDate) {
+		year, month = from.Year(), int(from.Month())
 	}
-	cursor := time.Date(year, month, day, 0, 0, 0, 0, openedDate.Location())
-	if cursor.Before(openedDate) {
-		cursor = cursor.AddDate(0, 1, 0)
-	}
-	for !cursor.After(to) {
-		if !cursor.Before(from) {
-			out = append(out, cursor)
+	for {
+		last := time.Date(year, time.Month(month)+1, 0, 0, 0, 0, 0, loc).Day()
+		day := anchor
+		if day > last {
+			day = last
 		}
-		cursor = cursor.AddDate(0, 1, 0)
+		occ := time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
+		if occ.After(to) {
+			return out
+		}
+		if !occ.Before(from) && !occ.Before(openedDate) {
+			out = append(out, occ)
+		}
+		month++
+		if month > 12 {
+			month, year = 1, year+1
+		}
 	}
-	return out
 }
 
 func CreateReminder(c echo.Context) error {
@@ -662,7 +912,10 @@ func GetReminderCalendar(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid to: expected YYYY-MM-DD"})
 		}
 	}
-	events, total, err := getCalendarEvents(ctx, from, to, auth.GetBranchScope(c), strings.TrimSpace(c.QueryParam("search")), page, pageSize)
+	// Investment payouts are shown only to staff who can open the investment module.
+	_, _, roleID := auth.ActorFromContext(c)
+	withInvestments, _ := common.IsAllowed(ctx, roleID, "can view investment module")
+	events, total, err := getCalendarEvents(ctx, from, to, auth.GetBranchScope(c), strings.TrimSpace(c.QueryParam("search")), page, pageSize, withInvestments)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -670,4 +923,11 @@ func GetReminderCalendar(c echo.Context) error {
 		return common.Success(c, http.StatusOK, echo.Map{"events": events, "total_count": total})
 	}
 	return common.Success(c, http.StatusOK, events)
+}
+
+func derefUint(p *uint) uint {
+	if p == nil {
+		return 0
+	}
+	return *p
 }

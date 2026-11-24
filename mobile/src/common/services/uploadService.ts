@@ -43,6 +43,8 @@ export async function uploadFile(file: PickedFile): Promise<string> {
       }
       resolve((data as { success: boolean; data: { url: string } }).data.url);
     };
+    // Never hang: a stalled upload fails after a minute instead of spinning forever.
+    xhr.timeout = 60000;
     xhr.onerror = () => reject(new ApiError(0, "Couldn't reach the server — check your connection and try again.", undefined));
     xhr.ontimeout = xhr.onerror;
     xhr.send(form);

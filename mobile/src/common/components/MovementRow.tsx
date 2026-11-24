@@ -3,7 +3,7 @@ import { dmy, inr } from "@/common/utils/format";
 import type { CashMovement } from "@/modules/cash/types/cash-types";
 import { billDetail, expenseCategoryOf, modeLink, openLedger, openLoanByNumber } from "./LedgerList";
 import { LedgerLink } from "./LedgerLink";
-import { EntrySub, useEntryActions } from "@/modules/cash/components/EntryActions";
+import { useEntryActions } from "@/modules/cash/components/EntryActions";
 
 // Loan-related movements carry the loan number as a "… — LN-00049" purpose suffix; same regex web's Cash.tsx uses.
 const LOAN_NUMBER_RE = /—\s*(LN-\S+)\s*$/;
@@ -55,7 +55,7 @@ export function MovementRow({
     <AccRow
       defaultOpen={defaultOpen}
       name={inr(m.amount)}
-      sub={entry.infoButton ? <EntrySub text={m.purpose || m.source} infoButton={entry.infoButton} /> : m.purpose || m.source}
+      sub={m.purpose || m.source}
       actions={entry.actions}
       status={m.type === "in" ? "Cash in" : "Cash out"}
       statusTone={m.type === "in" ? "active" : "due"}
@@ -76,6 +76,7 @@ export function MovementRow({
           : []),
         ...(categoryId ? [{ k: "Category", v: <LedgerLink label={category!} to="/cash" onPress={() => openLedger("category", categoryId, category!, focus)} /> }] : []),
         ...(m.status ? [{ k: "Status", v: m.status }] : []),
+        ...(m.remarks ? [{ k: "Remarks", v: m.remarks }] : []),
         ...billDetail(m.receiptImage),
       ]}
     />

@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { Icon } from "@/common/components/Icon";
@@ -8,6 +9,8 @@ import { getMovementEntry } from "@/modules/cash/services/cashService";
 import { type EntryInfo, type EntryKind } from "@/modules/cash/types/cash-types";
 import { BillLink } from "@/modules/cash/components/BillLink";
 import { EditEntryModalContent } from "@/modules/cash/components/EditEntryModalContent";
+import { DeleteEntryModalContent } from "@/modules/cash/components/DeleteEntryModalContent";
+import { useAuth } from "@/common/providers/AuthProvider";
 
 const KIND_LABEL: Record<EntryKind, string> = {
   cash_in: "Credit (Cash In)",
@@ -21,7 +24,9 @@ const KIND_LABEL: Record<EntryKind, string> = {
 type EntryInfoModalContentProps = { entryId: number; onChanged?: () => void; initial?: EntryInfo };
 
 export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfoModalContentProps) {
-  const { closeModal, openModal } = useModal();
+  const { closeModal, openChildModal, closeAllModals } = useModal();
+  const { can } = useAuth();
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
   const [info, setInfo] = useState<EntryInfo | null>(initial ?? null);
   const [err, setErr] = useState("");
 
@@ -82,11 +87,24 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
           {info.approvedAt ? item("Approved on", fmtDateTime(info.approvedAt)) : null}
         </div>
 
-        <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Remarks</h4>
-        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, whiteSpace: "pre-wrap", minHeight: 40, color: info.remarks ? undefined : "var(--muted)" }}>
-          {info.remarks || "No remarks were added to this entry."}
-        </div>
+        {/* A gold loan repayment (it has a "Paid towards" split) takes no remarks, and neither does an entry the system
+          * booked itself (a bank pledge, a disbursement…) — there is nowhere to add them, so the box only shows when
+          * there is something in it. */}
+        {!(info.split && info.split.length > 0) && (info.kind !== "system" || !!info.remarks) && (
+          <>
+            <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Remarks</h4>
+            <div className="addl-info boxed" style={{ color: info.remarks ? undefined : "var(--muted)" }}>
+              {info.remarks || "No remarks were added to this entry."}
+            </div>
+          </>
+        )}
 
+        {info.loanEntry === "service_charge" && (
+          <p style={{ margin: "14px 0 0", fontSize: 12.5, color: "var(--muted)" }}>This charge is calculated from the loan&apos;s sanction and rate — it cannot be edited on its own.</p>
+        )}
+        {info.loanEntry === "disbursement_reversal" && (
+          <p style={{ margin: "14px 0 0", fontSize: 12.5, color: "var(--muted)" }}>This reversal is calculated from the loan&apos;s sanction and cannot be edited on its own — open the loan&apos;s sanction to change it.</p>
+        )}
         {isTransfer ? (
           <>
             <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Transfer</h4>
@@ -100,6 +118,7 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
           <>
             <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Payment breakdown</h4>
             <table className="tbl" style={{ width: "100%", minWidth: 0 }}>
+              <TableCols widths={[25, 40, 35]} />
               <thead><tr><th>Mode</th><th>Bank</th><th className="num">Amount</th></tr></thead>
               <tbody>
                 {info.lines.map((l) => (
@@ -110,6 +129,20 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
                 )}
               </tbody>
             </table>
+            {info.split && info.split.length > 0 && (
+              <>
+                <h4 style={{ margin: "18px 0 6px", fontSize: 13 }}>Paid towards</h4>
+                <table className="tbl" style={{ width: "100%", minWidth: 0 }}>
+                  <TableCols widths={[25, 40, 35]} />
+                  <thead><tr><th>Part</th><th>Mode</th><th className="num">Amount</th></tr></thead>
+                  <tbody>
+                    {info.split.map((ln, i) => (
+                      <tr key={`${ln.label}-${ln.mode ?? ""}-${i}`}><td>{ln.label}</td><td>{ln.mode || "—"}</td><td className="num">{fmt(ln.amount)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
           </>
         )}
 
@@ -118,9 +151,13 @@ export function EntryInfoModalContent({ entryId, onChanged, initial }: EntryInfo
         ) : null}
       </div>
       <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Close</button>
+        {info.editable && canDeleteLedger && (
+          <button className="btn ghost" style={{ color: "var(--red)" }} onClick={() => openChildModal(<DeleteEntryModalContent entryId={entryId} label={info.category} onDeleted={() => { onChanged?.(); closeAllModals(); }} />)}>
+            <Icon name="trash" /> Delete
+          </button>
+        )}
         {info.editable && (
-          <button className="btn" onClick={() => openModal(<EditEntryModalContent entryId={entryId} info={info} onSaved={onChanged} />)}>
+          <button className="btn" onClick={() => openChildModal(<EditEntryModalContent entryId={entryId} info={info} onSaved={() => { onChanged?.(); closeAllModals(); }} />)}>
             <Icon name="edit" /> Edit
           </button>
         )}

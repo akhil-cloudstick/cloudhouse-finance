@@ -52,10 +52,13 @@ export function getBankPledgeHistory(loanId: number) {
   return apiRequest<BankPledgeRecord[]>(`/loans/${loanId}/bank-pledge/history`);
 }
 
+// Search + pledge date range + the web filters: branch / customer (comma-joined ids) and bank (comma-joined names).
+type PledgeListParams = { q?: string; from?: string; to?: string; branchId?: string; customerId?: string; bank?: string; limit: number; offset: number };
+
 // Loans currently re-pledged with a bank — the Bank Pledge screen's Active
 // tab. Each loan carries its bankPledges[] preloaded; the Active one is the
 // pledge to release.
-export async function listBankPledgedLoansPage(params: { q?: string; limit: number; offset: number }) {
+export async function listBankPledgedLoansPage(params: PledgeListParams) {
   const res = await apiRequest<Page<Loan>>("/loans", {
     params: { bankPledgeStatus: "Bank Pledged", ...params },
   });
@@ -63,7 +66,7 @@ export async function listBankPledgedLoansPage(params: { q?: string; limit: numb
 }
 
 // Every pledge ever recorded across all loans (Active, Released, Voided).
-export async function listBankPledgeHistoryPage(params: { q?: string; limit: number; offset: number }) {
+export async function listBankPledgeHistoryPage(params: PledgeListParams) {
   const res = await apiRequest<Page<BankPledgeHistoryRow>>("/loans/bank-pledges/history", { params });
   return { items: res.items ?? [], hasMore: res.hasMore, total: res.total ?? 0 };
 }

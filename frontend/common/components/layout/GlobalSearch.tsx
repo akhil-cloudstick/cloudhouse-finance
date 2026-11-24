@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useData } from "@/common/providers/DataProvider";
-import { useCustomers } from "@/modules/customers/store/CustomersProvider";
+import { searchCustomersPage } from "@/modules/customers/services/customerService";
+import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { useSchemes } from "@/modules/schemes/store/SchemesProvider";
-import { useLoans } from "@/modules/loans/store/LoansProvider";
+import { searchLoansPage } from "@/modules/loans/services/loanService";
+import { type LoanView } from "@/modules/loans/types/loan-types";
 import { Icon } from "@/common/components/Icon";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { fmt } from "@/common/utils/format";
@@ -22,15 +24,27 @@ type GlobalSearchProps = {
 
 /* Ported from legacy/app.js's global-search IIFE (`searchAll`, `draw`,
  * keyboard nav, `/` shortcut, click-outside-to-close). */
+// How many of a section's matches are fetched per request, and how tall a section grows before it scrolls.
+const SEARCH_PAGE = 15;
+const SECTION_MAX_H = 264;
+
 export default function GlobalSearch({
   isOpen,
   onToggle,
 }: GlobalSearchProps = {}) {
   const { db } = useData();
-  const { customers } = useCustomers();
   const { schemes } = useSchemes();
-  const { loans } = useLoans();
   const [query, setQuery] = useState("");
+  // Loans and customers are searched on the server (a business can hold far
+  // too many to load into the browser); schemes/packets/employees stay local.
+  const [loans, setLoans] = useState<LoanView[]>([]);
+  const [customers, setCustomers] = useState<CustomerView[]>([]);
+  // Every match is listed, not just the first few: each section loads SEARCH_PAGE at a time as it is scrolled.
+  const [loansPage, setLoansPage] = useState(0);
+  const [loansMore, setLoansMore] = useState(false);
+  const [customersPage, setCustomersPage] = useState(0);
+  const [customersMore, setCustomersMore] = useState(false);
+  const loadingMore = useRef({ loans: false, customers: false });
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState(-1);
   const [internalOpen, setInternalOpen] = useState(false);
@@ -45,14 +59,53 @@ export default function GlobalSearch({
   // Single-branch plan: result subtitles never name the branch.
   const showBranch = useShowBranch();
 
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 1) { setLoans([]); setCustomers([]); setLoansMore(false); setCustomersMore(false); return; }
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      if (canOpen("loan")) {
+        searchLoansPage(q, 0, { limit: SEARCH_PAGE })
+          .then((r) => { if (!cancelled) { setLoans(r.items); setLoansPage(0); setLoansMore(r.hasMore); } })
+          .catch(() => { if (!cancelled) { setLoans([]); setLoansMore(false); } });
+      }
+      if (canOpen("customer")) {
+        searchCustomersPage(q, 0, SEARCH_PAGE)
+          .then((r) => { if (!cancelled) { setCustomers(r.items); setCustomersPage(0); setCustomersMore(r.hasMore); } })
+          .catch(() => { if (!cancelled) { setCustomers([]); setCustomersMore(false); } });
+      }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(handle); };
+    // canOpen is a fresh function each render; the role doesn't change mid-search.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  // The next page of a section, asked for when its list is scrolled to the end.
+  function loadMore(kind: "loans" | "customers") {
+    const q = query.trim();
+    if (!q || loadingMore.current[kind]) return;
+    loadingMore.current[kind] = true;
+    if (kind === "loans") {
+      const next = loansPage + 1;
+      searchLoansPage(q, next, { limit: SEARCH_PAGE })
+        .then((r) => { setLoans((cur) => [...cur, ...r.items]); setLoansPage(next); setLoansMore(r.hasMore); })
+        .catch(() => setLoansMore(false))
+        .finally(() => { loadingMore.current.loans = false; });
+    } else {
+      const next = customersPage + 1;
+      searchCustomersPage(q, next, SEARCH_PAGE)
+        .then((r) => { setCustomers((cur) => [...cur, ...r.items]); setCustomersPage(next); setCustomersMore(r.hasMore); })
+        .catch(() => setCustomersMore(false))
+        .finally(() => { loadingMore.current.customers = false; });
+    }
+  }
+
   function searchAll(q: string): ResultGroup[] {
     const needle = q.toLowerCase();
     const hit = (s?: string) => (s || "").toLowerCase().includes(needle);
     const groups: ResultGroup[] = [];
 
     const loanHits = !canOpen("loan") ? [] : loans
-      .filter((l) => hit(l.id) || hit(l.customerName) || hit(l.customerCode) || hit(l.status))
-      .slice(0, 5)
       .map((l) => ({
         href: routeHref("loan/" + l.id),
         ic: "list",
@@ -63,10 +116,8 @@ export default function GlobalSearch({
     if (loanHits.length) groups.push(["Loans", loanHits]);
 
     const custs = !canOpen("customer") ? [] : customers
-      .filter((c) => hit(c.name) || hit(c.code) || hit(c.phone) || hit(c.address))
-      .slice(0, 5)
       .map((c) => ({
-        href: routeHref("customer/" + c.id),
+        href: routeHref("customer/" + (c.code || c.id)),
         ic: "user",
         t: c.name,
         s: c.code + " · " + c.phone + (showBranch ? " · " + c.branchName : ""),
@@ -76,19 +127,17 @@ export default function GlobalSearch({
 
     const schs = !canOpen("schemes") ? [] : schemes
       .filter((s) => hit(s.name) || hit(s.code))
-      .slice(0, 4)
       .map((s) => ({
         href: routeHref("schemes"),
         ic: "doc",
         t: s.name,
-        s: s.rate + "% p.a. · " + s.ltv + "% LTV · penal " + s.penal + "%/m",
+        s: s.rate + "% p.a. · " + (s.ltvBased ? s.ltv + "% LTV · penal " : "no LTV · penal ") + s.penal + "%/m",
         chip: s.active ? "Active" : "Inactive",
       }));
     if (schs.length) groups.push(["Schemes", schs]);
 
     const pkts = !canOpen("packets") ? [] : db.packets
       .filter((p) => hit(p.id) || hit(p.qr) || hit(p.cust))
-      .slice(0, 4)
       .map((p) => ({
         href: routeHref("packets"),
         ic: "box",
@@ -100,7 +149,6 @@ export default function GlobalSearch({
 
     const emps = !canOpen("employees") ? [] : db.employees
       .filter((e) => hit(e.name) || hit(e.id) || hit(e.role))
-      .slice(0, 4)
       .map((e) => ({
         href: routeHref("employees"),
         ic: "user",
@@ -113,8 +161,13 @@ export default function GlobalSearch({
     return groups;
   }
 
-  const groups = query.trim().length >= 2 ? searchAll(query.trim()) : [];
+  const groups = query.trim().length >= 1 ? searchAll(query.trim()) : [];
   const flatItems = groups.flatMap(([, items]) => items);
+
+  // The row the arrow keys are on stays visible inside its section's scroll box.
+  useEffect(() => {
+    boxRef.current?.querySelector<HTMLElement>("a.sel")?.scrollIntoView({ block: "nearest" });
+  }, [sel]);
 
   function closeResults() {
     setOpen(false);
@@ -123,7 +176,7 @@ export default function GlobalSearch({
   function handleChange(v: string) {
     setQuery(v);
     setSel(-1);
-    setOpen(v.trim().length >= 2);
+    setOpen(v.trim().length >= 1);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -174,7 +227,7 @@ export default function GlobalSearch({
   }, [setExpanded]);
 
   return (
-    <div className={`gsearch${isExpanded ? " gsearch-expanded" : ""}`} id="gsearch">
+    <div className={`gsearch${isExpanded ? " gsearch-expanded" : ""}${query ? " gsearch-has-query" : ""}`} id="gsearch">
       <button
         type="button"
         className="gsearch-trigger"
@@ -194,14 +247,29 @@ export default function GlobalSearch({
           id="gsInput"
           type="text"
           placeholder="Search loans, customers, schemes…"
-          title="Searches: loans (loan number, customer name, customer code, status), customers (name, code, phone, address), schemes (name, code) · type at least 2 characters"
+          title="Searches: loans (loan number, customer name, customer code), customers (name, code, phone), schemes (name, code) · type at least 1 character"
           autoComplete="off"
           value={query}
           onChange={(e) => handleChange(e.target.value)}
-          onFocus={() => { if (query.trim().length >= 2) setOpen(true); }}
+          onFocus={() => { if (query.trim().length >= 1) setOpen(true); }}
           onKeyDown={handleKeyDown}
         />
         <kbd>/</kbd>
+        {query ? (
+          <button
+            type="button"
+            className="gsearch-clear"
+            aria-label="Clear search"
+            title="Clear"
+            onClick={() => {
+              setQuery("");
+              closeResults();
+              inputRef.current?.focus();
+            }}
+          >
+            ×
+          </button>
+        ) : null}
         <button
           type="button"
           className="gsearch-close"
@@ -220,6 +288,16 @@ export default function GlobalSearch({
           groups.map(([g, items]) => (
             <div key={g}>
               <div className="gs-grp">{g}</div>
+              <div
+                className="gs-sec"
+                style={{ maxHeight: SECTION_MAX_H, overflowY: "auto" }}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  if (el.scrollHeight - el.scrollTop - el.clientHeight > 40) return;
+                  if (g === "Loans" && loansMore) loadMore("loans");
+                  else if (g === "Customers" && customersMore) loadMore("customers");
+                }}
+              >
               {items.map((r, i) => {
                 const flatIndex = flatItems.indexOf(r);
                 return (
@@ -238,9 +316,10 @@ export default function GlobalSearch({
                   </a>
                 );
               })}
+              </div>
             </div>
           ))
-        ) : query.trim().length >= 2 ? (
+        ) : query.trim().length >= 1 ? (
           <div className="gs-none">No results for &ldquo;{query.trim()}&rdquo;</div>
         ) : null}
       </div>

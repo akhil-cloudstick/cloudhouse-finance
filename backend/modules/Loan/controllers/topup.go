@@ -71,10 +71,10 @@ func validateTopUpSplit(in TopUpInput) error {
 		return err
 	}
 	if in.ChequeAmount > 0 {
-		return common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+		return common.NewBadRequest("Cheque is not a supported payment mode")
 	}
 	if in.UpiAmount+in.BankTransferAmount > 0 && in.BankID == nil {
-		return common.NewBadRequest("bank is required when the payment breakdown includes UPI or Bank Transfer")
+		return common.NewBadRequest("bank is required for the payment split")
 	}
 	return nil
 }
@@ -117,7 +117,7 @@ func requestTopUp(ctx context.Context, loanID uint, in TopUpInput, first common.
 	}
 	recalculateTotals(l, ornaments)
 	amount := common.RoundMoney(in.Amount)
-	if amount > common.RoundMoney(l.EligibleLoanAmount-l.OutstandingAmount)+0.01 {
+	if l.SchemeLTVPercent > 0 && amount > common.RoundMoney(l.EligibleLoanAmount-l.OutstandingAmount)+0.01 {
 		return nil, common.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
 	}
 	occurredOn := in.OccurredOn
@@ -169,10 +169,10 @@ func approveTopUp(ctx context.Context, topUpID uint, branchID *uint, in TopUpApp
 	}
 	step, ok := chain.ByPending(t.ApprovalStage)
 	if !ok || in.Stage != step.Key {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if !common.CanAct(ctx, in.ActorRoleID, common.FlowLoanTopUp, step.Key) {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	switch next, hasNext := chain.Next(step.Key); {
 	case in.Action == models.ApprovalStageRejected:
@@ -258,7 +258,7 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 		}
 		headroom := common.RoundMoney(l.EligibleLoanAmount - l.OutstandingAmount)
 		amount := common.RoundMoney(in.Amount)
-		if amount > headroom+0.01 {
+		if l.SchemeLTVPercent > 0 && amount > headroom+0.01 {
 			return common.NewBadRequest("requested amount exceeds the loan's available headroom — add more ornaments first")
 		}
 		eligibleAtTopUp = l.EligibleLoanAmount
@@ -298,7 +298,7 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 				if interestDelta > 0 || penalDelta > 0 {
 					_ = updateLoanTx(ctx, tx, l)
 				}
-				return common.NewBadRequest("outstanding interest and penal interest must be paid before a top-up can proceed, or set the top-up to deduct it from the payout instead")
+				return common.NewBadRequest("pay the outstanding interest first")
 			}
 		}
 		// The interest taken from the payout comes back in the top-up's own mode, so what has to be
@@ -348,8 +348,12 @@ func executeTopUp(ctx context.Context, loanID uint, in TopUpInput, pending *mode
 		// (not netted off the payout), booked in the same mode and bank.
 		deducted := common.RoundMoney(in.Amount - cashOut)
 		txCtx := cashbook.WithTx(ctx, tx)
-		if _, _, err := cashbook.RecordLoanTopUpCashOut(txCtx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, occurredOn, l.CustomerID, in.BankID); err != nil {
+		_, topUpGroupID, err := cashbook.RecordLoanTopUpCashOut(txCtx, l.ID, l.LoanNumber, in.Amount, in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount, l.BranchID, occurredOn, l.CustomerID, in.BankID)
+		if err != nil {
 			return fmt.Errorf("could not record the top-up in Cash-in-Hand, top-up not saved: %w", err)
+		}
+		if err := tx.WithContext(ctx).Model(&models.LoanTopUp{}).Where("id = ?", topUp.ID).Update("cash_transaction_group_id", topUpGroupID).Error; err != nil {
+			return err
 		}
 		if deducted > 0.01 {
 			_, groupID, err := cashbook.RecordLoanPaymentCashIn(txCtx, l.ID, l.LoanNumber, deducted, intCash, intUpi, intBank, 0, l.BranchID, occurredOn, "Interest (top-up settlement)", l.CustomerID, in.BankID)
@@ -400,16 +404,27 @@ func listTopUps(ctx context.Context, loanID uint) ([]models.LoanTopUp, error) {
 }
 
 func createLoanTopUpTx(ctx context.Context, tx *gorm.DB, t *models.LoanTopUp) error {
-	return tx.WithContext(ctx).Create(t).Error
+	db := tx.WithContext(ctx)
+	if err := db.Create(t).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, t.LoanID)
 }
 
 func updateLoanTopUpTx(ctx context.Context, tx *gorm.DB, t *models.LoanTopUp) error {
-	return tx.WithContext(ctx).Save(t).Error
+	db := tx.WithContext(ctx)
+	if err := db.Save(t).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, t.LoanID)
 }
 
 func persistLoanTopUp(ctx context.Context, t *models.LoanTopUp) error {
-	return config.DB.
-		WithContext(ctx).Save(t).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(t).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, t.LoanID)
 }
 
 func findLoanTopUpByID(ctx context.Context, id uint) (*models.LoanTopUp, error) {
@@ -443,8 +458,7 @@ func findLoanTopUpByLoanID(ctx context.Context, loanID uint) ([]models.LoanTopUp
 
 func findLoanTopUpActiveByLoanID(ctx context.Context, loanID uint) ([]models.LoanTopUp, error) {
 	var recs []models.LoanTopUp
-	err := config.DB.
-		WithContext(ctx).Where("loan_id = ? AND status = ?", loanID, models.TopUpStatusActive).Order("occurred_on desc, id desc").Find(&recs).Error
+	err := replayDB(ctx).Where("loan_id = ? AND status = ?", loanID, models.TopUpStatusActive).Order("occurred_on desc, id desc").Find(&recs).Error
 	return recs, err
 }
 

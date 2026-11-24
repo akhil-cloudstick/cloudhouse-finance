@@ -11,15 +11,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"gorm.io/gorm"
 )
 
 type ReleaseRequestInput struct {
 	Detail      string
 	RequestedBy string
 	OrnamentIDs []uint
+	RequestedAt *time.Time // the day the release was asked for; nil means now
 }
 
 type ReleasePaymentInput struct {
@@ -35,6 +38,10 @@ type ReleasePaymentInput struct {
 	Reference          string
 	InterestOverride   *float64
 	DueDate            *time.Time
+	DiscountReason     string
+	DiscountMode       string
+	DiscountKind       string     // what the discount is given against: customer / interest / penal_interest
+	PaidOn             *time.Time // nil means today
 	ActorEmployeeID    uint
 	ActorRoleID        uint
 }
@@ -51,6 +58,7 @@ type releaseRequestRequest struct {
 	Detail      string `json:"detail"`
 	RequestedBy string `json:"requested_by"`
 	OrnamentIDs []uint `json:"ornament_ids"`
+	RequestedAt string `json:"requested_at"` // YYYY-MM-DD, optional
 }
 
 type releasePaymentRequest struct {
@@ -66,6 +74,10 @@ type releasePaymentRequest struct {
 	Reference          string   `json:"reference"`
 	InterestOverride   *float64 `json:"interest_override"`
 	DueDate            string   `json:"due_date"`
+	DiscountReason     string   `json:"discount_reason"`
+	DiscountMode       string   `json:"discount_mode"`
+	DiscountKind       string   `json:"discount_kind"`
+	PaidOn             string   `json:"paid_on"`
 }
 
 type releaseApprovalRequest struct {
@@ -74,9 +86,22 @@ type releaseApprovalRequest struct {
 	Remarks string `json:"remarks"`
 }
 
-func partialReleaseRemaining(outstandingBalance, principalAmount, remainingGoldValue, ltvPercent float64) float64 {
-	buffer := 0.05 * principalAmount
-	return (outstandingBalance + buffer) - (remainingGoldValue * ltvPercent / 100)
+// releaseAmountNeeded is what must be paid (payment plus discount) before this release request's gold can be
+// released, from the loan as it stands now: the whole outstanding balance for a full release, or — for a partial
+// one — what brings the balance down to what the remaining ornaments support (the same figure every release screen shows).
+func releaseAmountNeeded(ctx context.Context, req *models.LoanRequest, branchID *uint) (float64, error) {
+	l, err := GetLoan(ctx, req.LoanID, branchID)
+	if err != nil {
+		return 0, err
+	}
+	if !req.IsPartial {
+		return common.RoundMoney(max(l.TotalOutstandingBalance, 0)), nil
+	}
+	remainingGoldValue, err := partialReleaseRemainingGoldValue(ctx, req)
+	if err != nil {
+		return 0, err
+	}
+	return common.RoundMoney(max(partialReleaseDrift(l.TotalOutstandingBalance, remainingGoldValue, l.SchemeLTVPercent), 0)), nil
 }
 
 func partialReleaseDrift(outstandingBalance, remainingGoldValue, ltvPercent float64) float64 {
@@ -89,25 +114,41 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 		return nil, common.NewNotFound("loan not found")
 	}
 	if l.Status == models.StatusPendingApproval {
-		return nil, common.NewBadRequest("this loan is still pending approval — extension or release can only be requested once it is approved and disbursed")
+		return nil, common.NewBadRequest("loan is not approved yet")
+	}
+	if isGoldSold(l.Status) {
+		return nil, common.NewBadRequest("this loan's gold has been auctioned — extension or release can no longer be requested")
+	}
+	if l.Status == models.StatusClosed || l.Status == models.StatusClosureRequested {
+		return nil, common.NewConflict("a release has already been approved for this loan — complete it instead of requesting another")
 	}
 	requestedBy := in.RequestedBy
 	if requestedBy == "" {
 		requestedBy = models.RequestedByStaff
 	}
-	pending, _, err := FindLoanRequests(ctx, LoanRequestFilter{LoanID: loanID, Status: models.RequestStatusPending})
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range pending {
-		if r.Type == models.RequestTypeRelease {
-			return nil, common.NewConflict("a release has already been requested for this loan and is waiting for approval")
-		}
-	}
 	active := make([]models.Ornament, 0, len(l.Ornaments))
 	for _, o := range l.Ornaments {
 		if o.ReleasedAt == nil {
 			active = append(active, o)
+		}
+	}
+	// Only ornaments already named by a pending or approved-but-incomplete release block a new request; the
+	// loan's other ornaments can still be requested. An empty selection means every active ornament.
+	blocked, err := ornamentsInOpenRelease(ctx, loanID, active, 0)
+	if err != nil {
+		return nil, err
+	}
+	if len(blocked) > 0 {
+		wanted := in.OrnamentIDs
+		if len(wanted) == 0 {
+			for _, o := range active {
+				wanted = append(wanted, o.ID)
+			}
+		}
+		for _, id := range wanted {
+			if blocked[id] {
+				return nil, common.NewConflict("a release has already been requested for one or more of these ornaments")
+			}
 		}
 	}
 	isPartial := false
@@ -137,6 +178,13 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 			}
 		}
 	}
+	requestedAt := time.Now()
+	if in.RequestedAt != nil {
+		if err := validatePaymentDateWindow(l, *in.RequestedAt); err != nil {
+			return nil, err
+		}
+		requestedAt = *in.RequestedAt
+	}
 	req := &models.LoanRequest{
 		LoanID:      loanID,
 		Type:        models.RequestTypeRelease,
@@ -144,7 +192,7 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 		RequestedBy: requestedBy,
 		Detail:      in.Detail,
 		IsPartial:   isPartial,
-		RequestedAt: time.Now(),
+		RequestedAt: requestedAt,
 	}
 	if err := insertLoanRequest(ctx, req); err != nil {
 		return nil, err
@@ -154,7 +202,54 @@ func SaveReleaseRequest(ctx context.Context, loanID uint, in ReleaseRequestInput
 			return nil, err
 		}
 	}
-	return findLoanRequestByID(ctx, req.ID)
+	created, err := findLoanRequestByID(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	// The amount needed to release is worked out here, when the request is first logged, so whoever raised it
+	// (staff or the customer) is shown it. It is checked again when the payment is recorded.
+	needed, err := releaseAmountNeeded(ctx, created, nil)
+	if err != nil {
+		return nil, err
+	}
+	created.SettlementAmount = needed + created.Charges
+	if err := persistLoanRequest(ctx, created); err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+// ornamentsInOpenRelease returns the ids of the given active ornaments already covered by a Pending release request
+// or an Approved one that has not been handed over yet. A request with no selections covers every active ornament.
+// With beforeID > 0 only requests created before that id count (the ones that lock ornaments for request beforeID).
+func ornamentsInOpenRelease(ctx context.Context, loanID uint, active []models.Ornament, beforeID uint) (map[uint]bool, error) {
+	var reqs []models.LoanRequest
+	q := config.DB.WithContext(ctx).Preload("OrnamentSelections").
+		Where("loan_id = ? AND type = ? AND status IN ?", loanID, models.RequestTypeRelease,
+			[]string{models.RequestStatusPending, models.RequestStatusApproved})
+	if beforeID > 0 {
+		q = q.Where("id < ?", beforeID)
+	}
+	if err := q.Find(&reqs).Error; err != nil {
+		return nil, err
+	}
+	out := map[uint]bool{}
+	for i := range reqs {
+		r := &reqs[i]
+		if len(r.OrnamentSelections) == 0 {
+			if r.Status == models.RequestStatusApproved && r.IsPartial {
+				continue
+			}
+			for _, o := range active {
+				out[o.ID] = true
+			}
+			continue
+		}
+		for _, sel := range r.OrnamentSelections {
+			out[sel.OrnamentID] = true
+		}
+	}
+	return out, nil
 }
 
 func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, in ChecklistInput) (*models.LoanRequest, error) {
@@ -171,20 +266,36 @@ func SaveReleaseChecklist(ctx context.Context, requestID uint, branchID *uint, i
 	if req.Status != models.RequestStatusPending {
 		return nil, common.NewBadRequest("loan request has already been decided")
 	}
+	if err := ensureGoldNotSold(ctx, req.LoanID); err != nil {
+		return nil, err
+	}
 	if !checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
 		return nil, common.NewPermissionDenied("Access denied", "can verify release checklist")
 	}
 	if in.CustomerSawGold != nil {
-		if req.Locked {
-			return nil, common.NewConflict("this release request is locked after payment — it can no longer be rejected or have its checklist changed")
+		// The checklist is not tied to the payment lock: whether the customer has seen the gold can be set at any time
+		// while the request is pending (a locked request only stops it being rejected).
+		// Once the request has been approved at the first (manager) stage, the tick is frozen.
+		if *in.CustomerSawGold != req.CustomerSawGold && req.ApprovalStage != "" && req.ApprovalStage != models.ApprovalStagePendingManager {
+			return nil, common.NewBadRequest("\"Customer has seen the gold\" can no longer be changed after the first approval")
 		}
 		req.CustomerSawGold = *in.CustomerSawGold
+	}
+	if releaseFieldsLocked(req) {
+		notesChanged := in.VerificationNotes != nil && *in.VerificationNotes != req.VerificationNotes
+		dateChanged := in.RequestedAt != nil && !sameDayKeep(in.RequestedAt, req.RequestedAt).Equal(req.RequestedAt)
+		if notesChanged || dateChanged {
+			return nil, errReleaseFieldsLocked
+		}
 	}
 	if in.VerificationNotes != nil {
 		req.VerificationNotes = *in.VerificationNotes
 	}
 	if in.Charges != nil {
 		req.Charges = *in.Charges
+	}
+	if in.RequestedAt != nil {
+		req.RequestedAt = sameDayKeep(in.RequestedAt, req.RequestedAt)
 	}
 	if req.ApprovalStage == "" {
 		req.ApprovalStage = models.ApprovalStagePendingManager
@@ -209,10 +320,13 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if req.Status != models.RequestStatusPending {
 		return nil, common.NewBadRequest("loan request has already been decided")
 	}
+	if err := ensureGoldNotSold(ctx, req.LoanID); err != nil {
+		return nil, err
+	}
 	pastManagerForDriftTopUp := req.IsPartial && req.Locked &&
 		req.ApprovalStage != models.ApprovalStageApproved && req.ApprovalStage != models.ApprovalStageRejected
 	if req.ApprovalStage != "" && req.ApprovalStage != models.ApprovalStagePendingManager && !pastManagerForDriftTopUp {
-		return nil, common.NewBadRequest("payment can only be recorded while the release request is at the Manager review stage")
+		return nil, common.NewBadRequest("payment is only taken at manager review")
 	}
 	if !checkStagePermission(ctx, in.ActorRoleID, "can verify release checklist") {
 		return nil, common.NewPermissionDenied("Access denied", "can verify release checklist")
@@ -224,17 +338,36 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if chargeDelta < 0 {
 		chargeDelta = 0
 	}
-	wasAlreadyRecorded := req.PaymentRecorded
+	// The amount needed to release is checked here, at payment time, against the live balance the release
+	// page showed — before anything is posted. Later approval stages then trust this check instead of
+	// re-checking a balance that interest has moved on.
+	needed, err := releaseAmountNeeded(ctx, req, branchID)
+	if err != nil {
+		return nil, err
+	}
 	if in.Discount > 0 {
-		if _, err := SaveLoanPayment(ctx, req.LoanID, PaymentInput{
-			Amount:               in.Discount,
-			Type:                 models.PaymentTypeDiscount,
-			PaidOn:               time.Now(),
-			ReceivedByEmployeeID: &in.ActorEmployeeID,
-			Description:          "Release discount",
-		}); err != nil {
-			return nil, err
+		if strings.TrimSpace(in.DiscountReason) == "" {
+			return nil, common.NewBadRequest("a reason is required for a discount")
 		}
+		if !discountModes[in.DiscountMode] {
+			return nil, common.NewBadRequest("discount mode must be Cash, UPI, Bank Transfer or Cheque")
+		}
+		if !validDiscountKind(in.DiscountKind) {
+			return nil, common.NewBadRequest("discount type must be Custom discount, Interest or Penal interest")
+		}
+		if !checkStagePermission(ctx, in.ActorRoleID, "can give discount") {
+			return nil, common.NewPermissionDenied("Access denied", "can give discount")
+		}
+	}
+	if in.Discount > needed+0.01 {
+		return nil, common.NewBadRequest(fmt.Sprintf("the discount cannot exceed the ₹%.2f needed to release the gold", needed))
+	}
+	if short := common.RoundMoney(needed - (in.Amount + in.Discount)); short > 0.01 {
+		return nil, common.NewBadRequest(fmt.Sprintf("the payment is ₹%.2f short of the ₹%.2f needed to release the gold", short, needed))
+	}
+	paidOn := time.Now()
+	if in.PaidOn != nil {
+		paidOn = *in.PaidOn
 	}
 	paymentType := in.Type
 	if paymentType == "" {
@@ -244,12 +377,32 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if chargeDelta > 0.01 && paymentAmount <= 0 {
 		paymentAmount = chargeDelta
 	}
+	// With a payment the discount is saved together with it (and linked to it); alone it is its own entry.
+	if in.Discount > 0 && paymentAmount <= 0 {
+		if _, err := SaveLoanPayment(ctx, req.LoanID, PaymentInput{
+			Amount:               in.Discount,
+			Type:                 models.PaymentTypeDiscount,
+			PaidOn:               paidOn,
+			CheckDateWindow:      true,
+			ReceivedByEmployeeID: &in.ActorEmployeeID,
+			Method:               in.DiscountMode,
+			DiscountKind:         in.DiscountKind,
+			Description:          "Discount: " + in.DiscountReason,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	if paymentAmount > 0 {
 		if _, err := SaveLoanPayment(ctx, req.LoanID, PaymentInput{
 			Amount:               paymentAmount,
 			Type:                 paymentType,
 			ProcessingFee:        chargeDelta,
-			PaidOn:               time.Now(),
+			Discount:             in.Discount,
+			DiscountReason:       in.DiscountReason,
+			DiscountMode:         in.DiscountMode,
+			DiscountKind:         in.DiscountKind,
+			PaidOn:               paidOn,
+			CheckDateWindow:      true,
 			ReceivedByEmployeeID: &in.ActorEmployeeID,
 			CashAmount:           in.CashAmount,
 			UpiAmount:            in.UpiAmount,
@@ -271,13 +424,15 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	}
 	req.RecordedDiscount = common.RoundMoney(req.RecordedDiscount + in.Discount)
 	req.RecordedPayment = common.RoundMoney(req.RecordedPayment + in.Amount)
+	req.QuoteMet = true
+	req.SettlementAmount = common.RoundMoney(needed + req.Charges)
 	if req.IsPartial {
 		req.PaymentDueDate = nil
-	} else if l.TotalOutstandingBalance <= 0.01 {
+	} else if l.TotalOutstandingBalance <= 0.01 || req.QuoteMet {
 		req.PaymentDueDate = nil
 	} else if in.Discount <= 0 && paymentAmount <= 0 {
 	} else if in.DueDate == nil {
-		return nil, common.NewBadRequest("a due date is required when the recorded amount doesn't cover the full settlement")
+		return nil, common.NewBadRequest("due date is required")
 	} else {
 		req.PaymentDueDate = in.DueDate
 	}
@@ -286,12 +441,7 @@ func recordReleaseRequestPayment(ctx context.Context, requestID uint, branchID *
 	if err := persistLoanRequest(ctx, req); err != nil {
 		return nil, err
 	}
-	stillAtPaymentStage := req.ApprovalStage == "" || req.ApprovalStage == models.ApprovalStagePendingManager
-	if !wasAlreadyRecorded || stillAtPaymentStage {
-		if _, err := advanceReleaseRequestStage(ctx, req, in.ActorEmployeeID, "Auto-advanced after payment was recorded"); err != nil {
-			return nil, err
-		}
-	}
+	// Recording the payment never approves the request: every stage is still approved by a person.
 	return findLoanRequestByID(ctx, req.ID)
 }
 
@@ -312,8 +462,14 @@ func ApproveReleaseRequest(ctx context.Context, requestID uint, branchID *uint, 
 	if req.ApprovalStage == models.ApprovalStageApproved || req.ApprovalStage == models.ApprovalStageRejected {
 		return nil, common.NewBadRequest("loan request has already been decided")
 	}
+	// Rejecting stays possible so a stale request can be cleared; approving is not.
+	if in.Action == models.ApprovalStageApproved {
+		if err := ensureGoldNotSold(ctx, req.LoanID); err != nil {
+			return nil, err
+		}
+	}
 	if in.Action == models.ApprovalStageRejected && req.Locked {
-		return nil, common.NewConflict("this release request is locked after payment — it can no longer be rejected or have its checklist changed")
+		return nil, common.NewConflict("release request is locked after payment")
 	}
 	if in.Action == models.ApprovalStageApproved && !req.CustomerSawGold {
 		return nil, common.NewBadRequest("\"Customer has seen the gold\" must be ticked and a payment recorded before this can be approved")
@@ -346,10 +502,10 @@ func ApproveReleaseRequest(ctx context.Context, requestID uint, branchID *uint, 
 	}
 	step, ok := chain.ByPending(stage)
 	if !ok || in.Stage != step.Key {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if !common.CanAct(ctx, in.ActorRoleID, common.FlowLoanRelease, step.Key) {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	audit := &models.RequestApproval{
 		RequestID:       requestID,
@@ -396,7 +552,7 @@ func advanceReleaseRequestStage(ctx context.Context, req *models.LoanRequest, ac
 	}
 	cur, ok := chain.ByPending(stage)
 	if !ok && !chain.Off() {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	next, hasNext := chain.Next(cur.Key)
 	finalApproval := false
@@ -408,19 +564,22 @@ func advanceReleaseRequestStage(ctx context.Context, req *models.LoanRequest, ac
 		if err != nil {
 			return nil, err
 		}
-		if req.IsPartial {
+		// A request whose payment already covered the amount needed isn't re-checked against the live balance.
+		if req.IsPartial && !req.QuoteMet {
 			remainingGoldValue, err := partialReleaseRemainingGoldValue(ctx, req)
 			if err != nil {
 				return nil, err
 			}
 			drift := partialReleaseDrift(l.TotalOutstandingBalance, remainingGoldValue, l.SchemeLTVPercent)
 			if drift > 0.01 {
-				return nil, common.NewConflict("outstanding balance has drifted above what the remaining collateral supports — record a top-up payment before approving")
+				return nil, common.NewConflict("balance is above the collateral — record a top-up")
 			}
 		}
 		req.ApprovalStage = models.ApprovalStageApproved
 		finalApproval = true
-		req.SettlementAmount = l.TotalOutstandingBalance + req.Charges
+		if !req.QuoteMet {
+			req.SettlementAmount = l.TotalOutstandingBalance + req.Charges
+		}
 		if !req.IsPartial {
 			l.Status = models.StatusClosureRequested
 			if err := persistLoan(ctx, l); err != nil {
@@ -474,12 +633,23 @@ func partialReleaseRemainingGoldValue(ctx context.Context, req *models.LoanReque
 	for _, sel := range req.OrnamentSelections {
 		selected[sel.OrnamentID] = true
 	}
+	// Ornaments locked by an earlier open release request are excluded entirely (not kept collateral).
+	var active []models.Ornament
+	for _, o := range all {
+		if o.ReleasedAt == nil {
+			active = append(active, o)
+		}
+	}
+	locked, err := ornamentsInOpenRelease(ctx, req.LoanID, active, req.ID)
+	if err != nil {
+		return 0, err
+	}
 	var remaining float64
 	for _, o := range all {
 		if o.ReleasedAt != nil {
 			continue
 		}
-		if !selected[o.ID] {
+		if !selected[o.ID] && !locked[o.ID] {
 			remaining += o.GoldValue
 		}
 	}
@@ -491,15 +661,8 @@ func completeRelease(ctx context.Context, loanID uint, branchID *uint, employeeI
 	if err != nil {
 		return nil, err
 	}
-	if l.BankPledgeStatus == models.BankPledgeStatusPledged {
-		return nil, common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
-	}
-	hasActivePledge, err := hasActive(ctx, loanID)
-	if err != nil {
-		return nil, err
-	}
-	if hasActivePledge {
-		return nil, common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+	if isGoldSold(l.Status) {
+		return nil, common.NewBadRequest("this loan's gold has been auctioned — it can no longer be released to the customer")
 	}
 	paidInFull := l.TotalOutstandingBalance <= 0.01
 	var approved *models.LoanRequest
@@ -511,16 +674,30 @@ func completeRelease(ctx context.Context, loanID uint, branchID *uint, employeeI
 	} else if a, err := findApprovedReleaseByLoanID(ctx, loanID); err == nil {
 		approved = a
 	}
+	// A partial release already handed over stays Approved forever; once every ornament it names is released it is
+	// spent and must not hijack a later (full) release, which would otherwise run as a no-op partial and leave the
+	// loan open with its own request still pending.
+	if approved != nil && approved.IsPartial && partialReleaseSpent(ctx, approved) {
+		if !paidInFull {
+			return nil, common.NewNotFound("this loan has no approved release request")
+		}
+		approved = nil
+	}
+	if err := ensureReleasingGoldNotPledged(ctx, loanID, approved); err != nil {
+		return nil, err
+	}
 	if approved != nil && approved.IsPartial {
 		return completePartialRelease(ctx, l, approved)
 	}
-	if l.TotalOutstandingBalance > 0.01 {
+	if l.TotalOutstandingBalance > 0.01 && !(approved != nil && approved.QuoteMet) {
 		return nil, common.NewBadRequest("the final settlement has not been fully paid yet — record the remaining payment before releasing the gold")
 	}
 	if err := packet.RecordGoldReleaseMovement(ctx, loanID, "Gold released to customer"); err != nil {
 		log.Printf("packet gold-release movement failed for loan %d: %v", loanID, err)
 	}
 	l.Status = models.StatusClosed
+	closedAt := time.Now()
+	l.ClosedAt = &closedAt
 	if err := persistLoan(ctx, l); err != nil {
 		return nil, err
 	}
@@ -589,15 +766,55 @@ func pledgeReleaseRemark(treatment string) string {
 }
 
 func findApprovedReleaseByLoanID(ctx context.Context, loanID uint) (*models.LoanRequest, error) {
-	var req models.LoanRequest
+	var reqs []models.LoanRequest
 	err := config.DB.
 		WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").
 		Where("loan_id = ? AND type = ? AND status = ?", loanID, models.RequestTypeRelease, models.RequestStatusApproved).
-		Order("id desc").First(&req).Error
+		Order("id desc").Find(&reqs).Error
 	if err != nil {
 		return nil, err
 	}
-	return &req, nil
+	if len(reqs) == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	// Several partial releases can be approved at once; prefer the newest one that still has ornaments to hand over.
+	for i := range reqs {
+		if !(reqs[i].IsPartial && partialReleaseSpent(ctx, &reqs[i])) {
+			return &reqs[i], nil
+		}
+	}
+	return &reqs[0], nil
+}
+
+// ensureReleasingGoldNotPledged refuses a release while any ornament being handed over is still with a bank. Only
+// the ornaments of this release count; a pledge over other ornaments does not block it. A pledge with no ornament
+// list covers the whole loan.
+func ensureReleasingGoldNotPledged(ctx context.Context, loanID uint, approved *models.LoanRequest) error {
+	pledges, err := findBankPledgeByLoanID(ctx, loanID)
+	if err != nil {
+		return err
+	}
+	var releasing map[uint]bool
+	if approved != nil && approved.IsPartial {
+		releasing = map[uint]bool{}
+		for _, sel := range approved.OrnamentSelections {
+			releasing[sel.OrnamentID] = true
+		}
+	}
+	for _, p := range pledges {
+		if p.Status != models.BankPledgeStatusRecordActive {
+			continue
+		}
+		if releasing == nil || len(p.OrnamentIDs) == 0 {
+			return common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+		}
+		for _, id := range p.OrnamentIDs {
+			if releasing[id] {
+				return common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+			}
+		}
+	}
+	return nil
 }
 
 func findPendingReleaseByLoanID(ctx context.Context, loanID uint) (*models.LoanRequest, error) {
@@ -622,11 +839,19 @@ func CreateReleaseRequest(c echo.Context) error {
 	if err := common.BindJSON(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
-	rec, err := SaveReleaseRequest(ctx, loanID, ReleaseRequestInput{
+	in := ReleaseRequestInput{
 		Detail:      req.Detail,
 		RequestedBy: req.RequestedBy,
 		OrnamentIDs: req.OrnamentIDs,
-	})
+	}
+	if req.RequestedAt != "" {
+		d, err := parsePaidOn(req.RequestedAt)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid requested_at: expected YYYY-MM-DD"})
+		}
+		in.RequestedAt = &d
+	}
+	rec, err := SaveReleaseRequest(ctx, loanID, in)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -658,11 +883,20 @@ func VerifyReleaseChecklist(c echo.Context) error {
 		f, _ := v.(float64)
 		charges = &f
 	}
+	var requestedAt *time.Time
+	if v, ok := raw["requested_at"].(string); ok && v != "" {
+		d, perr := parseDate(v)
+		if perr != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid requested_at: expected YYYY-MM-DD"})
+		}
+		requestedAt = &d
+	}
 	_, _, actorRoleID := auth.ActorFromContext(c)
 	rec, err := SaveReleaseChecklist(ctx, requestID, auth.GetBranchScope(c), ChecklistInput{
 		CustomerSawGold:   customerSawGold,
 		VerificationNotes: verificationNotes,
 		Charges:           charges,
+		RequestedAt:       requestedAt,
 		ActorRoleID:       actorRoleID,
 	})
 	if err != nil {
@@ -689,6 +923,14 @@ func RecordReleasePayment(c echo.Context) error {
 		}
 		dueDate = &d
 	}
+	var paidOn *time.Time
+	if req.PaidOn != "" {
+		d, err := parsePaidOn(req.PaidOn)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid paid_on: expected YYYY-MM-DD"})
+		}
+		paidOn = &d
+	}
 	actorEmployeeID, _, actorRoleID := auth.ActorFromContext(c)
 	rec, err := recordReleaseRequestPayment(ctx, requestID, auth.GetBranchScope(c), ReleasePaymentInput{
 		Type:               req.Type,
@@ -703,6 +945,10 @@ func RecordReleasePayment(c echo.Context) error {
 		Reference:          req.Reference,
 		InterestOverride:   req.InterestOverride,
 		DueDate:            dueDate,
+		DiscountReason:     req.DiscountReason,
+		DiscountMode:       req.DiscountMode,
+		DiscountKind:       req.DiscountKind,
+		PaidOn:             paidOn,
 		ActorEmployeeID:    actorEmployeeID,
 		ActorRoleID:        actorRoleID,
 	})
@@ -724,4 +970,25 @@ func CompleteRelease(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.Success(c, http.StatusOK, rec)
+}
+
+// partialReleaseSpent reports whether every ornament a partial release names has already been handed back.
+func partialReleaseSpent(ctx context.Context, req *models.LoanRequest) bool {
+	if len(req.OrnamentSelections) == 0 {
+		return false
+	}
+	all, err := findAllByLoanID(ctx, req.LoanID)
+	if err != nil {
+		return false
+	}
+	selected := make(map[uint]bool, len(req.OrnamentSelections))
+	for _, sel := range req.OrnamentSelections {
+		selected[sel.OrnamentID] = true
+	}
+	for _, o := range all {
+		if selected[o.ID] && o.ReleasedAt == nil {
+			return false
+		}
+	}
+	return true
 }

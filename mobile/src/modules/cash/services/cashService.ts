@@ -71,21 +71,26 @@ export function getMovementEntry(id: number) {
 }
 
 // The Expenses list's Edit form data for a pending or approved expense — `id` is the expense id.
+// Deletes a cash-in, debit, self transfer or gold sale — every payment line of it (web deleteMovementEntry).
+export function deleteMovementEntry(id: number) {
+  return apiRequest<unknown>(`/cash-movements/${id}/entry`, { method: "DELETE" });
+}
+
 export function getExpenseEntry(id: number) {
   return apiRequest<EntryInfo>(`/expenses/${id}/entry`);
 }
 
-// Saves an edit made in an entry form: from the Expenses list it goes to PUT /expenses/:id, from a
-// ledger row to PUT /cash-movements/:id.
+// Saves an edit made in an entry form: from the Expenses list it goes to PATCH /expenses/:id/update, from a
+// ledger row to PATCH /cash-movements/:id/update.
 export function saveEntryEdit(info: EntryInfo, input: EntryUpdateInput) {
-  return apiRequest<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}` : `/cash-movements/${info.movementId}`, { method: "PUT", body: input });
+  return apiRequest<{ id: number }>(info.viaExpense ? `/expenses/${info.movementId}/update` : `/cash-movements/${info.movementId}/update`, { method: "PATCH", body: input });
 }
 
 // Edits a cash-in, debit or self transfer from the ledger: the whole entry
 // (every payment line, or both legs of a transfer) is replaced by the edited
 // version. Needs no permission of its own.
 export function updateMovementEntry(id: number, input: EntryUpdateInput) {
-  return apiRequest<{ id: number }>(`/cash-movements/${id}`, { method: "PUT", body: input });
+  return apiRequest<{ id: number }>(`/cash-movements/${id}/update`, { method: "PATCH", body: input });
 }
 
 // Bank-to-bank self transfer — the backend writes a debit row on the from
@@ -124,9 +129,9 @@ export function createCashSource(name: string) {
 
 export const EXPENSE_CATEGORIES_PAGE_SIZE = 5;
 
-export function listExpenseCategoriesPage(q: string, page: number, pageSize: number = EXPENSE_CATEGORIES_PAGE_SIZE) {
+export function listExpenseCategoriesPage(q: string, page: number, pageSize: number = EXPENSE_CATEGORIES_PAGE_SIZE, selectable = false) {
   return apiRequest<{ items: ExpenseCategory[]; hasMore: boolean }>("/expense-categories", {
-    params: { q: q || undefined, limit: pageSize, offset: page * pageSize },
+    params: { q: q || undefined, limit: pageSize, offset: page * pageSize, selectable: selectable ? 1 : undefined },
   });
 }
 
@@ -192,8 +197,18 @@ export function listExpenses() {
 // Page-scoped variant: passing `limit` flips the backend (cash/handler.go's
 // ExpenseHandler.List) into the {items, hasMore} envelope — used by the
 // paginated mobile Expenses table (10/page, one API call per page).
-export function listExpensesPage(params: { limit: number; offset: number; q?: string; status?: string }) {
-  return apiRequest<{ items: Expense[]; hasMore: boolean; total?: number; totalAmount?: number }>("/expenses", { params });
+export type ExpenseFilters = { category?: string[]; mode?: string[]; status?: string[]; from?: string; to?: string };
+// category / mode / status repeat as query keys (the backend reads them as arrays, not comma lists), so the
+// query string is built here rather than through `params`.
+export function listExpensesPage(params: { limit: number; offset: number; q?: string } & ExpenseFilters) {
+  const { category, mode, status, from, to, ...rest } = params;
+  const qs: string[] = Object.entries(rest)
+    .filter(([, v]) => v !== undefined && v !== "")
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
+  for (const [k, vs] of [["category", category], ["mode", mode], ["status", status]] as const) vs?.forEach((v) => qs.push(`${k}=${encodeURIComponent(v)}`));
+  if (from) qs.push(`from=${encodeURIComponent(from)}`);
+  if (to) qs.push(`to=${encodeURIComponent(to)}`);
+  return apiRequest<{ items: Expense[]; hasMore: boolean; total?: number; totalAmount?: number }>(`/expenses?${qs.join("&")}`);
 }
 
 export function createExpense(input: {
@@ -227,6 +242,12 @@ export function rejectExpense(id: number, remarks: string) {
   return apiRequest<Expense>(`/expenses/${id}/reject`, { method: "PATCH", body: { remarks } });
 }
 
+// Deletes an expense from the Expenses list (a pending one, or an approved one with its ledger lines) —
+// web deleteExpense. Needs the "can delete ledger entry" permission.
+export function deleteExpense(id: number) {
+  return apiRequest<unknown>(`/expenses/${id}`, { method: "DELETE" });
+}
+
 // Cash summary — branchId/date are real server-side params. Opening cash is
 // carried forward from the previous day's closing Balance in Hand (backend
 // cash.SummaryService.openingFor), so there's no opening balance to set.
@@ -252,6 +273,9 @@ export function createGoldSale(input: {
   mode?: string;
   // bankId is required when mode is UPI or Bank Transfer.
   bankId?: number;
+  // How the cost to acquire was paid; costBankId is required when costMode is UPI or Bank Transfer.
+  costMode?: string;
+  costBankId?: number;
   soldOn?: string;
   remarks?: string;
   receiptImage?: string;

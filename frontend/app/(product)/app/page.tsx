@@ -6,5 +6,5 @@ import { AppShell } from "@/common/components/layout/AppShell";
 // real route from window.location via useAppRoute()/parsePath(), not from
 // anything Next knows about this page.
 export default function AppPage() {
-  return <AppShell />;
+	return <AppShell />;
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -76,6 +77,8 @@ func categoryWhere(category string) (string, []interface{}) {
 		return "(((source = ? OR source = ?) AND purpose LIKE ?) OR purpose LIKE ?)", []interface{}{"Loan", "Collection", "%PL-%", "Loan disbursement — PL-%"}
 	case "investment":
 		return "(source = ? OR purpose LIKE ?)", []interface{}{"Investment", "%INV-%"}
+	case "bank pledge":
+		return "(purpose LIKE ?)", []interface{}{"Bank pledge%"}
 	}
 	return "", nil
 }
@@ -99,8 +102,10 @@ func listCategories(ctx context.Context, typ, query string, limit, offset int) (
 		}
 	}
 	if typ == "self_transfer" && offset == 0 {
-		if _, _, err := findOrCreateCategory(ctx, "Bank to Bank", "self_transfer"); err != nil {
-			return nil, 0, err
+		for _, name := range []string{"Bank to Bank", SelfTransferCashToBank, SelfTransferBankToCash} {
+			if _, _, err := findOrCreateCategory(ctx, name, "self_transfer"); err != nil {
+				return nil, 0, err
+			}
 		}
 	}
 	return findCategories(ctx, typ, query, limit, offset)
@@ -116,7 +121,7 @@ func findCategoryOrCreate(ctx context.Context, name, typ string) (*models.Catego
 	return findOrCreateCategory(ctx, name, typ)
 }
 
-func listExpenseCategories(ctx context.Context, query string, limit, offset int) ([]models.ExpenseCategory, int64, error) {
+func listExpenseCategories(ctx context.Context, query string, selectable bool, limit, offset int) ([]models.ExpenseCategory, int64, error) {
 	// Every bank loan's repayment category must be pickable — create any that a loan opened earlier never got.
 	if offset == 0 {
 		if err := ensureBuiltInCategories(ctx); err != nil {
@@ -132,7 +137,7 @@ func listExpenseCategories(ctx context.Context, query string, limit, offset int)
 			}
 		}
 	}
-	return findExpenseCategories(ctx, query, limit, offset)
+	return findExpenseCategories(ctx, query, selectable, limit, offset)
 }
 
 func findByID(ctx context.Context, id uint) (*models.ExpenseCategory, error) {
@@ -151,7 +156,7 @@ func insertCategory(ctx context.Context, c *models.Category) error {
 		WithContext(ctx).Create(c).Error
 }
 
-func findCategories(ctx context.Context, typ, query string, limit, offset int) ([]models.Category, int64, error) {
+func findCategories(ctx context.Context, typ, query string, limit, offset int, exclude ...string) ([]models.Category, int64, error) {
 	var cats []models.Category
 	q := config.DB.
 		WithContext(ctx).
@@ -160,6 +165,9 @@ func findCategories(ctx context.Context, typ, query string, limit, offset int) (
 		q = q.Where("LOWER(REPLACE(name, ' ', '')) LIKE ?", "%"+strings.ToLower(strings.ReplaceAll(query, " ", ""))+"%")
 	} else {
 		q = q.Where("(type = ? OR is_common = ?)", typ, true)
+	}
+	if len(exclude) > 0 {
+		q = q.Where("name NOT IN ?", exclude)
 	}
 	var total int64
 	if limit > 0 {
@@ -208,21 +216,26 @@ func insertExpenseCategory(ctx context.Context, c *models.ExpenseCategory) error
 	return insertCategory(ctx, c)
 }
 
-func findExpenseCategories(ctx context.Context, query string, limit, offset int) ([]models.ExpenseCategory, int64, error) {
+func findExpenseCategories(ctx context.Context, query string, selectable bool, limit, offset int) ([]models.ExpenseCategory, int64, error) {
+	if selectable {
+		return findCategories(ctx, models.CategoryExpense, query, limit, offset, auctionExpenseCategory, bankPledgeReleaseCategory)
+	}
 	return findCategories(ctx, models.CategoryExpense, query, limit, offset)
 }
 
 func ListExpenseCategories(c echo.Context) error {
+	// selectable=1 is the expense form dropdown: system categories (Auction, Bank Pledge Release) are auto-filed, never picked.
+	selectable := c.QueryParam("selectable") == "1"
 	ctx := auth.RequestContext(c)
 	page, limit, offset := common.PageParams(c)
 	if limit == 0 {
-		rec, _, err := listExpenseCategories(ctx, c.QueryParam("search"), 0, 0)
+		rec, _, err := listExpenseCategories(ctx, c.QueryParam("search"), selectable, 0, 0)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessAll(c, rec)
 	}
-	rec, total, err := listExpenseCategories(ctx, c.QueryParam("search"), limit, offset)
+	rec, total, err := listExpenseCategories(ctx, c.QueryParam("search"), selectable, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -276,7 +289,11 @@ func GetExpenseCategoryLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listLedgerByCategory(ctx, cat.Name, auth.GetBranchScope(c), fromDate, toDate, limit, offset)
+	list := listLedgerByCategory
+	if cat.IsCommon {
+		list = listLedgerByCommonCategory // shared category: Credit In rows belong here too
+	}
+	rec, total, totals, err := list(ctx, cat.Name, auth.GetBranchScope(c), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -316,4 +333,60 @@ func CreateCategory(c echo.Context) error {
 		return common.Success(c, http.StatusOK, rec)
 	}
 	return common.Success(c, http.StatusOK, rec)
+}
+
+// categoryProtectedReason is why a category must never be deleted ("" if it may be): the
+// two the system files entries under automatically, and any created for a specific loan.
+func categoryProtectedReason(name, loanNumber string) string {
+	switch {
+	case strings.EqualFold(name, auctionExpenseCategory), strings.EqualFold(name, bankPledgeReleaseCategory):
+		return "this is a system category used automatically by the auction and bank pledge flows"
+	case strings.TrimSpace(loanNumber) != "":
+		return "this category belongs to loan " + loanNumber
+	}
+	return ""
+}
+
+// deleteCategory removes an unused, non-system category. Entries refer to a category by its
+// name, so a category that any expense or cash entry still uses is kept rather than orphaning them.
+func deleteCategory(ctx context.Context, id uint) error {
+	cat, err := findCategoryByID(ctx, id)
+	if err != nil {
+		return common.NewNotFound("category not found")
+	}
+	if reason := categoryProtectedReason(cat.Name, cat.LoanNumber); reason != "" {
+		return common.NewConflict("This category cannot be deleted — " + reason + ".")
+	}
+	var inExpenses, inMovements int64
+	if err := cashDB(ctx).Model(&models.Expense{}).Where("lower(category) = lower(?)", cat.Name).Count(&inExpenses).Error; err != nil {
+		return err
+	}
+	if err := cashDB(ctx).Model(&models.CashMovement{}).
+		Where("lower(purpose) IN (lower(?), lower(?), lower(?))", cat.Name, "Expense — "+cat.Name, "Self transfer — "+cat.Name).
+		Count(&inMovements).Error; err != nil {
+		return err
+	}
+	if used := inExpenses + inMovements; used > 0 {
+		return common.NewConflict("This category cannot be deleted — " + strconv.FormatInt(used, 10) + " ledger entr" + pluralY(used) + " still use it.")
+	}
+	return cashDB(ctx).Delete(&models.Category{}, cat.ID).Error
+}
+
+func pluralY(n int64) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
+}
+
+func DeleteCategory(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	if err := deleteCategory(ctx, id); err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"deleted": true})
 }

@@ -17,6 +17,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// needsAttentionPageSize caps the dashboard's Needs Attention card at this many rows per page.
+const needsAttentionPageSize = 13
+
 type NeedsAttentionFilter struct {
 	Query string
 	Kind  string
@@ -77,6 +80,14 @@ func getNeedsAttention(ctx context.Context, page int, branchScope *uint, f Needs
 			Detail:       r.Detail,
 		})
 	}
+	// A defaulted loan whose gold is pledged to a bank isn't ready for auction until the bank releases it.
+	ready := auctions[:0]
+	for _, l := range auctions {
+		if l.Status == loanModels.StatusAuctionEligible || loan.AvailableForAuction(&l) {
+			ready = append(ready, l)
+		}
+	}
+	auctions = ready
 	for _, l := range auctions {
 		if !include("auctions") {
 			break
@@ -94,11 +105,11 @@ func getNeedsAttention(ctx context.Context, page int, branchScope *uint, f Needs
 		page = 1
 	}
 	total := len(items)
-	start := (page - 1) * 15
+	start := (page - 1) * needsAttentionPageSize
 	if start > total {
 		start = total
 	}
-	end := start + 15
+	end := start + needsAttentionPageSize
 	if end > total {
 		end = total
 	}
@@ -116,21 +127,23 @@ func CaptureDailySnapshot(ctx context.Context) error {
 	if _, err := findByDate(ctx, now); err == nil {
 		return nil
 	}
-	active, _, err := loan.FindLoans(ctx, loan.LoanFilter{Status: loanModels.StatusActive})
+	// Counts only (in SQL): loading the loans themselves would pull a whole
+	// long loan history into memory every hour.
+	active, err := loan.CountLoans(ctx, loan.LoanFilter{Status: loanModels.StatusActive})
 	if err != nil {
 		return err
 	}
-	overdue, _, err := loan.FindLoans(ctx, loan.LoanFilter{Status: loanModels.StatusOverdue})
+	overdue, err := loan.CountLoans(ctx, loan.LoanFilter{Status: loanModels.StatusOverdue})
 	if err != nil {
 		return err
 	}
-	pending, _, err := loan.FindLoans(ctx, loan.LoanFilter{Status: loanModels.StatusPendingApproval})
+	pending, err := loan.CountLoans(ctx, loan.LoanFilter{Status: loanModels.StatusPendingApproval})
 	if err != nil {
 		return err
 	}
 	openedFrom := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	openedTo := openedFrom
-	openedToday, _, err := loan.FindLoans(ctx, loan.LoanFilter{OpenedFrom: &openedFrom, OpenedTo: &openedTo})
+	openedToday, err := loan.CountLoans(ctx, loan.LoanFilter{OpenedFrom: &openedFrom, OpenedTo: &openedTo})
 	if err != nil {
 		return err
 	}
@@ -146,10 +159,10 @@ func CaptureDailySnapshot(ctx context.Context) error {
 	}
 	return insertSnapshot(ctx, &models.Snapshot{
 		Date:                 openedFrom,
-		ActiveCount:          len(active),
-		OverdueCount:         len(overdue),
-		PendingApprovalCount: len(pending),
-		OpenedTodayCount:     len(openedToday),
+		ActiveCount:          int(active),
+		OverdueCount:         int(overdue),
+		PendingApprovalCount: int(pending),
+		OpenedTodayCount:     int(openedToday),
 		DueTodayCount:        dueToday,
 	})
 }
@@ -237,4 +250,12 @@ func ListSnapshots(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessAll(c, rec)
+}
+
+func GetLoanStats(c echo.Context) error {
+	rec, err := getLoanStats(auth.RequestContext(c), auth.GetBranchScope(c))
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, rec)
 }

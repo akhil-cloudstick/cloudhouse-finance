@@ -47,6 +47,9 @@ export type Investment = {
   interestWithdrawn: number;
   outstandingInterest: number;
   lastAccrualDate: string | null;
+  // Scheduled engine — interest due/earned at close and principal already returned (server-computed).
+  settlementInterest?: number;
+  principalReturned?: number;
 };
 
 export type InvestmentTransactionType = "Deposit" | "Withdrawal";
@@ -103,4 +106,29 @@ export type CreatePlanInput = {
   isActive: boolean;
   engine: InvestmentPlan["engine"];
   productType: InvestmentPlan["productType"];
+};
+
+// One row of GET /investments/:id/ledger — carries the whole breakdown so an entry can be edited or deleted
+// (backend ledger.go). id is the entry key ("tx-5", "payout-3", "open-7").
+export type InvestmentLedgerRow = {
+  id: string;
+  date: string;
+  description: string;
+  type: string;
+  method: string;
+  reference: string;
+  debitOrCredit: "debit" | "credit";
+  amount: number;
+  principalAmount: number;
+  interestAmount: number;
+  runningBalance: number;
+  entryKind?: "opening" | "deposit" | "withdrawal" | "payout";
+  entryAmount?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  chequeAmount?: number;
+  bankId?: number | null;
+  editable?: boolean;
+  deletable?: boolean;
 };

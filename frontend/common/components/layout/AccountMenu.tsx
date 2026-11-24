@@ -5,178 +5,234 @@ import { useModal } from "@/common/components/ModalProvider";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
+import { navigate } from "@/common/services/appRoutes";
 import { useBranchSwitch } from "@/common/hooks/use-branch-switch";
 import { SettingsModalContent } from "@/modules/integrations/components/SettingsModalContent";
+import { useDownloadProgress, useOfflineRing, useSyncingRing } from "./NetworkIndicator";
+import { drain } from "@/common/offline/sender";
 import {
-  checkForUpdate,
-  isDesktop,
-  onUpdateEvent,
-  checkForContentUpdate,
-  onContentUpdateEvent,
+	checkForUpdate,
+	isDesktop,
+	onUpdateEvent,
+	checkForContentUpdate,
+	onContentUpdateEvent,
 } from "@/common/services/desktopBridge";
 
 type UpdateState = "idle" | "checking" | "uptodate" | "available" | "downloading" | "ready" | "error";
 
 const subscribeNever = () => () => {};
 
-// Update state lives here (not the dropdown) so closing the menu or navigating doesn't stop a download.
+// the progress ring around the profile picture is a circle of radius 18 in a 40-wide box
+const PROGRESS_CIRCUMFERENCE = 2 * Math.PI * 18;
+
+/* The header's name chip, opening a small dropdown that holds what used to
+ * be three separate things: the Connect mobile app button, the sidebar's
+ * update card (formerly layout/UpdateNotice.tsx) and the Sign out link.
+ *
+ * The "Check for updates" row exists only in the desktop app, where it drives
+ * the native updater (see desktopBridge); the web build never shows it. Every
+ * update state fits the same row height — the icon slot swaps for a spinner
+ * or a progress ring.
+ *
+ * The update state lives here rather than in the dropdown, so closing the
+ * menu (or moving between pages — Topbar stays mounted) doesn't stop a
+ * download. A dot on the avatar shows when an update is waiting.
+ *
+ * Multi-branch Administrators/Management also get the global branch selector
+ * here ("Branch: …" row expanding to the branch list) — see useBranchSwitch.
+ * It scopes the whole app, so the chosen branch is echoed under the name. */
 export function AccountMenu() {
-  const { employee, logout } = useAuth();
-  const { name: businessName } = useBranding();
-  const { openModal } = useModal();
-  const [open, setOpen] = useState(false);
-  const [upd, setUpd] = useState<UpdateState>("idle");
-  // Content-only release — folds into the same "waiting" dot as the full update.
-  const [contentAvailable, setContentAvailable] = useState(false);
-  const branch = useBranchSwitch();
-  const [branchOpen, setBranchOpen] = useState(false);
-  const desktop = useSyncExternalStore(subscribeNever, isDesktop, () => false);
-  const root = useRef<HTMLDivElement>(null);
+	const { employee, logout } = useAuth();
+	const { name: businessName } = useBranding();
+	const { openModal } = useModal();
+	const [open, setOpen] = useState(false);
+	const [upd, setUpd] = useState<UpdateState>("idle");
+	// Content-only release — folds into the same "waiting" dot as the full update.
+	const [contentAvailable, setContentAvailable] = useState(false);
+	const branch = useBranchSwitch();
+	const [branchOpen, setBranchOpen] = useState(false);
+	const desktop = useSyncExternalStore(subscribeNever, isDesktop, () => false);
+	const root = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!desktop) return;
-    const unsubscribe = [
-      onUpdateEvent("checking", () => setUpd("checking")),
-      onUpdateEvent("available", () => setUpd("available")),
-      onUpdateEvent("not-available", () => setUpd("uptodate")),
-      onUpdateEvent("progress", () => setUpd("downloading")),
-      onUpdateEvent("downloaded", () => setUpd("ready")),
-      onUpdateEvent("error", () => setUpd("error")),
-      onContentUpdateEvent("available", () => setContentAvailable(true)),
-      onContentUpdateEvent("not-available", () => setContentAvailable(false)),
-      onContentUpdateEvent("applied", () => setContentAvailable(false)),
-    ];
-    // Checked once per app open, not only on an explicit click; a refresh remounts this component.
-    void checkForUpdate();
-    void checkForContentUpdate();
-    return () => unsubscribe.forEach((off) => off());
-  }, [desktop]);
+	useEffect(() => {
+		if (!desktop) return;
+		const unsubscribe = [
+			onUpdateEvent("checking", () => setUpd("checking")),
+			onUpdateEvent("available", () => setUpd("available")),
+			onUpdateEvent("not-available", () => setUpd("uptodate")),
+			onUpdateEvent("progress", () => setUpd("downloading")),
+			onUpdateEvent("downloaded", () => setUpd("ready")),
+			onUpdateEvent("error", () => setUpd("error")),
+			onContentUpdateEvent("available", () => setContentAvailable(true)),
+			onContentUpdateEvent("not-available", () => setContentAvailable(false)),
+			onContentUpdateEvent("applied", () => setContentAvailable(false)),
+		];
+		// Checked once per app open, not only on an explicit click; a refresh remounts this component.
+		void checkForUpdate();
+		void checkForContentUpdate();
+		return () => unsubscribe.forEach((off) => off());
+	}, [desktop]);
 
-  // Close on a click outside or Escape.
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+	// Close on a click outside or Escape.
+	useEffect(() => {
+		if (!open) return;
+		function onDown(e: MouseEvent) {
+			if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
+		}
+		function onKey(e: KeyboardEvent) {
+			if (e.key === "Escape") setOpen(false);
+		}
+		document.addEventListener("mousedown", onDown);
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("mousedown", onDown);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [open]);
 
-  function pickBranch(id: number | null) {
-    setBranchOpen(false);
-    setOpen(false);
-    if (id !== branch.selectedBranchId) branch.select(id);
-  }
+	function pickBranch(id: number | null) {
+		setBranchOpen(false);
+		setOpen(false);
+		if (id !== branch.selectedBranchId) branch.select(id);
+	}
 
-  function openSettings(section?: string) {
-    setOpen(false);
-    openModal(<SettingsModalContent initialSection={section} />, true);
-  }
+	function openSettings(section?: string) {
+		setOpen(false);
+		openModal(<SettingsModalContent initialSection={section} />, true);
+	}
 
-  function signOut() {
-    setOpen(false);
-    // Navigation is AuthGuard.tsx's job: it watches for the dropped token and redirects as a full page load.
-    logout();
-  }
+	function signOut() {
+		setOpen(false);
+		/* Drop the session and stop. The navigation belongs to common/components/layout/AuthGuard.tsx,
+		 * whose guard already watches for exactly this ("no token in the app
+		 * shell → go to the sign-in page") and does it as a full document load,
+		 * which is required: the console and the sign-in page are separate
+		 * documents in the static export, and the business-first URL that reaches
+		 * the latter (/ctfi/login) exists only as a dev rewrite and a server-side
+		 * fallback that Next's client router knows nothing about. */
+		logout();
+	}
 
-  const initial = employee?.name ? employee.name.charAt(0).toUpperCase() : "—";
-  // Stays on for either kind of pending update, regardless of dismiss. Checking/acting on it
-  // happens only in Settings (DesktopVersionPanel) — this dropdown just surfaces the dot.
-  const waiting = upd === "available" || upd === "ready" || contentAvailable;
+	const offlineRing = useOfflineRing();
+	const syncing = useSyncingRing();
+	// the first download of the offline copy is a ring that fills up; later syncs just spin
+	const download = useDownloadProgress();
+	const percent = Math.round(download.fraction * 100);
+	const showProgress = desktop && download.active && download.initial;
+	const initial = employee?.name ? employee.name.charAt(0).toUpperCase() : "—";
+	// Stays on for either kind of pending update, regardless of dismiss. Checking/acting on it
+	// happens only in Settings (DesktopVersionPanel) — this dropdown just surfaces the dot.
+	const waiting = upd === "available" || upd === "ready" || contentAvailable;
 
-  return (
-    <div className="acct" ref={root}>
-      <button
-        type="button"
-        className="user"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => { setOpen((o) => !o); setBranchOpen(false); }}
-      >
-        <span className="av">
-          {initial}
-          {desktop && waiting && <span className="acct-badge" aria-label="Update available" />}
-        </span>
-        <span className="nm">
-          {employee?.name || "Not signed in"}
-          {branch.visible
-            ? <span className="acct-branch" title={`Viewing: ${branch.selectedName}`}>{branch.selectedName}</span>
-            : branch.ownBranchName
-            ? <span className="acct-branch" title={`Branch: ${branch.ownBranchName}`}>{branch.ownBranchName}</span>
-            : <small>{employee?.role || "No user session"}</small>}
-        </span>
-        <svg className="acct-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
+	return (
+		<div className="acct" ref={root}>
+			<button
+				type="button"
+				className="user"
+				aria-haspopup="menu"
+				aria-expanded={open}
+				onClick={() => { setOpen((o) => !o); setBranchOpen(false); }}
+			>
+				<span
+					className={`av${offlineRing ? " av-offline" : ""}${syncing && !showProgress ? " av-syncing" : ""}`}
+					title={showProgress ? `Downloading the offline copy: ${percent}%` : syncing ? "Syncing with the server…" : undefined}
+				>
+					{initial}
+					{showProgress && (
+						<svg className="av-progress" viewBox="0 0 40 40" role="progressbar" aria-label="Downloading the offline copy" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+							<circle className="av-progress-track" cx="20" cy="20" r="18" />
+							<circle className="av-progress-bar" cx="20" cy="20" r="18" strokeDasharray={PROGRESS_CIRCUMFERENCE} strokeDashoffset={PROGRESS_CIRCUMFERENCE * (1 - download.fraction)} />
+						</svg>
+					)}
+					{desktop && waiting && <span className="acct-badge" aria-label="Update available" />}
+				</span>
+				<span className="nm">
+					{employee?.name || "Not signed in"}
+					{/* With a branch selector, the branch the whole app is scoped to is
+						* kept in view (the role moves to the menu header); a branch-confined
+						* employee sees their own branch; with no branches at all
+						* (single-branch plan) — the role. */}
+					{branch.visible
+						? <span className="acct-branch" title={`Viewing: ${branch.selectedName}`}>{branch.selectedName}</span>
+						: branch.ownBranchName
+						? <span className="acct-branch" title={`Branch: ${branch.ownBranchName}`}>{branch.ownBranchName}</span>
+						: <small>{employee?.role || "No user session"}</small>}
+				</span>
+				<svg className="acct-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+					<path d="M6 9l6 6 6-6" />
+				</svg>
+			</button>
 
-      {open && (
-        <div className="acct-menu" role="menu">
-          <div className="acct-who">
-            <span className="av">{initial}</span>
-            <div>
-              <b>{employee?.name || "Not signed in"}</b>
-              <span>{[employee?.role, businessName].filter(Boolean).join(" · ")}</span>
-              {branch.visible && <span className="acct-branch">{branch.selectedName}</span>}
-              {!branch.visible && branch.ownBranchName && <span className="acct-branch">{branch.ownBranchName}</span>}
-            </div>
-          </div>
-          <div className="acct-sep" />
-          {branch.visible && (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="acct-item"
-                aria-expanded={branchOpen}
-                onClick={() => setBranchOpen((o) => !o)}
-                title="Viewing scope — narrows every page to one branch"
-              >
-                <span className="i"><Icon name="home" /></span>
-                <span className="lbl">Branch: {branch.selectedName}</span>
-                <span className={`acct-chev${branchOpen ? " up" : ""}`}><Icon name="chevronDown" /></span>
-              </button>
-              {branchOpen && (
-                <div className="acct-branches" role="group" aria-label="Branch">
-                  {[{ id: null as number | null, name: "All branches" }, ...branch.branches].map((b) => {
-                    const active = b.id === branch.selectedBranchId;
-                    return (
-                      <button
-                        key={b.id ?? "all"}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={active}
-                        className={`acct-item sub${active ? " ok" : ""}`}
-                        onClick={() => pickBranch(b.id)}
-                      >
-                        <span className="i">{active && <Icon name="check" />}</span>
-                        <span className="lbl">{b.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="acct-sep" />
-            </>
-          )}
-          <button type="button" role="menuitem" className="acct-item" onClick={() => openSettings()}>
-            <span className="i"><Icon name="gear" /></span>
-            <span className="lbl">Settings</span>
+			{open && (
+				<div className="acct-menu" role="menu">
+					<div className="acct-who">
+						<span className="av">{initial}</span>
+						<div>
+							<b>{employee?.name || "Not signed in"}</b>
+							<span>{[employee?.role, businessName].filter(Boolean).join(" · ")}</span>
+							{branch.visible && <span className="acct-branch">{branch.selectedName}</span>}
+							{!branch.visible && branch.ownBranchName && <span className="acct-branch">{branch.ownBranchName}</span>}
+						</div>
+					</div>
+					<div className="acct-sep" />
+					{branch.visible && (
+						<>
+							<button
+								type="button"
+								role="menuitem"
+								className="acct-item"
+								aria-expanded={branchOpen}
+								onClick={() => setBranchOpen((o) => !o)}
+								title="Viewing scope — narrows every page to one branch"
+							>
+								<span className="i"><Icon name="home" /></span>
+								<span className="lbl">Branch: {branch.selectedName}</span>
+								<span className={`acct-chev${branchOpen ? " up" : ""}`}><Icon name="chevronDown" /></span>
+							</button>
+							{branchOpen && (
+								<div className="acct-branches" role="group" aria-label="Branch">
+									{[{ id: null as number | null, name: "All branches" }, ...branch.branches].map((b) => {
+										const active = b.id === branch.selectedBranchId;
+										return (
+											<button
+												key={b.id ?? "all"}
+												type="button"
+												role="menuitemradio"
+												aria-checked={active}
+												className={`acct-item sub${active ? " ok" : ""}`}
+												onClick={() => pickBranch(b.id)}
+											>
+												<span className="i">{active && <Icon name="check" />}</span>
+												<span className="lbl">{b.name}</span>
+											</button>
+										);
+									})}
+								</div>
+							)}
+							<div className="acct-sep" />
+						</>
+					)}
+					{desktop && (
+						<button type="button" role="menuitem" className="acct-item" disabled={syncing} onClick={() => { void drain("manual"); }}>
+							<span className="i"><Icon name="refresh" /></span>
+							<span className="lbl">{syncing ? "Syncing…" : "Sync now"}</span>
+						</button>
+					)}
+					<button type="button" role="menuitem" className="acct-item" onClick={() => openSettings()}>
+						<span className="i"><Icon name="gear" /></span>
+						<span className="lbl">Settings</span>
+					</button>
+          <button type="button" role="menuitem" className="acct-item" onClick={() => { setOpen(false); navigate("support"); }}>
+            <span className="i"><Icon name="headset" /></span>
+            <span className="lbl">Support</span>
           </button>
-          <div className="acct-sep" />
-          <button type="button" role="menuitem" className="acct-item danger" onClick={signOut}>
-            <span className="i"><Icon name="logout" /></span>
-            <span className="lbl">Sign out</span>
-          </button>
-        </div>
-      )}
-    </div>
-  );
+					<div className="acct-sep" />
+					<button type="button" role="menuitem" className="acct-item danger" onClick={signOut}>
+						<span className="i"><Icon name="logout" /></span>
+						<span className="lbl">Sign out</span>
+					</button>
+				</div>
+			)}
+		</div>
+	);
 }

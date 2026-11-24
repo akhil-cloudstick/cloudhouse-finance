@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ type BusinessProfile struct {
 	Policy        string `json:"policy"`
 	KMLRegNo      string `json:"kml_reg_no"`
 	ContactPhone  string `json:"contact_phone"`
+	SupportEmail  string `json:"support_email"`
 	AddressLine   string `json:"address_line"`
 	LenderAge     string `json:"lender_age"`
 	LenderPAN     string `json:"lender_pan"`
@@ -41,6 +43,7 @@ type BusinessProfileInput struct {
 	LockupTagline string
 	KMLRegNo      string
 	ContactPhone  string
+	SupportEmail  string
 	AddressLine   string
 	LenderAge     string
 	LenderPAN     string
@@ -54,6 +57,7 @@ type updateBusinessProfileRequest struct {
 	LockupTagline string `json:"lockup_tagline"`
 	KMLRegNo      string `json:"kml_reg_no"`
 	ContactPhone  string `json:"contact_phone"`
+	SupportEmail  string `json:"support_email"`
 	AddressLine   string `json:"address_line"`
 	LenderAge     string `json:"lender_age"`
 	LenderPAN     string `json:"lender_pan"`
@@ -69,6 +73,7 @@ func businessProfileOf(t *commonModels.Tenant) *BusinessProfile {
 		Policy:        commonModels.PolicyOrDefault(t.Policy),
 		KMLRegNo:      t.KMLRegNo,
 		ContactPhone:  t.ContactPhone,
+		SupportEmail:  t.SupportEmail,
 		AddressLine:   t.AddressLine,
 		LenderAge:     t.LenderAge,
 		LenderPAN:     t.LenderPAN,
@@ -112,7 +117,7 @@ func NormalizeContactPhone(raw string, required bool) (string, error) {
 			continue
 		}
 		if !contactPhonePattern.MatchString(p) {
-			return "", NewBadRequest("contact phone must be one or more valid numbers separated by commas, e.g. +91 9000012345")
+			return "", NewBadRequest("contact phone is not valid")
 		}
 		out = append(out, p)
 	}
@@ -131,6 +136,12 @@ func updateBusinessProfile(ctx context.Context, in BusinessProfileInput, by acto
 	if err != nil {
 		return nil, err
 	}
+	supportEmail := strings.TrimSpace(in.SupportEmail)
+	if supportEmail != "" {
+		if _, perr := mail.ParseAddress(supportEmail); perr != nil || len(supportEmail) > 160 {
+			return nil, NewBadRequest("support email is not a valid email address")
+		}
+	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		return nil, NewBadRequest("business name is required")
@@ -143,6 +154,7 @@ func updateBusinessProfile(ctx context.Context, in BusinessProfileInput, by acto
 	t.LockupTagline = strings.TrimSpace(in.LockupTagline)
 	t.KMLRegNo = strings.TrimSpace(in.KMLRegNo)
 	t.ContactPhone = contactPhone
+	t.SupportEmail = supportEmail
 	t.AddressLine = strings.TrimSpace(in.AddressLine)
 	if policy == commonModels.PolicyGML {
 		age, pan, aadhaar, lerr := LenderIdentity(policy, in.LenderAge, in.LenderPAN, in.LenderAadhaar)
@@ -190,6 +202,7 @@ func UpdateBusinessProfile(c echo.Context) error {
 		LockupTagline: req.LockupTagline,
 		KMLRegNo:      req.KMLRegNo,
 		ContactPhone:  req.ContactPhone,
+		SupportEmail:  req.SupportEmail,
 		AddressLine:   req.AddressLine,
 		LenderAge:     req.LenderAge,
 		LenderPAN:     req.LenderPAN,

@@ -14,90 +14,98 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 // Which field a server message is about, by its wording; anything else stays on the general line.
 const SERVER_FIELDS: Record<string, RegExp> = {
-  expenses: /expense/i,
-  amount: /sale amount/i,
-  payments: /breakdown|bank|cash|upi|cheque/i,
+	expenses: /expense/i,
+	amount: /sale amount/i,
+	payments: /breakdown|bank|cash|upi|cheque/i,
 };
 
 type RecordSaleModalContentProps = { loan: LoanView; onSaved: (rec: AuctionRecordView) => void; onError?: () => void };
 
 export function RecordSaleModalContent({ loan, onSaved, onError }: RecordSaleModalContentProps) {
-  const { closeModal } = useModal();
-  const toast = useToast();
-  const [amount, setAmount] = useState("");
-  const [expenses, setExpenses] = useState("");
-  const [err, setErr] = useState("");
-  const [fe, setFe] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
-  const [remaining, setRemaining] = useState(0);
-  const [bankId, setBankId] = useState<number | undefined>(undefined);
+	const { closeModal } = useModal();
+	const toast = useToast();
+	const [amount, setAmount] = useState("");
+	const [expenses, setExpenses] = useState("");
+	const [err, setErr] = useState("");
+	const [fe, setFe] = useState<Record<string, string>>({});
+	const [saving, setSaving] = useState(false);
+	const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
+	const [remaining, setRemaining] = useState(0);
+	const [bankId, setBankId] = useState<number | undefined>(undefined);
 
-  const sale = +amount || 0;
-  const exp = +expenses || 0;
-  const preview = sale - exp - loan.totalOutstandingBalance;
+	const sale = +amount || 0;
+	const exp = +expenses || 0;
+	const preview = sale - exp - loan.totalOutstandingBalance;
 
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
 
-  async function save() { return singleFlight("auction-modal:save:3", async () => {
-    setErr(""); setFe({});
-    if (!sale || sale <= 0) { fail("amount", "Please enter the sale amount."); return; }
-    if (exp > sale) { fail("expenses", "Auction expenses cannot be more than the sale amount."); return; }
-    if (Math.abs(remaining) >= 0.01) { fail("payments", "The payment breakdown must add up to the sale amount."); return; }
-    if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { fail("payments", "Pick the bank the proceeds were received in."); return; }
-    setSaving(true);
-    try {
-      const rec = await recordAuctionSale(loan.numericId, sale, exp, { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId });
-      onSaved(rec);
-      closeModal();
-      toast(`Auction sale recorded for ${loan.id}`);
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Could not record the sale — try again.";
-      const field = fieldForMessage(msg, SERVER_FIELDS);
-      if (field) fail(field, msg); else { setFe({}); setErr(msg); }
-      onError?.();
-    } finally {
-      setSaving(false);
-    }
-  }); }
+	async function save() { return singleFlight("auction-modal:save:3", async () => {
+		setErr(""); setFe({});
+		// Every problem is shown at once, each beside its own field.
+		const errors: Record<string, string> = {};
+		if (!sale || sale <= 0) errors["amount"] ??= "Please enter the sale amount.";
+		if (exp > sale) errors["expenses"] ??= "Auction expenses cannot be more than the sale amount.";
+		if (Math.abs(remaining) >= 0.01) errors["payments"] ??= "The payment breakdown must add up to the sale amount.";
+		if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) errors["payments"] ??= "Pick the bank the proceeds were received in.";
+		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+		setSaving(true);
+		try {
+			const rec = await recordAuctionSale(loan.numericId, sale, exp, { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, bankId });
+			onSaved(rec);
+			closeModal();
+			toast(`Auction sale recorded for ${loan.id}`);
+		} catch (e) {
+			const msg = e instanceof ApiError ? e.message : "Could not record the sale — try again.";
+			const field = fieldForMessage(msg, SERVER_FIELDS);
+			if (field) fail(field, msg); else { setFe({}); setErr(msg); }
+			onError?.(); // see IssueNoticeModalContent's onError comment above
+		} finally {
+			setSaving(false);
+		}
+	}); }
 
-  return (
-    <>
-      <div className="hd"><h3>Record Auction Sale — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
-        <div className="notice" style={{ marginBottom: 16 }}>
-          <Icon name="gavel" /> {loan.customerName} · outstanding <b>{fmt(loan.totalOutstandingBalance)}</b>
-        </div>
-        <div className="frow c2">
-          <div className={fe.amount ? "has-err" : undefined}><label className="f">Sale Amount (₹) *</label><input className="inp" type="number" min={1} value={amount} onChange={(e) => { setAmount(e.target.value); setFe((cur) => ({ ...cur, amount: "" })); }} /><FieldError msg={fe.amount} /></div>
-          <div className={fe.expenses ? "has-err" : undefined}><label className="f">Auction Expenses (₹)</label><input className="inp" type="number" min={0} value={expenses} onChange={(e) => { setExpenses(e.target.value); setFe((cur) => ({ ...cur, expenses: "" })); }} /><FieldError msg={fe.expenses} /></div>
-        </div>
-        <div className={fe.payments ? "has-err" : undefined}>
-          <div className="frow">
-            <SplitPaymentInput totalAmount={Math.max(0, sale)} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); setFe((cur) => (cur.payments ? { ...cur, payments: "" } : cur)); }} />
-          </div>
-          <FieldError msg={fe.payments} />
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontWeight: 600, color: preview >= 0 ? "var(--green)" : "var(--red)" }}>
-          <span>{preview >= 0 ? "Surplus" : "Shortfall"}</span><span>{fmt(Math.abs(preview))}</span>
-        </div>
-        {/* .notice is display:flex — text must sit inside ONE child element or each <b> becomes its own column. */}
-        {sale > 0 && (
-          <div className="notice" style={{ fontSize: 12.5 }}>
-            <Icon name="shield" />
-            <span>
-              {preview >= 0
-                ? (preview > 0.01 ? <>Amount payable <b>{fmt(preview)}</b></> : <>Loan will be closed</>)
-                : <>Balance owing <b>{fmt(Math.abs(preview))}</b></>}
-            </span>
-          </div>
-        )}
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
-      </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Sale"}</button>
-      </div>
-    </>
-  );
+	return (
+		<>
+			<div className="hd"><h3>Record Auction Sale — {loan.id}</h3><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll">
+				<div className="notice" style={{ marginBottom: 16 }}>
+					<Icon name="gavel" /> {loan.customerName} · outstanding <b>{fmt(loan.totalOutstandingBalance)}</b>
+				</div>
+				<div className="frow c2">
+					<div className={fe.amount ? "has-err" : undefined}><label className="f">Sale Amount (₹) *</label><input className="inp" type="number" min={1} value={amount} onChange={(e) => { setAmount(e.target.value); setFe((cur) => ({ ...cur, amount: "" })); }} /><FieldError msg={fe.amount} /></div>
+					<div className={fe.expenses ? "has-err" : undefined}><label className="f">Auction Expenses (₹)</label><input className="inp" type="number" min={0} value={expenses} onChange={(e) => { setExpenses(e.target.value); setFe((cur) => ({ ...cur, expenses: "" })); }} /><FieldError msg={fe.expenses} /></div>
+				</div>
+				<div className={fe.payments ? "has-err" : undefined}>
+					<div className="frow">
+						<SplitPaymentInput totalAmount={Math.max(0, sale)} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); setFe((cur) => (cur.payments ? { ...cur, payments: "" } : cur)); }} />
+					</div>
+					<FieldError msg={fe.payments} />
+				</div>
+				<div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontWeight: 600, color: preview >= 0 ? "var(--green)" : "var(--red)" }}>
+					<span>{preview >= 0 ? "Surplus" : "Shortfall"}</span><span>{fmt(Math.abs(preview))}</span>
+				</div>
+				{/* Spell out the consequence before the click. The two outcomes differ
+					* sharply — one closes the loan, the other keeps a real balance owing
+					* and escalates it to management — and the amount entered here is what
+					* decides which, so it should not be a surprise afterwards. */}
+				{/* .notice is display:flex, so all text must sit inside ONE child
+					* element — otherwise each <b> becomes its own flex item and the
+					* amounts get pulled out into separate columns mid-sentence. */}
+				{sale > 0 && (
+					<div className="notice" style={{ fontSize: 12.5 }}>
+						<Icon name="shield" />
+						<span>
+							{preview >= 0
+								? (preview > 0.01 ? <>Amount payable <b>{fmt(preview)}</b></> : <>Loan will be closed</>)
+								: <>Balance owing <b>{fmt(Math.abs(preview))}</b></>}
+						</span>
+					</div>
+				)}
+			</div>
+			<div className="ft">
+					{err && <span className="ft-err" role="alert">{err}</span>}
+				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Record Sale"}</button>
+			</div>
+		</>
+	);
 }

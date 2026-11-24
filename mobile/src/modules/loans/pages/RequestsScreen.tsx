@@ -1,18 +1,22 @@
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import React, { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   AccRow,
   Buffering,
   C,
-  Field,
-  FilterChipRow,
-  FiltersBar,
+  GroupedFilter,
+  emptyGroupedFilter,
+  gfDate,
+  gfValues,
+  groupedFilterCount,
+  type GFSection,
+  type GroupedFilterValue,
   FlatHeader,
-  PrimaryButton,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   ServerFlatList,
   Sheet,
   SheetListItem,
@@ -28,7 +32,8 @@ import {
   type DocLang,
 } from "@/modules/loans/utils/loanPrint";
 import { ApiError } from "@/common/services/httpClient";
-import { dmy } from "@/common/utils/format";
+import { dmy, todayISO } from "@/common/utils/format";
+import { invalidateLoan } from "@/common/components/loanSheetKit";
 import type { LoanRequest } from "@/modules/loans/types/loan-types";
 import { useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { ExtensionReviewPanel } from "@/modules/loans/components/ExtensionReviewPanel";
@@ -40,11 +45,15 @@ import { useAuth } from "@/common/providers/AuthProvider";
 // searched (`q`) and filtered (`status`, `type`) server-side; "Review
 // Request" raises the same review panels the loan detail screen uses.
 
-const STATUSES = ["All", "Pending", "Approved", "Rejected"] as const;
-type Status = (typeof STATUSES)[number];
-const TYPES = ["All", "Extension", "Release"] as const;
-type ReqType = (typeof TYPES)[number];
-type Filters = { status?: string; type?: string };
+// Status and type each take any number of ticked values; none ticked means no restriction.
+const STATUSES = ["Pending", "Approved", "Rejected"] as const;
+const TYPES = ["Extension", "Release"] as const;
+type Filters = { status?: string; type?: string; from?: string; to?: string };
+const FILTER_SECTIONS: GFSection[] = [
+  { kind: "static", key: "status", label: "Status", options: STATUSES.map((v) => ({ value: v, label: v })) },
+  { kind: "static", key: "type", label: "Type", options: TYPES.map((v) => ({ value: v, label: v })) },
+  { kind: "date", key: "date", label: "Requested date" },
+];
 
 export default function RequestsScreen() {
   const router = useRouter();
@@ -53,10 +62,10 @@ export default function RequestsScreen() {
   const canDecide = can("Loan_Management", "can_update_loan");
   const params = useLocalSearchParams<{ requestId?: string; loanId?: string }>();
 
-  const [status, setStatus] = usePersistedState<Status>("requests:status", "All");
-  const [type, setType] = usePersistedState<ReqType>("requests:type", "All");
-  const [draft, setDraft] = useState({ status, type });
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("requests:filters", emptyGroupedFilter());
+  const status = gfValues(fv, "status");
+  const type = gfValues(fv, "type");
+  const { from, to } = gfDate(fv, "date");
   // Holds just the id — the sheet derives the request live from the list (or
   // the deep-link lookup) so it always shows the CURRENT stage after a save.
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -65,7 +74,7 @@ export default function RequestsScreen() {
   const [downloadFor, setDownloadFor] = useState<LoanRequest | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
 
-  const filters: Filters = { status: status === "All" ? undefined : status, type: type === "All" ? undefined : type.toLowerCase() };
+  const filters: Filters = { status: status.length ? status.join(",") : undefined, type: type.length ? type.map((t) => t.toLowerCase()).join(",") : undefined, from: from || undefined, to: to || undefined };
   const list = useServerList<LoanRequest, Filters>({ key: ["loanRequests", "list"], filters, fetchPage: (p) => listLoanRequestsPage(p) });
 
   // ?requestId=<id> (dashboard "Needs attention") opens that request's review.
@@ -76,13 +85,19 @@ export default function RequestsScreen() {
   }, [deepId]);
   // There is no GET /loans/requests/:id — page through (server-side, 50 at a
   // time) until the request turns up, narrowed by loanId when provided.
+  // Also used when the opened request drops out of the (status-filtered) list after an approve/reject,
+  // so the open sheet keeps showing it (fresh from the server, or the last copy seen meanwhile).
+  const fromList = selectedId != null ? (list.items.find((r) => r.id === selectedId) ?? null) : null;
+  // Snapshot of the request as it was when opened (fallback until the fresh copy arrives).
+  const [lastSeen, setLastSeen] = useState<LoanRequest | null>(null);
+  const lookupLoanId = deepLoanId ?? (lastSeen && lastSeen.id === selectedId ? lastSeen.loanId : undefined);
   const deep = useQuery({
-    queryKey: ["loanRequests", "deep", deepId, deepLoanId],
-    enabled: !!deepId && selectedId === deepId,
+    queryKey: ["loanRequests", "deep", selectedId, lookupLoanId],
+    enabled: selectedId != null && !fromList,
     queryFn: async () => {
       for (let offset = 0; offset < 1000; offset += 50) {
-        const page = await listLoanRequestsPage({ loanId: deepLoanId, limit: 50, offset });
-        const hit = (page.items ?? []).find((r) => r.id === deepId);
+        const page = await listLoanRequestsPage({ loanId: lookupLoanId, limit: 50, offset });
+        const hit = (page.items ?? []).find((r) => r.id === selectedId);
         if (hit) return hit;
         if (!page.hasMore) break;
       }
@@ -90,7 +105,7 @@ export default function RequestsScreen() {
     },
   });
 
-  const selected = (selectedId != null ? list.items.find((r) => r.id === selectedId) : null) ?? (selectedId != null && deep.data?.id === selectedId ? deep.data : null);
+  const selected = fromList ?? (selectedId != null && deep.data?.id === selectedId ? deep.data : null) ?? (selectedId != null && lastSeen?.id === selectedId ? lastSeen : null);
 
   // Release review needs the loan's live outstanding balance.
   const loanForSelected = useQuery({
@@ -129,29 +144,26 @@ export default function RequestsScreen() {
   function refreshAfterSave() {
     qc.invalidateQueries({ queryKey: ["loanRequests"] });
     qc.invalidateQueries({ queryKey: ["loan"] });
+    if (selected) invalidateLoan(qc, selected.loanId);
   }
 
-  const count = (status !== "All" ? 1 : 0) + (type !== "All" ? 1 : 0);
-  const summary = `${status === "All" && type === "All" ? "All requests" : [status !== "All" ? status : null, type !== "All" ? type : null].filter(Boolean).join(" · ")} · ${list.total ?? list.items.length}`;
+  const count = groupedFilterCount(fv);
 
   return (
-    <Screen header={<FlatHeader title="Requests" subtitle="Extensions & release" />}>
-      <ServerFlatList
+    <Screen header={<FlatHeader title="Extension & Release" subtitle="Loan extensions & gold release" />}>
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(r) => String(r.id)}
         emptyText={list.search || count ? "No requests match your search." : "No extension or release requests yet."}
         header={
           <>
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search loan no, customer, phone" style={{ paddingTop: 12, paddingBottom: 8 }} />
-            <FiltersBar
-              count={count}
-              summary={summary}
-              style={{ marginTop: 0, marginBottom: 14 }}
-              onPress={() => {
-                setDraft({ status, type });
-                setFilterOpen(true);
-              }}
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search loan no, customer, phone"
+              style={{ paddingTop: 12, paddingBottom: 14 }}
+              filter={<GroupedFilter title="Filter requests" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />}
             />
             {listError ? <Txt style={{ fontSize: 12, color: C.red, paddingHorizontal: 18, marginBottom: 10 }}>{listError}</Txt> : null}
           </>
@@ -173,13 +185,24 @@ export default function RequestsScreen() {
                     { k: "Type", v: r.isPartial ? "Partial release" : "Full release" },
                     { k: "Date", v: dmy(r.requestedAt) },
                   ];
+          const paymentOverdue = !!r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && r.paymentDueDate.slice(0, 10) < todayISO();
           return (
             <AccRow
+              // iPad and bigger: the same columns as the web Extension & Release table.
+              cells={[
+                { h: "Type", v: r.type, chip: true, tone: "info", sub: r.type === "Release" && r.isPartial ? "Partial" : undefined, flex: 0.9 },
+                { h: "Loan", v: r.loan?.loanNumber ?? `#${r.loanId}`, flex: 0.9 },
+                { h: "Customer", v: r.loan?.customer?.name ?? "—", flex: 1.3 },
+                { h: "Detail", v: r.detail || "—", flex: 1.6 },
+                { h: "Date", v: dmy(r.requestedAt) },
+                { h: "Status", v: paymentOverdue ? "Payment Overdue" : r.status, chip: true, tone: paymentOverdue ? "overdue" : undefined },
+              ]}
               defaultOpen={i === 0}
               id={r.loan?.loanNumber ?? `#${r.loanId}`}
               name={r.type}
               sub={r.loan?.customer?.name ?? "—"}
-              status={r.status}
+              status={paymentOverdue ? "Payment Overdue" : r.status}
+              statusTone={paymentOverdue ? "overdue" : undefined}
               details={details}
               actions={
                 approvedRelease
@@ -190,31 +213,14 @@ export default function RequestsScreen() {
                         disabled: downloading !== null,
                         onPress: () => setDownloadFor(r),
                       },
-                      { label: "View", onPress: () => setSelectedId(r.id) },
+                      { label: "View", onPress: () => { setLastSeen(r); setSelectedId(r.id); } },
                     ]
-                  : [{ label: "Review Request", primary: true, onPress: () => setSelectedId(r.id) }]
+                  : [{ label: "Review Request", primary: true, onPress: () => { setLastSeen(r); setSelectedId(r.id); } }]
               }
             />
           );
         }}
       />
-
-      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Requests" maxHeightPct={60}>
-        <Field label="Status">
-          <FilterChipRow options={STATUSES} value={draft.status} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
-        </Field>
-        <Field label="Type">
-          <FilterChipRow options={TYPES} value={draft.type} onChange={(v) => setDraft((d) => ({ ...d, type: v }))} />
-        </Field>
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setStatus(draft.status);
-            setType(draft.type);
-            setFilterOpen(false);
-          }}
-        />
-      </Sheet>
 
       <Sheet visible={!!downloadFor} onClose={() => setDownloadFor(null)} title={downloadFor?.isPartial ? "Partial Release Receipt" : "Release Agreement"} maxHeightPct={50}>
         {downloadFor

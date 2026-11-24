@@ -1,13 +1,30 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pressable, View } from "react-native";
-import { C, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt } from "@/common/components/ui";
+import { AsyncSelect, C, ConfirmSheet, DateField, Field, FieldRow, Input, PIcon, PrimaryButton, SectionTitle, Sheet, Txt, toast } from "@/common/components/ui";
+import { checkBorrowerIdentity, getInvestor, getInvestorAadhaarFull, sameIdentityMatches, type SameIdentityMatch } from "@/modules/investments/services/investorService";
+import { FieldErr } from "@/common/components/ErrorText";
+import { useShowBranch } from "@/common/hooks/use-branch-switch";
+import { listBranchesPage } from "@/modules/branches/services/branchService";
 import { UploadField } from "@/common/components/UploadField";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { createCustomer, updateCustomer } from "@/modules/customers/services/customerService";
 import { type CustomerInput, type Customer } from "@/modules/customers/types/customer-types";
 import { ApiError } from "@/common/services/httpClient";
 import { todayISO } from "@/common/utils/format";
+
+// Same checks as web common/utils/kyc.ts.
+const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/;
+const stripDigits = (v: string) => v.replace(/\d/g, "");
+// Live PAN check, per keystroke: names the first character out of order (5 letters, 4 digits, 1 letter).
+function panLiveError(value: string): string {
+  const v = value.toUpperCase();
+  for (let i = 0; i < v.length && i < 10; i++) {
+    const wantLetter = i < 5 || i === 9;
+    if (!(wantLetter ? /[A-Z]/.test(v[i]) : /\d/.test(v[i]))) return "Format: ABCDE1234F";
+  }
+  return "";
+}
 
 // Register / Edit Customer (prototype #register-customer-modal) — one sheet
 // for both. Same field set, validation and payload as the old
@@ -65,6 +82,10 @@ export function CustomerFormSheet({
   const qc = useQueryClient();
   const { employee } = useAuth();
   const editing = !!customer;
+  // Same rule as the web form: the Branch picker is for cross-branch roles on a multi-branch plan, and is
+  // required there (the app has no global branch selector).
+  const showBranch = useShowBranch();
+  const [branch, setBranch] = useState<{ id: number; name: string } | null>(null);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -90,6 +111,10 @@ export function CustomerFormSheet({
   const [place, setPlace] = useState("");
   const [pinCode, setPinCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
+  // Set once the user confirms the person is also an existing investor: the form is then filled from that investor.
+  const [sameConfirmed, setSameConfirmed] = useState(false);
+  const askedRef = useRef(new Set<string>());
 
   // Seed (edit) or clear (register) every time the sheet opens.
   useEffect(() => {
@@ -97,6 +122,7 @@ export function CustomerFormSheet({
     const c = customer;
     const x = (c ?? {}) as CustomerExtras;
     setName(c?.name ?? "");
+    setBranch(c?.branchId ? { id: c.branchId, name: c.branch?.name ?? "" } : null);
     setPhone(c?.phone ?? "");
     setDob(isoDate(c?.dob));
     setAddress(c?.address ?? "");
@@ -118,11 +144,83 @@ export function CustomerFormSheet({
     setPinCode(x.pinCode ?? "");
     setShowMore(!!(x.age || x.fatherName || x.district || x.taluk || x.village || x.place || x.pinCode));
     setError(null);
-  }, [visible, customer]);
+    setTried(false);
+    setSameConfirmed(false);
+    askedRef.current.clear();
+    // Seed only when the sheet opens or the record changes — not on every new object identity (would wipe typing).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, customer?.id]);
 
   const phoneOk = /^\d{10}$/.test(phone.trim());
   const aadhaarOk = !aadhaar || /^\d{12}$/.test(aadhaar);
-  const canSave = !!name.trim() && phoneOk && aadhaarOk;
+  const panOk = !pan.trim() || PAN_RE.test(pan.trim().toUpperCase());
+  const panLive = panLiveError(pan);
+  const nameOk = name.trim().length >= 3;
+  // A server message about one field is shown under that field, not at the bottom of the sheet.
+  const serverPanErr = error && /\bpan\b/i.test(error) ? error : null;
+  const serverAadhaarErr = !serverPanErr && error && /aadhaar/i.test(error) ? error : null;
+  const serverPhoneErr = !serverPanErr && !serverAadhaarErr && error && /^(?!.*nominee).*(phone|mobile)/i.test(error) ? error : null;
+  const bottomError = serverPanErr || serverAadhaarErr || serverPhoneErr ? null : error;
+  // Server messages that are not about a field are raised as a toast.
+  useEffect(() => { if (bottomError) toast.error(bottomError); }, [bottomError]);
+  const canSave = nameOk && phoneOk && aadhaarOk && panOk && (!showBranch || !!branch);
+
+  // Matches of a "same person?" question; only an existing investor counts. "Yes" fills the form from that investor.
+  const [dup, setDup] = useState<SameIdentityMatch[] | null>(null);
+
+  // Fills the form with what the investor already has on file; the rest is left for staff to complete.
+  async function prefillFromInvestor(id: number) {
+    try {
+      const i = (await getInvestor(id)) as Customer & CustomerExtras;
+      setName(i.name || "");
+      setPhone(i.phone || "");
+      if (i.address) setAddress(i.address);
+      if (i.pan) setPan(i.pan);
+      if (isoDate(i.dob)) { setDob(isoDate(i.dob)); setAge(ageOf(isoDate(i.dob))); }
+      if (i.nomineeName) setNomineeName(i.nomineeName);
+      if (i.nomineeRelation) setNomineeRelation(i.nomineeRelation);
+      if (i.nomineePhone) setNomineePhone(i.nomineePhone);
+      if (i.fatherName) setFatherName(i.fatherName);
+      if (i.district) setDistrict(i.district);
+      if (i.taluk) setTaluk(i.taluk);
+      if (i.village) setVillage(i.village);
+      if (i.place) setPlace(i.place);
+      if (i.pinCode) setPinCode(i.pinCode);
+      if (i.branchId && showBranch) setBranch({ id: i.branchId, name: i.branch?.name ?? `Branch ${i.branchId}` });
+      getInvestorAadhaarFull(id).then((a) => { if (a) setAadhaar(a); }).catch(() => {});
+      setError(null);
+      setSameConfirmed(true);
+      toast.success("Investor details filled in", "Please complete the remaining fields.");
+    } catch {
+      toast.error("Could not load the investor's details", "Try again.");
+    }
+  }
+
+  // As soon as a complete phone number, PAN or Aadhaar is typed, ask whether it already belongs to an investor,
+  // so the "same person?" question comes up while filling the form and not only when Register is pressed.
+  useEffect(() => {
+    if (!visible || editing || sameConfirmed) return;
+    const p = phone.trim();
+    const pn = pan.trim().toUpperCase();
+    const a = aadhaar.trim();
+    const phoneFull = /^\d{10}$/.test(p);
+    const panFull = PAN_RE.test(pn);
+    const aadhaarFull = /^\d{12}$/.test(a);
+    if (!phoneFull && !panFull && !aadhaarFull) return;
+    const key = `${phoneFull ? p : ""}|${panFull ? pn : ""}|${aadhaarFull ? a : ""}`;
+    if (askedRef.current.has(key)) return;
+    let live = true;
+    const t = setTimeout(() => {
+      checkBorrowerIdentity({ phone: phoneFull ? p : "", pan: panFull ? pn : "", aadhaar: aadhaarFull ? a : "" })
+        .then((matches) => {
+          if (!live) return;
+          askedRef.current.add(key);
+          if (matches.some((m) => m.source === "investor")) setDup(matches);
+        })
+        .catch(() => { /* a convenience only — Register makes the same check on the server */ });
+    }, 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [visible, editing, sameConfirmed, phone, pan, aadhaar]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -131,7 +229,7 @@ export function CustomerFormSheet({
         phone: phone.trim(),
         dob: dob.trim() || undefined,
         address: address.trim() || undefined,
-        branchId: customer ? customer.branchId : employee!.branchId,
+        branchId: branch?.id ?? (customer ? customer.branchId : employee!.branchId),
         pan: pan.trim().toUpperCase() || undefined,
         aadhaar: aadhaar.trim() || undefined,
         nomineeName: nomineeName.trim() || undefined,
@@ -159,7 +257,7 @@ export function CustomerFormSheet({
           bankIfsc: x.bankIfsc || undefined,
         });
       }
-      return createCustomer(body);
+      return createCustomer(body, sameConfirmed);
     },
     onSuccess: (c) => {
       qc.invalidateQueries({ queryKey: ["customers"] });
@@ -167,24 +265,48 @@ export function CustomerFormSheet({
       onSaved?.(c);
       onClose();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : editing ? "Could not update customer." : "Could not register customer."),
+    onError: (err) => {
+      // The phone, PAN or Aadhaar is already on an investor: nothing is added until the user confirms.
+      const matches = editing ? null : sameIdentityMatches(err);
+      if (matches?.some((m) => m.source === "investor")) return setDup(matches);
+      setError(err instanceof ApiError ? err.message : editing ? "Could not update customer." : "Could not register customer.");
+    },
   });
 
   return (
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Customer" : "Register Customer"} maxHeightPct={88}>
+      <SectionTitle flush>Personal Details</SectionTitle>
       <Field label="Full Name *">
-        <Input placeholder="Customer's full name" value={name} onChangeText={setName} />
+        <Input placeholder="Customer's full name" value={name} onChangeText={(t) => setName(stripDigits(t))} />
+        {(name.length > 0 || tried) && !nameOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Enter the customer&apos;s full name (at least 3 characters).</Txt> : null}
       </Field>
       <Field label="Mobile Number *">
-        <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => setPhone(digits(t))} />
+        <Input placeholder="10-digit mobile number" keyboardType="number-pad" maxLength={10} value={phone} onChangeText={(t) => { setPhone(digits(t)); setError(null); }} />
+        {serverPhoneErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{serverPhoneErr}</Txt> : tried && !phoneOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Enter a valid 10-digit mobile number.</Txt> : null}
       </Field>
+      {showBranch ? (
+        <AsyncSelect<{ id: number; name: string; code?: string }>
+          label="Branch *"
+          placeholder="Select branch…"
+          queryKey={["branches", "register-customer"]}
+          fetcher={async (q) => (await listBranchesPage({ q: q || undefined, active: true, limit: 20, offset: 0 })).items ?? []}
+          selectedLabel={branch?.name ?? ""}
+          onSelect={(b) => setBranch({ id: b.id, name: b.name })}
+          keyOf={(b) => b.id}
+          renderItem={(b) => ({ title: b.name, sub: b.code })}
+        />
+      ) : null}
+      <FieldErr m={tried && showBranch && !branch ? "Select a branch." : undefined} />
       <DateField label="Date of Birth" value={dob} onChange={(v) => { setDob(v); setAge(ageOf(v)); }} max={todayISO()} clearable />
+      <Field label="Age">
+        <Input placeholder="Auto from date of birth" editable={false} value={ageOf(dob) || age} />
+      </Field>
       <Field label="Address">
         <Input placeholder="Full address" value={address} onChangeText={setAddress} />
       </Field>
       <FieldRow>
         <Field label="PAN Number">
-          <Input placeholder="ABCDE1234F" autoCapitalize="characters" maxLength={10} value={pan} onChangeText={setPan} />
+          <Input placeholder="ABCDE1234F" autoCapitalize="characters" maxLength={10} value={pan} onChangeText={(t) => { setPan(t.toUpperCase().replace(/[^A-Z0-9]/g, "")); setError(null); }} />
         </Field>
         <Field label="Aadhaar Number">
           <Input
@@ -196,10 +318,13 @@ export function CustomerFormSheet({
           />
         </Field>
       </FieldRow>
+      {panLive ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>{panLive}</Txt> : !panOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>Please enter a valid PAN (e.g. ABCDE1234F).</Txt> : null}
+      {serverPanErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>{serverPanErr}</Txt> : null}
       {!aadhaarOk ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>Aadhaar must be 12 digits.</Txt> : null}
+      {serverAadhaarErr ? <Txt style={{ fontSize: 11, color: C.red, marginTop: -6, marginBottom: 10 }}>{serverAadhaarErr}</Txt> : null}
 
       <SectionTitle flush style={{ marginTop: 16 }}>
-        {editing ? "Documents" : "Documents (optional)"}
+        Documents
       </SectionTitle>
       <UploadField label="Customer Photograph" value={photoUrl} onChange={setPhotoUrl} allowPdf={false} emptyText="Tap to add photo" />
       <UploadField label="Identity Proof" value={identityProofUrl} onChange={setIdentityProofUrl} />
@@ -207,16 +332,16 @@ export function CustomerFormSheet({
       <UploadField label="Supporting KYC Document" value={kycDocumentUrl} onChange={setKycDocumentUrl} />
 
       <SectionTitle flush style={{ marginTop: 16 }}>
-        Nominee Information (optional)
+        Nominee (optional)
       </SectionTitle>
       <Field label="Nominee Name">
-        <Input placeholder="Full name" value={nomineeName} onChangeText={setNomineeName} />
+        <Input placeholder="Full name" value={nomineeName} onChangeText={(t) => setNomineeName(stripDigits(t))} />
       </Field>
       <FieldRow>
         <Field label="Relation">
-          <Input placeholder="e.g. Spouse, Son" value={nomineeRelation} onChangeText={setNomineeRelation} />
+          <Input placeholder="e.g. Spouse, Son" value={nomineeRelation} onChangeText={(t) => setNomineeRelation(stripDigits(t))} />
         </Field>
-        <Field label="Nominee Mobile">
+        <Field label="Nominee Mobile Number">
           <Input placeholder="10-digit number" keyboardType="number-pad" maxLength={10} value={nomineePhone} onChangeText={(t) => setNomineePhone(digits(t))} />
         </Field>
       </FieldRow>
@@ -229,11 +354,8 @@ export function CustomerFormSheet({
       </Pressable>
       {showMore ? (
         <>
-          <Field label="Age">
-            <Input placeholder="Age" keyboardType="number-pad" maxLength={3} value={age} onChangeText={(t) => setAge(digits(t))} />
-          </Field>
-          <Field label="Father's Name">
-            <Input placeholder="e.g. Ravi Varma" value={fatherName} onChangeText={setFatherName} />
+          <Field label="Guardian Name">
+            <Input placeholder="e.g. Ravi Varma" value={fatherName} onChangeText={(t) => setFatherName(stripDigits(t))} />
           </Field>
           <FieldRow>
             <Field label="District">
@@ -257,8 +379,26 @@ export function CustomerFormSheet({
         </>
       ) : null}
 
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label={editing ? "Save Changes" : "Register Customer"} onPress={() => save.mutate()} loading={save.isPending} disabled={!canSave} />
+      <PrimaryButton label={editing ? "Save Changes" : "Register Customer"} onPress={() => (canSave ? save.mutate() : setTried(true))} loading={save.isPending} />
+      <ConfirmSheet
+        visible={!!dup}
+        onClose={() => setDup(null)}
+        title="Same person?"
+        message={
+          dup
+            ? `This ${[...new Set(dup.flatMap((m) => m.fields))].join(" / ").toLowerCase()} is already on file for the investor ${dup.filter((m) => m.source === "investor").map((m) => `${m.name} (${m.code})`).join(", ")}.
+
+Is ${name.trim() || "this person"} the same person?`
+            : ""
+        }
+        confirmLabel="Yes"
+        hideCancel
+        onConfirm={() => {
+          const investor = dup?.find((m) => m.source === "investor");
+          setDup(null);
+          if (investor) void prefillFromInvestor(investor.id);
+        }}
+      />
     </Sheet>
   );
 }

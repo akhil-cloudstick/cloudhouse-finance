@@ -101,6 +101,16 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `aadhaarLast4` | `aadhaar_last4` |
 | `aadhaarStatus` | `aadhaar_status` |
 | `accentColor` | `accent_color` |
+| `interestChanges` | `interest_changes` |
+| `penalBefore` | `penal_before` |
+| `penalAfter` | `penal_after` |
+| `instalmentChanges` | `instalment_changes` |
+| `paidBefore` | `paid_before` |
+| `paidAfter` | `paid_after` |
+| `statusBefore` | `status_before` |
+| `statusAfter` | `status_after` |
+| `adjustFollowing` | `adjust_following` |
+| `accrualBasis` | `accrual_basis` |
 | `accountNo` | `account_no` |
 | `accruedInterest` | `accrued_interest` |
 | `accruedOn` | `accrued_on` |
@@ -369,6 +379,7 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `newCustomers` | `new_customers` |
 | `newDueDate` | `new_due_date` |
 | `newLoan` | `new_loan` |
+| `needsChange` | `needs_change` |
 | `newPassword` | `new_password` |
 | `nomineeName` | `nominee_name` |
 | `nomineePhone` | `nominee_phone` |
@@ -480,6 +491,7 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `rejectedByEmployeeId` | `rejected_by_employee_id` |
 | `rejectedByName` | `rejected_by_name` |
 | `rejectionRemarks` | `rejection_remarks` |
+| `restorePartialRelease` | `restore_partial_release` |
 | `relatedEntityId` | `related_entity_id` |
 | `relatedEntityType` | `related_entity_type` |
 | `relatedLoanId` | `related_loan_id` |
@@ -549,6 +561,9 @@ Every camelCase key became snake_case by one rule: an underscore goes before eac
 | `superAdminUser` | `super_admin_user` |
 | `superAdminUserId` | `super_admin_user_id` |
 | `surplusDisposition` | `surplus_disposition` |
+| `surplusRemarks` | `surplus_remarks` |
+| `decidedByName` | `decided_by_name` |
+| `auctionStage` | `auction_stage` |
 | `surplusPaidOutMovementId` | `surplus_paid_out_movement_id` |
 | `surplusPayableAmount` | `surplus_payable_amount` |
 | `surplusShortfall` | `surplus_shortfall` |
@@ -742,13 +757,21 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/customer/ws` | = |
 | `GET /api/v1/customers` | `GET /api/v1/users/:user_id/customers` |
 | `POST /api/v1/customers` | `POST /api/v1/users/:user_id/customers` |
+| `GET /api/v1/customers/by-code/:code` | `GET /api/v1/users/:user_id/customers/by-code/:code` |
 | `GET /api/v1/customers/:id` | `GET /api/v1/users/:user_id/customers/:id` |
 | `PUT /api/v1/customers/:id` | `PATCH /api/v1/users/:user_id/customers/:id/update` |
 | `GET /api/v1/customers/:id/aadhaar-full` | `GET /api/v1/users/:user_id/customers/:id/aadhaar-full` |
 | `GET /api/v1/customers/:id/auction-history` | `GET /api/v1/users/:user_id/customers/:id/auction-history` |
 | `GET /api/v1/customers/:id/bank-pledges` | `GET /api/v1/users/:user_id/customers/:id/bank-pledges` |
 | `DELETE /api/v1/customers/:id/hard-delete` | `DELETE /api/v1/users/:user_id/customers/:id/hard-delete` |
-| `GET /api/v1/customers/:id/investments` | `GET /api/v1/users/:user_id/customers/:id/investments` |
+| `GET /api/v1/investors/:id/investments` | `GET /api/v1/users/:user_id/investors/:id/investments` |
+| `GET /api/v1/investors` | `GET /api/v1/users/:user_id/investors` |
+| `POST /api/v1/investors` | `POST /api/v1/users/:user_id/investors` |
+| `GET /api/v1/investors/by-code/:code` | `GET /api/v1/users/:user_id/investors/by-code/:code` |
+| `GET /api/v1/investors/:id` | `GET /api/v1/users/:user_id/investors/:id` |
+| `GET /api/v1/investors/:id/aadhaar-full` | `GET /api/v1/users/:user_id/investors/:id/aadhaar-full` |
+| `PUT /api/v1/investors/:id` | `PATCH /api/v1/users/:user_id/investors/:id/update` |
+| `DELETE /api/v1/investors/:id/hard-delete` | `DELETE /api/v1/users/:user_id/investors/:id/hard-delete` |
 | `GET /api/v1/customers/:id/loans` | `GET /api/v1/users/:user_id/customers/:id/loans` |
 | `GET /api/v1/customers/:id/ornaments` | `GET /api/v1/users/:user_id/customers/:id/ornaments` |
 | `GET /api/v1/customers/:id/payments` | `GET /api/v1/users/:user_id/customers/:id/payments` |
@@ -832,6 +855,8 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/loans/:id/ledger` | `GET /api/v1/users/:user_id/loans/:id/ledger` |
 | `POST /api/v1/loans/:id/ornaments` | `POST /api/v1/users/:user_id/loans/:id/ornaments` |
 | `POST /api/v1/loans/:id/payments` | `POST /api/v1/users/:user_id/loans/:id/payments` |
+| `PATCH /api/v1/loans/:id/payments/:payment_id` | `PATCH /api/v1/users/:user_id/loans/:id/payments/:payment_id` |
+| `DELETE /api/v1/loans/:id/payments/:payment_id` | `DELETE /api/v1/users/:user_id/loans/:id/payments/:payment_id` |
 | `GET /api/v1/loans/:id/pledge-slip` | `GET /api/v1/users/:user_id/loans/:id/pledge-slip` |
 | `GET /api/v1/loans/:id/release-agreement/pdf` | `GET /api/v1/users/:user_id/loans/:id/release-agreement/pdf` |
 | `POST /api/v1/loans/:id/release-request` | `POST /api/v1/users/:user_id/loans/:id/release-request` |
@@ -869,6 +894,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `PUT /api/v1/lockers/:id` | `PATCH /api/v1/users/:user_id/lockers/:id/update` |
 | `GET /api/v1/ornament-types` | `GET /api/v1/users/:user_id/ornament-types` |
 | `POST /api/v1/ornament-types` | `POST /api/v1/users/:user_id/ornament-types` |
+| `DELETE /api/v1/ornament-types/:id` | `DELETE /api/v1/users/:user_id/ornament-types/:id` |
 | `GET /api/v1/packets` | `GET /api/v1/users/:user_id/packets` |
 | `GET /api/v1/packets/:id` | `GET /api/v1/users/:user_id/packets/:id` |
 | `GET /api/v1/packets/:id/movements` | `GET /api/v1/users/:user_id/packets/:id/movements` |
@@ -877,6 +903,8 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/personal-loans` | `GET /api/v1/users/:user_id/personal-loans` |
 | `POST /api/v1/personal-loans` | `POST /api/v1/users/:user_id/personal-loans` |
 | `GET /api/v1/personal-loans/:id` | `GET /api/v1/users/:user_id/personal-loans/:id` |
+| `PATCH /api/v1/personal-loans/:id` | `PATCH /api/v1/users/:user_id/personal-loans/:id` |
+| `PATCH /api/v1/investments/:id` | `PATCH /api/v1/users/:user_id/investments/:id` |
 | `GET /api/v1/personal-loans/:id/approvals` | `GET /api/v1/users/:user_id/personal-loans/:id/approvals` |
 | `POST /api/v1/personal-loans/:id/approve` | `POST /api/v1/users/:user_id/personal-loans/:id/approve` |
 | `GET /api/v1/personal-loans/:id/bond` | `GET /api/v1/users/:user_id/personal-loans/:id/bond` |
@@ -905,6 +933,11 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/reports/auctions` | `GET /api/v1/users/:user_id/reports/auctions` |
 | `GET /api/v1/reports/balance-sheet` | `GET /api/v1/users/:user_id/reports/balance-sheet` |
 | `GET /api/v1/reports/bank-pledge` | `GET /api/v1/users/:user_id/reports/bank-pledge` |
+| `GET /api/v1/reports/cash-ledger` | `GET /api/v1/users/:user_id/reports/cash-ledger` |
+| `GET /api/v1/reports/day-book` | `GET /api/v1/users/:user_id/reports/day-book` |
+| `POST /api/v1/reports/day-book` | `POST /api/v1/users/:user_id/reports/day-book` |
+| `PATCH /api/v1/reports/day-book/:id` | `PATCH /api/v1/users/:user_id/reports/day-book/:id/update` |
+| `DELETE /api/v1/reports/day-book/:id` | `DELETE /api/v1/users/:user_id/reports/day-book/:id/delete` |
 | `GET /api/v1/reports/communication-history` | `GET /api/v1/users/:user_id/reports/communication-history` |
 | `GET /api/v1/reports/disbursement` | `GET /api/v1/users/:user_id/reports/disbursement` |
 | `GET /api/v1/reports/employee-performance` | `GET /api/v1/users/:user_id/reports/employee-performance` |
@@ -912,6 +945,7 @@ All 338 routes that existed before, plus 1 new one. Rows marked = are unchanged.
 | `GET /api/v1/reports/export/:key` | `GET /api/v1/users/:user_id/reports/export/:key` |
 | `GET /api/v1/reports/form-g` | `GET /api/v1/users/:user_id/reports/form-g` |
 | `GET /api/v1/reports/gold-rate-history` | `GET /api/v1/users/:user_id/reports/gold-rate-history` |
+| `GET /api/v1/reports/gold-rate-history/set-by` | `GET /api/v1/users/:user_id/reports/gold-rate-history/set-by` |
 | `GET /api/v1/reports/gold-release` | `GET /api/v1/users/:user_id/reports/gold-release` |
 | `GET /api/v1/reports/gold-weight` | `GET /api/v1/users/:user_id/reports/gold-weight` |
 | `GET /api/v1/reports/interest-collection` | `GET /api/v1/users/:user_id/reports/interest-collection` |

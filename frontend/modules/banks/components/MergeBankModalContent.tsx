@@ -60,14 +60,11 @@ export function MergeBankModalContent({ source, banks, onSaved }: MergeBankModal
           /><FieldError msg={fe.target} />
         </div></div>
         <div className="notice" style={{ marginTop: 12 }}>
-          <Icon name="shield" /> This will move every transaction and pledge linked to &quot;{source.name}&quot; onto
-          {target ? ` "${target.name}"` : " the bank you pick"} and permanently delete &quot;{source.name}&quot; — this can&apos;t be undone.
+          <Icon name="shield" /> Merging deletes &quot;{source.name}&quot; permanently. Can&apos;t be undone.
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn danger" onClick={save} disabled={saving || !target}>{saving ? "Merging…" : "Merge & Delete"}</button>
+      <div className="ft">        <button className="btn danger" onClick={save} disabled={saving || !target}>{saving ? "Merging…" : "Merge & Delete"}</button>
       </div>
     </>
   );

@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { C, CheckItem, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, WarningBanner } from "@/common/components/ui";
+import { C, CheckItem, DateField, NoticeBanner, PrimaryButton, ResultBox, Sheet, TextField, Txt, WarningBanner, toast } from "@/common/components/ui";
 import { ReleaseReviewPanel } from "./ReleaseReviewPanel";
 import { completeRelease, createReleaseRequest } from "@/modules/loans/services/loanService";
-import { inr } from "@/common/utils/format";
+import { inr, todayISO } from "@/common/utils/format";
 import type { Loan, LoanRequest } from "@/modules/loans/types/loan-types";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
-import { ErrorText } from "@/common/components/ErrorText";
+import { FieldErr } from "@/common/components/ErrorText";
 
 type ReleaseSheetProps = {
   loan: Loan;
@@ -29,25 +29,27 @@ export function ReleaseSheet({
   // Ornaments picked for release; null = all still-pledged ones (full release).
   const [selectedIds, setSelectedIds] = useState<number[] | null>(null);
   const [detail, setDetail] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [requestedOn, setRequestedOn] = useState(todayISO());
+  const [tried, setTried] = useState(false);
   const submitting = useRef(false);
 
   useEffect(() => {
     if (visible) {
       setSelectedIds(null);
       setDetail("");
-      setError(null);
+      setRequestedOn(todayISO());
+      setTried(false);
     }
   }, [visible]);
 
   const pledged = (l.ornaments ?? []).filter((o) => !o.releasedAt);
   const selected = new Set(selectedIds ?? pledged.map((o) => o.id));
-  const allSelected = selected.size === pledged.length;
+  const allSelected = pledged.length > 0 && selected.size === pledged.length;
   const ltv = l.schemeLtvPercent ?? l.scheme?.ltvPercent ?? 0;
   const outstandingBal = l.totalOutstandingBalance ?? l.outstandingAmount;
   const remainingGold = pledged.filter((o) => !selected.has(o.id)).reduce((s, o) => s + o.goldValue, 0);
-  // Web's partialReleaseRemaining: balance + 5% principal buffer − what the remaining gold covers.
-  const minPartial = outstandingBal + 0.05 * l.principalAmount - (remainingGold * ltv) / 100;
+  // Backend's partialReleaseDrift: balance − what the remaining gold covers.
+  const minPartial = outstandingBal - (remainingGold * ltv) / 100;
   const minAmount = allSelected ? l.settlementAmount ?? outstandingBal : Math.max(0, minPartial);
 
   function toggle(id: number) {
@@ -65,20 +67,22 @@ export function ReleaseSheet({
         const ornamentIds = Array.from(selected);
         return await createReleaseRequest(l.id, {
           detail: detail.trim() || (allSelected ? "Full settlement requested" : "Partial release requested"),
-          requestedBy: "Staff",
           ornamentIds,
+          requestedAt: requestedOn,
         });
       } finally {
         submitting.current = false;
       }
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
       invalidateLoan(qc, l.id);
       onClose();
+      // The amount the backend worked out when it logged the request; it is checked again when the payment is recorded.
+      toast.success("Release request logged", `${inr(created.settlementAmount ?? minAmount)} needed to release the gold`);
     },
     onError: (e) => {
       if (e instanceof Error && e.message === "__duplicate_submit__") return;
-      setError(apiErr(e));
+      toast.error(apiErr(e));
     },
   });
 
@@ -88,7 +92,7 @@ export function ReleaseSheet({
       invalidateLoan(qc, l.id);
       onClose();
     },
-    onError: (e) => setError(apiErr(e)),
+    onError: (e) => toast.error(apiErr(e)),
   });
 
   if (l.status === "Closure Requested") {
@@ -99,20 +103,18 @@ export function ReleaseSheet({
         {unpaid ? (
           <WarningBanner>Final settlement must be fully paid before this loan can be released.</WarningBanner>
         ) : bankPledged ? (
-          <WarningBanner>This loan&apos;s ornament is still pledged to a bank — release it from the bank pledge before completing the release.</WarningBanner>
+          <WarningBanner>Release bank pledge first.</WarningBanner>
         ) : (
           <NoticeBanner>Ready to complete — hands the gold back and closes the loan.</NoticeBanner>
         )}
         <ResultBox k="Balance outstanding" v={inr(l.totalOutstandingBalance ?? 0)} tone={unpaid ? "red" : "green"} />
-        <ErrorText>{error}</ErrorText>
         <PrimaryButton
           label="Complete Release"
           loading={complete.isPending}
           onPress={() => {
             // Gates explained on press (not a silently disabled button); the backend enforces both regardless.
-            if (unpaid) return setError("Final settlement must be fully paid before this loan can be released.");
-            if (bankPledged) return setError("This loan's ornament is still pledged to a bank — release the ornament from the bank pledge before completing the release.");
-            setError(null);
+            if (unpaid) return toast.error("Final settlement must be fully paid before this loan can be released.");
+            if (bankPledged) return toast.error("Release bank pledge first.");
             complete.mutate();
           }}
         />
@@ -125,16 +127,22 @@ export function ReleaseSheet({
       <Sheet visible={visible} onClose={onClose} title={`Review Release — ${l.loanNumber}`} maxHeightPct={92}>
         {/* A release is already pending — no new request form, so the same gold can't be requested twice. */}
         <NoticeBanner>Release requested — waiting for approval</NoticeBanner>
-        <ErrorText>{error}</ErrorText>
         <ReleaseReviewPanel
           request={pending}
           loan={l}
           onSaved={() => {
-            setError(null);
             invalidateLoan(qc, l.id);
           }}
-          onError={setError}
+          onError={(m) => toast.error(m)}
         />
+      </Sheet>
+    );
+  }
+
+  if (pledged.length === 0) {
+    return (
+      <Sheet visible={visible} onClose={onClose} title="Gold Release">
+        <NoticeBanner>Nothing left to release — every ornament on this loan has already been released.</NoticeBanner>
       </Sheet>
     );
   }
@@ -153,22 +161,22 @@ export function ReleaseSheet({
           sub={`${o.netWeight.toFixed(2)} g · ${o.purity} · ${inr(o.goldValue)}`}
         />
       ))}
+      <FieldErr m={tried && selected.size === 0 ? "Select at least one ornament to release." : undefined} />
       <ResultBox
         style={{ marginTop: 8 }}
         k="Minimum amount to release"
         v={inr(minAmount)}
         tone={allSelected || minAmount > 0.01 ? "brand" : "green"}
       />
-      <TextField label="Note (optional)" placeholder="Add a note" value={detail} onChangeText={setDetail} />
-      <ErrorText>{error}</ErrorText>
+      <DateField label="Request date" value={requestedOn} onChange={setRequestedOn} min={l.openedDate?.slice(0, 10) || undefined} max={todayISO()} />
+      <TextField label="Note (optional)" maxLength={150} placeholder="Add a note (max 150 characters)" value={detail} onChangeText={setDetail} />
       <PrimaryButton
         label={allSelected ? "Request Full Release" : "Request Partial Release"}
         onPress={() => {
-          setError(null);
+          if (selected.size === 0) return setTried(true);
           request.mutate();
         }}
         loading={request.isPending}
-        disabled={selected.size === 0}
       />
     </Sheet>
   );

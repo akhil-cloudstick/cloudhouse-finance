@@ -9,65 +9,66 @@ import { WhatsAppPanel } from "@/modules/integrations/components/WhatsAppPanel";
 import { ConnectMobilePanel } from "@/modules/integrations/components/ConnectMobilePanel";
 import { BusinessProfilePanel } from "@/modules/settings/components/BusinessProfilePanel";
 import { DesktopVersionPanel } from "@/modules/settings/components/DesktopVersionPanel";
+import { OfflinePanel } from "@/modules/settings/components/OfflinePanel";
+import { LanPanel } from "@/modules/settings/components/LanPanel";
 import { isDesktop } from "@/common/services/desktopBridge";
 
 /* One entry per section; `module` is the business module the superadmin
  * has to switch on for it to show up (tenant.KnownModules), none means always shown.
  * `perm` is the role permission ([module, key]) the section additionally needs. */
 const SECTIONS: { key: string; label: string; icon: "mobileLink" | "waOutline" | "bank" | "arrowUp"; module?: string; perm?: [string, string]; desktopOnly?: boolean; Panel: () => React.ReactNode }[] = [
-  { key: "profile", label: "Business Profile", icon: "bank", perm: ["Business_Profile", "can_view_business_profile_module"], Panel: BusinessProfilePanel },
-  { key: "mobile", label: "Link Mobile", icon: "mobileLink", Panel: ConnectMobilePanel },
-  { key: "whatsapp", label: "WhatsApp", icon: "waOutline", module: "whatsapp", Panel: WhatsAppPanel },
-  // Desktop only (section 7) — never shown on the web build.
-  { key: "version", label: "App Version", icon: "arrowUp", desktopOnly: true, Panel: DesktopVersionPanel },
+	{ key: "profile", label: "Business Profile", icon: "bank", perm: ["Business_Profile", "can_view_business_profile_module"], Panel: BusinessProfilePanel },
+	{ key: "mobile", label: "Link Mobile", icon: "mobileLink", Panel: ConnectMobilePanel },
+	{ key: "whatsapp", label: "WhatsApp", icon: "waOutline", module: "whatsapp", Panel: WhatsAppPanel },
+	// Desktop only (section 7) — never shown on the web build.
+	{ key: "offline", label: "Offline", icon: "bank", desktopOnly: true, Panel: OfflinePanel },
+	{ key: "network", label: "Network", icon: "mobileLink", perm: ["Business_Profile", "can_view_business_profile_module"], desktopOnly: true, Panel: LanPanel },
+	{ key: "version", label: "App Version", icon: "arrowUp", desktopOnly: true, Panel: DesktopVersionPanel },
 ];
 
 type SettingsModalContentProps = { initialSection?: string };
 
 /* Where a business keeps its profile, links the staff app and manages its integrations. Opened from the header account menu. */
 export function SettingsModalContent({ initialSection }: SettingsModalContentProps = {}) {
-  const { closeModal } = useModal();
-  const { hasModule } = useBranding();
-  const { can } = useAuth();
-  const desktop = useMemo(() => isDesktop(), []);
-  const items = useMemo(
-    () =>
-      SECTIONS.filter(
-        (i) => (!i.desktopOnly || desktop) && (!i.module || hasModule(i.module)) && (!i.perm || can(i.perm[0], i.perm[1])),
-      ),
-    [hasModule, can, desktop],
-  );
-  const [active, setActive] = useState(
-    initialSection && items.some((i) => i.key === initialSection) ? initialSection : items[0].key,
-  );
-  const current = items.find((i) => i.key === active) ?? items[0];
+	const { closeModal } = useModal();
+	const { hasModule } = useBranding();
+	const { can } = useAuth();
+	const desktop = useMemo(() => isDesktop(), []);
+	const items = useMemo(
+		() =>
+			SECTIONS.filter(
+				(i) => (!i.desktopOnly || desktop) && (!i.module || hasModule(i.module)) && (!i.perm || can(i.perm[0], i.perm[1])),
+			),
+		[hasModule, can, desktop],
+	);
+	const [active, setActive] = useState(
+		initialSection && items.some((i) => i.key === initialSection) ? initialSection : items[0].key,
+	);
+	const current = items.find((i) => i.key === active) ?? items[0];
 
-  return (
-    <>
-      <div className="hd"><h3>Settings</h3><div className="sp" /><button className="x" onClick={closeModal}>×</button></div>
-      <div className="bd bd-scroll">
-        <div className="set-wrap">
-          <nav className="set-nav" aria-label="Settings sections">
-            <span className="set-nav-h">Settings</span>
-            {items.map((i) => (
-              <button
-                key={i.key}
-                type="button"
-                className={i.key === current?.key ? "on" : ""}
-                onClick={() => setActive(i.key)}
-              >
-                <span className="set-nav-ico"><Icon name={i.icon} /></span> {i.label}
-              </button>
-            ))}
-          </nav>
-          <section className="set-pane">
-            <current.Panel />
-          </section>
-        </div>
-      </div>
-      <div className="ft">
-        <button className="btn" onClick={closeModal}>Close</button>
-      </div>
-    </>
-  );
+	return (
+		<>
+			<div className="hd"><h3>Settings</h3><div className="sp" /><button className="x" onClick={closeModal}>×</button></div>
+			<div className="bd bd-scroll">
+				<div className="set-wrap">
+					<nav className="set-nav" aria-label="Settings sections">
+						<span className="set-nav-h">Settings</span>
+						{items.map((i) => (
+							<button
+								key={i.key}
+								type="button"
+								className={i.key === current?.key ? "on" : ""}
+								onClick={() => setActive(i.key)}
+							>
+								<span className="set-nav-ico"><Icon name={i.icon} /></span> {i.label}
+							</button>
+						))}
+					</nav>
+					<section className="set-pane">
+						<current.Panel />
+					</section>
+				</div>
+			</div>
+		</>
+	);
 }

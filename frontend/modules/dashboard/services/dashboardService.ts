@@ -47,3 +47,19 @@ export async function getNeedsAttentionPage(page: number): Promise<NeedsAttentio
     auctionsCount: rec.auctionsCount,
   };
 }
+
+/* Whole-loan-book figures for the dashboard (today's new loans, last six
+ * months of sanctioned principal), aggregated server-side — the app shell
+ * only keeps the open loans in memory. */
+export type DashboardLoanStats = { openedToday: number; disbursedMonths: { month: string; amount: number }[]; bankPledgedCount: number; bankPledgedAmount: number };
+
+export async function getDashboardLoanStats(): Promise<DashboardLoanStats> {
+  const rec = await apiFetch<DashboardLoanStats & { bank_pledged_count?: number; bank_pledged_amount?: number }>("/dashboard/loan-stats");
+  // The contract adapter has no rename for the two bank-pledge fields, so they can arrive snake_case — read either.
+  return {
+    openedToday: rec?.openedToday ?? 0,
+    disbursedMonths: rec?.disbursedMonths ?? [],
+    bankPledgedCount: rec?.bankPledgedCount ?? rec?.bank_pledged_count ?? 0,
+    bankPledgedAmount: rec?.bankPledgedAmount ?? rec?.bank_pledged_amount ?? 0,
+  };
+}

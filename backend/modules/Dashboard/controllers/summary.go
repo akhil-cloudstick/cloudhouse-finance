@@ -6,6 +6,7 @@ import (
 	"cloudhouse/backend/config"
 	cash "cloudhouse/backend/modules/Cash/controllers"
 	loanModels "cloudhouse/backend/modules/Loan/models"
+	plModels "cloudhouse/backend/modules/PersonalLoan/models"
 	"context"
 	"errors"
 	"math"
@@ -64,6 +65,7 @@ type ActivityItem struct {
 	Amount       float64   `json:"amount"`
 	Date         time.Time `json:"date"`
 	Label        string    `json:"label"`
+	Personal     bool      `json:"personal,omitempty"`
 	sourceID     uint
 }
 
@@ -85,10 +87,11 @@ type activityRow struct {
 }
 
 type activitySource struct {
-	base   func() *gorm.DB
-	sel    string
-	order  string
-	toItem func(activityRow) ActivityItem
+	base     func() *gorm.DB
+	sel      string
+	order    string
+	toItem   func(activityRow) ActivityItem
+	personal bool
 }
 
 func dayStart(t time.Time) time.Time {
@@ -141,20 +144,14 @@ func getSummary(ctx context.Context, branchScope *uint) (*Summary, error) {
 	}
 	out.Today.LoansIssued = issued.Count
 	out.Today.LoansIssuedAmount = common.RoundMoney(issued.Total)
-	var coll sumRow
-	pq := config.DB.
-		WithContext(ctx).Model(&loanModels.LoanPayment{}).
-		Joins("JOIN loans ON loans.id = loan_payments.loan_id AND loans.deleted_at IS NULL").
-		Where("loan_payments.paid_on >= ? AND loan_payments.paid_on < ?", today, tomorrow).
-		Where("loan_payments.type IN ?", collectionPaymentTypes)
-	if branchScope != nil {
-		pq = pq.Where("loans.branch_id = ?", *branchScope)
-	}
-	if err := pq.Select("COUNT(*) AS count, COALESCE(SUM(loan_payments.amount), 0) AS total").Scan(&coll).Error; err != nil {
+	// Cash collected is every Cash In record of the day — gold and personal loan repayments and all the other money
+	// received — read from the cash book, the same record the Cash page totals, not just gold-loan payments.
+	collected, collectedCount, err := cash.CollectedByDate(ctx, branchScope, now)
+	if err != nil {
 		return nil, err
 	}
-	out.Today.Collections = common.RoundMoney(coll.Total)
-	out.Today.CollectionsCount = coll.Count
+	out.Today.Collections = common.RoundMoney(collected)
+	out.Today.CollectionsCount = collectedCount
 	cq := config.DB.
 		WithContext(ctx).Model(&commonModels.Customer{}).
 		Where("created_at >= ? AND created_at < ?", today, tomorrow)
@@ -199,6 +196,21 @@ func activitySources(ctx context.Context, branchScope *uint, now time.Time) []ac
 			},
 		},
 		{
+			// An approved top-up is more money disbursed against the loan, so it shows alongside the original disbursement.
+			base: func() *gorm.DB {
+				return scopeLoans(config.DB.
+					WithContext(ctx).Model(&loanModels.LoanTopUp{}).
+					Joins("JOIN loans ON loans.id = loan_top_ups.loan_id AND loans.deleted_at IS NULL").
+					Joins("JOIN customers ON customers.id = loans.customer_id").
+					Where("loan_top_ups.status = ?", loanModels.TopUpStatusActive))
+			},
+			sel:   "loan_top_ups.id AS source_id, loans.id AS loan_id, loans.loan_number, customers.name AS customer_name, customers.code AS customer_code, loan_top_ups.amount AS amount, loan_top_ups.occurred_on AS date",
+			order: "loan_top_ups.occurred_on desc, loan_top_ups.id desc",
+			toItem: func(r activityRow) ActivityItem {
+				return ActivityItem{Type: "loan", Amount: r.Amount, Date: r.Date, Label: "Loan top-up"}
+			},
+		},
+		{
 			base: func() *gorm.DB {
 				return scopeLoans(config.DB.
 					WithContext(ctx).Model(&loanModels.LoanPayment{}).
@@ -224,6 +236,40 @@ func activitySources(ctx context.Context, branchScope *uint, now time.Time) []ac
 			order: "loans.due_date desc, loans.id desc",
 			toItem: func(r activityRow) ActivityItem {
 				return ActivityItem{Type: "overdue", Amount: r.Amount, Date: r.Date, Label: "Overdue"}
+			},
+		},
+		{
+			personal: true,
+			base: func() *gorm.DB {
+				q := config.DB.WithContext(ctx).Model(&plModels.PersonalLoan{}).
+					Joins("JOIN customers ON customers.id = personal_loans.customer_id").
+					Where("personal_loans.status NOT IN ?", plModels.NotDisbursedStatuses)
+				if branchScope != nil {
+					q = q.Where("personal_loans.branch_id = ?", *branchScope)
+				}
+				return q
+			},
+			sel:   "personal_loans.id AS source_id, personal_loans.id AS loan_id, personal_loans.loan_number, customers.name AS customer_name, customers.code AS customer_code, personal_loans.disbursed_amount AS amount, personal_loans.disbursed_at AS date",
+			order: "personal_loans.disbursed_at desc, personal_loans.id desc",
+			toItem: func(r activityRow) ActivityItem {
+				return ActivityItem{Type: "loan", Amount: r.Amount, Date: r.Date, Label: "Personal loan disbursed"}
+			},
+		},
+		{
+			personal: true,
+			base: func() *gorm.DB {
+				q := config.DB.WithContext(ctx).Model(&plModels.PersonalLoanPayment{}).
+					Joins("JOIN personal_loans ON personal_loans.id = personal_loan_payments.personal_loan_id AND personal_loans.deleted_at IS NULL").
+					Joins("JOIN customers ON customers.id = personal_loans.customer_id")
+				if branchScope != nil {
+					q = q.Where("personal_loans.branch_id = ?", *branchScope)
+				}
+				return q
+			},
+			sel:   "personal_loan_payments.id AS source_id, personal_loans.id AS loan_id, personal_loans.loan_number, customers.name AS customer_name, customers.code AS customer_code, personal_loan_payments.amount AS amount, personal_loan_payments.paid_on AS date",
+			order: "personal_loan_payments.paid_on desc, personal_loan_payments.id desc",
+			toItem: func(r activityRow) ActivityItem {
+				return ActivityItem{Type: "payment", Amount: r.Amount, Date: r.Date, Label: "Personal loan payment"}
 			},
 		},
 	}
@@ -260,6 +306,7 @@ func getActivity(ctx context.Context, branchScope *uint, limit, offset int) (*Ac
 			it.LoanID, it.LoanNumber = r.LoanID, r.LoanNumber
 			it.CustomerName, it.CustomerCode = r.CustomerName, r.CustomerCode
 			it.sourceID = r.SourceID
+			it.Personal = src.personal
 			merged = append(merged, it)
 		}
 	}
@@ -286,4 +333,72 @@ func getActivity(ctx context.Context, branchScope *uint, limit, offset int) (*Ac
 		HasMore: int64(offset+len(items)) < total,
 		Total:   total,
 	}, nil
+}
+
+type MonthAmount struct {
+	Month  string  `json:"month"` // "YYYY-MM"
+	Amount float64 `json:"amount"`
+}
+
+// LoanStats is the part of the dashboard that needs the whole loan book (not
+// just the open loans the app shell keeps in memory): today's new loans and
+// the last six months of sanctioned principal, aggregated in SQL.
+type LoanStats struct {
+	OpenedToday     int64         `json:"opened_today"`
+	DisbursedMonths []MonthAmount `json:"disbursed_months"`
+	// Active bank pledge records (not loans): how many, and their summed pledged amount.
+	BankPledgedCount  int64   `json:"bank_pledged_count"`
+	BankPledgedAmount float64 `json:"bank_pledged_amount"`
+}
+
+func getLoanStats(ctx context.Context, branchScope *uint) (*LoanStats, error) {
+	now := time.Now()
+	today := dayStart(now)
+	out := &LoanStats{}
+	tq := config.DB.
+		WithContext(ctx).Model(&loanModels.Loan{}).
+		Where("opened_date >= ? AND opened_date < ?", today, today.AddDate(0, 0, 1))
+	if branchScope != nil {
+		tq = tq.Where("branch_id = ?", *branchScope)
+	}
+	if err := tq.Count(&out.OpenedToday).Error; err != nil {
+		return nil, err
+	}
+	var pl struct {
+		Cnt int64
+		Amt float64
+	}
+	bq := config.DB.WithContext(ctx).Model(&loanModels.BankPledgeRecord{}).
+		Select("COUNT(DISTINCT bank_pledge_records.loan_id) AS cnt, COALESCE(SUM(bank_pledge_records.pledged_amount), 0) AS amt").
+		Joins("JOIN loans ON loans.id = bank_pledge_records.loan_id").
+		Where("bank_pledge_records.status = ?", loanModels.BankPledgeStatusRecordActive)
+	if branchScope != nil {
+		bq = bq.Where("loans.branch_id = ?", *branchScope)
+	}
+	if err := bq.Scan(&pl).Error; err != nil {
+		return nil, err
+	}
+	out.BankPledgedCount, out.BankPledgedAmount = pl.Cnt, common.RoundMoney(pl.Amt)
+	from := time.Date(now.Year(), now.Month()-5, 1, 0, 0, 0, 0, now.Location())
+	var rows []MonthAmount
+	mq := config.DB.
+		WithContext(ctx).Model(&loanModels.Loan{}).
+		Select("to_char(opened_date, 'YYYY-MM') AS month, COALESCE(SUM(principal_amount), 0) AS amount").
+		Where("opened_date >= ? AND approval_stage = ?", from, "Approved")
+	if branchScope != nil {
+		mq = mq.Where("branch_id = ?", *branchScope)
+	}
+	if err := mq.Group("month").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	byMonth := make(map[string]float64, len(rows))
+	for _, r := range rows {
+		byMonth[r.Month] = r.Amount
+	}
+	out.DisbursedMonths = make([]MonthAmount, 0, 6)
+	for i := 0; i < 6; i++ {
+		key := from.AddDate(0, i, 0).Format("2006-01")
+		out.DisbursedMonths = append(out.DisbursedMonths, MonthAmount{Month: key, Amount: common.RoundMoney(byMonth[key])})
+	}
+	return out, nil
 }

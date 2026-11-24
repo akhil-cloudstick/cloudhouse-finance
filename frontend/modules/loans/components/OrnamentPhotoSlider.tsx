@@ -53,8 +53,8 @@ export function OrnamentPhotoSlider({ title, urls, onClose, onRemove }: Ornament
     <>
       <div className="hd"><h3>{title}</h3><div className="sp" />{many && <span className="chip">{i + 1} / {list.length}</span>}<button className="x" onClick={onClose}>×</button></div>
       <div className="bd bd-scroll" style={{ textAlign: "center" }}>
-        <div style={{ position: "relative" }}>
-          <SafeImage src={list[i]} style={{ maxWidth: "100%", maxHeight: "60vh", borderRadius: 8 }} alt={`${title} ${i + 1}`} />
+        <div style={{ position: "relative", width: "100%", maxWidth: 520, height: "min(60vh, 420px)", margin: "0 auto", background: "var(--bg, #f3f3f3)", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <SafeImage src={list[i]} style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center" }} alt={`${title} ${i + 1}`} />
           {many && navBtn("left", "Previous photo", -1)}
           {many && navBtn("right", "Next photo", 1)}
         </div>

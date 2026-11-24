@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -7,18 +8,23 @@ import { ApiError } from "@/common/services/httpClient";
 import { fmt, fmtDate } from "@/common/utils/format";
 import { useLedgerFocus } from "@/common/hooks/use-ledger-focus";
 import { StatusChip } from "@/common/components/ui/StatusChip";
-import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVESTMENT_LEDGER_PAGE_SIZE, INVESTMENT_PAGE_SIZE, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf } from "@/modules/investments/services/investmentService";
+import { getInvestment, getInvestmentSchedulePage, getInvestmentLedgerPage, INVESTMENT_LEDGER_PAGE_SIZE, INVESTMENT_PAGE_SIZE, resolveInvestmentNumber, printInvestmentBondPdf, printInvestmentStatementPdf, closeInvestment, deleteInvestment } from "@/modules/investments/services/investmentService";
 import { type BackendInvestment, type BackendInvestmentPayout, type InvestmentLedgerRow } from "@/modules/investments/types/investment-types";
-import { LedgerRefLink } from "@/common/components/LedgerRefLink";
+import { InvestorProfileModalContent } from "@/modules/investments/components/InvestorProfileModalContent";
 import { MaturityModalContent } from "@/modules/investments/components/MaturityModalContent";
+import { WithdrawFixedModalContent } from "@/modules/investments/components/WithdrawFixedModalContent";
 import { PayInterestModalContent } from "@/modules/investments/components/PayInterestModalContent";
 import { MarkPayoutPaidModalContent } from "@/modules/investments/components/MarkPayoutPaidModalContent";
 import { AddInvestmentCashModalContent } from "@/modules/investments/components/AddInvestmentCashModalContent";
 import { WithdrawInvestmentModalContent } from "@/modules/investments/components/WithdrawInvestmentModalContent";
+import { NewInvestmentModalContent } from "@/modules/investments/components/NewInvestmentModalContent";
+import { InvestmentLedgerEditModalContent } from "@/modules/investments/components/InvestmentLedgerEditModalContent";
+import { LoanLedgerInfoModalContent, type LedgerInfoAction } from "@/modules/loans/components/LoanLedgerInfoModalContent";
 import { useModal } from "@/common/components/ModalProvider";
 import { useDropdownMenu } from "@/common/hooks/use-dropdown-menu";
 import { Icon } from "@/common/components/Icon";
-import { routeHref } from "@/common/services/appRoutes";
+import { navigate, routeHref } from "@/common/services/appRoutes";
+import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
 import { modeCellFor } from "@/modules/cash/utils/ledgerCells";
 import { singleFlight } from "@/common/utils/singleFlight";
 import { useScrollPageSize } from "@/common/utils/responsive";
@@ -79,9 +85,13 @@ type InvestmentDetailPageProps = { id?: string };
 export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
   const { can } = useAuth();
   const canExport = can("Ledger_Export", "can_export_ledger");
-  const { openModal, closeModal } = useModal();
+  const { openModal, openChildModal, closeAllModals, closeModal } = useModal();
   const toast = useToast();
   const canUpdate = can("Investment_Management", "can_update_investment");
+  const canDelete = can("Investment_Management", "can_delete_investment");
+  // Editing/deleting a ledger entry recalculates the investment, so each has its own grant (shared with the gold-loan ledger).
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
 
   const [investment, setInvestment] = useState<BackendInvestment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,11 +100,11 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
   const [printingStatement, setPrintingStatement] = useState(false);
 
   const {
-    open: cashMenuOpen,
-    setOpen: setCashMenuOpen,
-    menuRef: cashMenuRef,
-    triggerRef: cashMenuTriggerRef,
-    onKeyDown: onCashMenuKeyDown,
+    open: actMenuOpen,
+    setOpen: setActMenuOpen,
+    menuRef: actMenuRef,
+    triggerRef: actMenuTriggerRef,
+    onKeyDown: onActMenuKeyDown,
   } = useDropdownMenu<HTMLDivElement>();
   const {
     open: docsMenuOpen,
@@ -132,13 +142,16 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
     setLoading(true);
     setError("");
     try {
-      setInvestment(await getInvestment(numericId));
+      const rec = await getInvestment(numericId);
+      setInvestment(rec);
+      // An id link gets the investment number (INV-00003) written into the address bar.
+      if (id && Number(id) && rec.investmentNumber) window.history.replaceState(window.history.state, "", routeHref("investment", rec.investmentNumber) + window.location.search);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not load this investment.");
     } finally {
       setLoading(false);
     }
-  }, [numericId]);
+  }, [numericId, id]);
 
   useEffect(() => { void refreshInvestment(); }, [refreshInvestment]);
 
@@ -148,10 +161,16 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
     INVESTMENT_PAGE_SIZE
   );
 
+  // A ledger edit/delete can change the totals, the schedule and the ledger's running balances.
+  const onLedgerChanged = () => { void refreshInvestment(); schedule.reload(); void refreshLedger(); };
+
   if (loading) return <div className="notice">Loading investment…</div>;
   if (error || !investment) return <div className="notice">{error || "Investment not found."}</div>;
 
   const isLive = investment.engine === "Live";
+  // Nothing left owed (principal paid back, interest withdrawn): it can be closed before maturity, no cash moves.
+  // A scheduled investment only pays its principal back once closed at maturity, so this is live-engine only.
+  const nothingOwed = isLive && investment.outstandingPrincipal < 0.01 && investment.outstandingInterest < 0.01;
 
   function openMarkPaid(payout: BackendInvestmentPayout) {
     if (!investment) return;
@@ -219,6 +238,21 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
 
   function openWithdraw() {
     if (!investment) return;
+    // a fixed-payout investment is withdrawn from by taking principal out of its schedule
+    if (!isLive) {
+      openModal(
+        <WithdrawFixedModalContent
+          investment={investment}
+          onSaved={async () => {
+            toast("Withdrawal recorded");
+            await refreshInvestment();
+            schedule.reload();
+            void refreshLedger();
+          }}
+        />
+      );
+      return;
+    }
     openModal(
       <WithdrawInvestmentModalContent
         investment={investment}
@@ -231,15 +265,63 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
     );
   }
 
+  function openClose() {
+    if (!investment) return;
+    const { id, investmentNumber } = investment;
+    openModal(
+      <ConfirmModalContent
+        title="Close Investment"
+        confirmLabel="Close Investment"
+        busyLabel="Closing…"
+        danger={false}
+        message={<>Close <strong>{investmentNumber}</strong>? Nothing is owed, so no cash moves.</>}
+        onConfirm={async () => {
+          await closeInvestment(id);
+          toast(`${investmentNumber} closed`);
+          await refreshInvestment();
+          schedule.reload();
+          void refreshLedger();
+        }}
+      />
+    );
+  }
+
+  function openDelete() {
+    if (!investment) return;
+    const { id, investmentNumber } = investment;
+    openModal(
+      <ConfirmModalContent
+        title="Delete Investment"
+        confirmLabel="Delete Investment"
+        busyLabel="Deleting…"
+        danger
+        message={<>Delete <strong>{investmentNumber}</strong> and reverse all its cash entries? This can&apos;t be undone.</>}
+        onConfirm={async () => {
+          await deleteInvestment(id);
+          toast(`${investmentNumber} deleted`);
+          navigate("investments");
+        }}
+      />
+    );
+  }
+
   const investorName = investment.customer?.name || investment.customer?.code || "";
 
   return (
     <>
       <div className="page-h">
         <div>
-          <h1>Investment {investment.investmentNumber}</h1>
+          <h1>{investment.investmentNumber}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 13.5, color: "var(--muted)", display: "flex", alignItems: "center", gap: 8 }}>
-            {investorName}{investment.plan?.name ? ` · ${investment.plan.name}` : ""}
+            <button
+              type="button"
+              title="View investor profile"
+              onClick={() => openModal(<InvestorProfileModalContent customerId={investment.customerId} />)}
+              style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "inherit", cursor: "pointer", textDecoration: "underline dotted" }}
+            >
+              {investorName}
+            </button>
+            {investment.plan?.name ? ` · ${investment.plan.name}` : ""}
             <StatusChip status={investment.status} />
           </p>
         </div>
@@ -255,7 +337,7 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             <Icon name="doc" /> Documents <Icon name="chevronDown" className="docs-dd-chev" />
           </button>
           {docsMenuOpen && (
-            <div className="docs-dd-menu" role="menu">
+            <div className="docs-dd-menu docs-dd-fit" role="menu">
               <a href="#" title="Print Agreement" className={printingBond ? "disabled" : ""} onClick={(e) => { e.preventDefault(); if (printingBond) return; setDocsMenuOpen(false); void handlePrintBond(); }}>
                 <Icon name="doc" /><span className="tx">{printingBond ? "Opening…" : "Print Agreement"}</span>
               </a>
@@ -267,35 +349,43 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
             </div>
           )}
         </div>
-        {canUpdate && isLive && (investment.status === "Active" || investment.status === "Matured") && (
-          <div className="docs-dd" ref={cashMenuRef} onKeyDown={onCashMenuKeyDown}>
-            <button
-              ref={cashMenuTriggerRef}
-              className="btn"
-              onClick={() => setCashMenuOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={cashMenuOpen}
-            >
-              <Icon name="coin" /> Cash <Icon name="chevronDown" className="docs-dd-chev" />
-            </button>
-            {cashMenuOpen && (
-              <div className="docs-dd-menu" role="menu">
-                {investment.status === "Active" && <a href="#" title="Add Cash" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openAddCash(); }}>
-                  <Icon name="plus" /><span className="tx">Add Cash</span>
-                </a>}
-                <a href="#" title="Withdraw" onClick={(e) => { e.preventDefault(); setCashMenuOpen(false); openWithdraw(); }}>
-                  <Icon name="coin" /><span className="tx">Withdraw</span>
-                </a>
-              </div>
-            )}
-          </div>
-        )}
-        {canUpdate && !isLive && (investment.status === "Active" || investment.status === "Matured") && (
-          <button className="btn" onClick={openPayInterest}><Icon name="coin" /> Pay Interest</button>
-        )}
-        {canUpdate && investment.status === "Matured" && (
-          <button className="btn" onClick={openMaturity}>Close / Renew</button>
-        )}
+        {/* One grouped button for everything that acts on the investment itself. */}
+        {(() => {
+          const open = investment.status === "Active" || investment.status === "Matured";
+          const canPayInterest = canUpdate && !isLive && open;
+          const canAddCash = canUpdate && isLive && investment.status === "Active";
+          const canWithdraw = canUpdate && (isLive ? open : investment.status === "Active");
+          const closeAction: { label: string; run: () => void } | null = !canUpdate ? null
+            : investment.status === "Matured" && !nothingOwed ? { label: "Close / Renew", run: openMaturity }
+            : nothingOwed && open ? { label: "Close Investment", run: openClose }
+            : isLive && investment.status === "Active" ? { label: "Close Early", run: openMaturity }
+            : !isLive && investment.status === "Active" ? { label: "Close Investment", run: openMaturity }
+            : null;
+          const canEdit = canUpdate && investment.status === "Active" && !investment.renewedFromInvestmentId && !investment.renewedToInvestmentId && !investment.totalInterestPaid && !investment.interestWithdrawn;
+          if (!canPayInterest && !canAddCash && !canWithdraw && !closeAction && !canEdit && !canDelete) return null;
+          const item = (icon: "coin" | "check" | "edit" | "trash" | "plus", label: string, run: () => void, danger?: boolean) => (
+            <a href="#" key={label} title={label} style={danger ? { color: "var(--red)" } : undefined} onClick={(e) => { e.preventDefault(); setActMenuOpen(false); run(); }}>
+              <Icon name={icon} /><span className="tx">{label}</span>
+            </a>
+          );
+          return (
+            <div className="docs-dd" ref={actMenuRef} onKeyDown={onActMenuKeyDown}>
+              <button ref={actMenuTriggerRef} className="btn" onClick={() => setActMenuOpen((v) => !v)} aria-haspopup="menu" aria-expanded={actMenuOpen}>
+                Actions <Icon name="chevronDown" className="docs-dd-chev" />
+              </button>
+              {actMenuOpen && (
+                <div className="docs-dd-menu" role="menu">
+                  {canPayInterest && item("coin", "Pay Interest", openPayInterest)}
+                  {canAddCash && item("plus", "Add Cash", openAddCash)}
+                  {canWithdraw && item("coin", "Withdraw", openWithdraw)}
+                  {closeAction && item("check", closeAction.label, closeAction.run)}
+                  {canEdit && item("edit", "Edit", () => openModal(<NewInvestmentModalContent investment={investment} onSaved={() => { closeModal(); void refreshInvestment(); schedule.reload(); void refreshLedger(); }} />, true))}
+                  {canDelete && item("trash", "Delete", openDelete, true)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
       <hr className="gold-rule" />
 
@@ -324,12 +414,10 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         <div className="hd">
           <h3>Ledger</h3>
           <div className="sp" />
-          {investment.customerId ? (
-            <LedgerRefLink kind="customer" id={investment.customerId} label={`${investorName || "Investor"} — customer ledger`} />
-          ) : null}
         </div>
         {ledgerError && <div className="notice" style={{ margin: 14 }}>{ledgerError}</div>}
-        <div className="tbl-wrap"><table className="tbl tbl-cards" data-ledger-scope="investment-ledger">
+        <div className="tbl-wrap"><table className="tbl tbl-center tbl-stack ledger-amt" data-ledger-scope="investment-ledger">
+          <TableCols widths={["112px", "108px", null, "88px", null, null, null]} />
           <thead><tr><th>Date</th><th>Ref No</th><th>Particulars</th><th>Method</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
           <tbody>
             {ledgerLoading ? (
@@ -342,8 +430,8 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
                 r.interestAmount > 0 && `Interest ${fmt(r.interestAmount)}`,
               ].filter(Boolean).join(" · ");
               return (
-                <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount}>
-                  <td data-label="Date">{fmtDate(r.date)}</td>
+                <tr key={r.id} data-ledger-key={r.id} data-ledger-date={r.date.slice(0, 10)} data-ledger-amount={r.amount} data-ledger-ref={`i:${r.id}`}>
+                  <td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
                   <td data-label="Ref No" style={{ whiteSpace: "nowrap" }}>{r.reference || "—"}</td>
                   <td data-label="Particulars">
                     {r.description || r.type}
@@ -354,7 +442,31 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
                   </td>
                   <td data-label="Debit" className="num" style={{ color: r.debitOrCredit === "debit" ? "var(--red)" : undefined }}>{r.debitOrCredit === "debit" ? fmt(r.amount) : "—"}</td>
                   <td data-label="Credit" className="num" style={{ color: r.debitOrCredit === "credit" ? "var(--green)" : undefined }}>{r.debitOrCredit === "credit" ? fmt(r.amount) : "—"}</td>
-                  <td data-label="Balance" className="num">{fmt(r.runningBalance)}</td>
+                  <td data-label="Balance" className="num">
+                    {fmt(r.runningBalance)}
+                    {(() => {
+                      // Edit / Delete live in the entry's info popup and open on top of it
+                      const done = () => { onLedgerChanged(); closeAllModals(); };
+                      const actions: LedgerInfoAction[] = [];
+                      if (r.editable && canEditLedger) actions.push({ label: "Edit", icon: "edit", run: () => openChildModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="edit" live={investment.engine === "Live"} minDate={investment.startDate?.slice(0, 10) || undefined} onSaved={done} />, true) });
+                      if (r.deletable && canDeleteLedger) actions.push({ label: "Delete", icon: "trash", danger: true, run: () => openChildModal(<InvestmentLedgerEditModalContent investmentId={investment.id} row={r} mode="delete" live={investment.engine === "Live"} onSaved={done} />, true) });
+                      return (
+                        <span className="ledger-info">
+                          <button type="button" title="Details" aria-label="Entry details" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--muted)", display: "inline-flex", alignItems: "center" }}
+                            onClick={() => openModal(<LoanLedgerInfoModalContent
+                              title={r.description || r.type}
+                              kind={(r.debitOrCredit === "debit" ? "Debit · " : "Credit · ") + r.type}
+                              rows={[
+                                ["Date", fmtDate(r.date)], ["Reference", r.reference || "—"], ["Amount", fmt(r.amount)],
+                                ["Mode", r.method || "—"], ["Balance", fmt(r.runningBalance)],
+                              ]}
+                              description={<>{r.description || r.type}{split ? <><br />{split}</> : null}</>}
+                              actions={actions}
+                            />)}><Icon name="info" /></button>
+                        </span>
+                      );
+                    })()}
+                  </td>
                 </tr>
               );
             })}
@@ -368,23 +480,26 @@ export function InvestmentDetailPage({ id }: InvestmentDetailPageProps) {
         <div className="card tbl-card tbl-card-fill">
           <div className="hd"><h3>Interest Payout Schedule</h3></div>
           {schedule.error && <div className="notice" style={{ margin: 14 }}>{schedule.error}</div>}
-          <div className="tbl-wrap"><table className="tbl tbl-center tbl-cards">
-            <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th><th></th></tr></thead>
+          <div className="tbl-wrap"><table className="tbl tbl-center tbl-cards inv-schedule-tbl">
+            <TableCols widths={[9, 22, 18, 21, 30]} />
+            <thead><tr><th>#</th><th>Due Date</th><th className="num">Amount</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
               {schedule.loading ? (
-                <tr><td colSpan={6} className="empty compact">Loading…</td></tr>
+                <tr><td colSpan={5} className="empty compact">Loading…</td></tr>
               ) : schedule.items.length === 0 ? (
-                <tr><td colSpan={6} className="empty compact">No payouts scheduled.</td></tr>
+                <tr><td colSpan={5} className="empty compact">No payouts scheduled.</td></tr>
               ) : schedule.items.map((p) => (
                 <tr key={p.id}>
                   <td data-label="#">{p.sequenceNo}</td>
                   <td data-label="Due Date">{fmtDate(p.dueDate)}</td>
                   <td data-label="Amount" className="num">{fmt(p.amount)}</td>
                   <td data-label="Type">{p.isPrincipalReturn ? "Principal Return" : "Interest"}</td>
-                  <td data-label="Status"><StatusChip status={p.status} /></td>
-                  <td>
+                  {/* Mark Paid sits beside its Pending chip rather than in a column of its own, which
+                      stood empty once every payout was paid. */}
+                  <td data-label="Status">
+                    <StatusChip status={p.status} />
                     {canUpdate && p.status === "Pending" && (
-                      <button className="btn plain sm" onClick={() => openMarkPaid(p)}>Mark Paid</button>
+                      <button className="btn plain sm" style={{ marginLeft: 6 }} onClick={() => openMarkPaid(p)}>Mark Paid</button>
                     )}
                   </td>
                 </tr>

@@ -7,6 +7,7 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Loan/models"
 	"context"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -57,7 +58,8 @@ func valueOrnament(o *models.Ornament, gr *commonModels.GoldRate) error {
 	if err != nil {
 		return err
 	}
-	o.NetWeight = o.GrossWeight - o.DeductionWeight
+	// weights are entered to 3 decimals; rounding keeps float noise (0.1+0.2) out of the value the principal is checked against
+	o.NetWeight = math.Round((o.GrossWeight-o.DeductionWeight)*1000) / 1000
 	if o.NetWeight < 0 {
 		o.NetWeight = 0
 	}
@@ -114,7 +116,7 @@ func deleteOrnament(ctx context.Context, ornamentID uint) (*models.Loan, error) 
 	}
 	switch l.Status {
 	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusAuctionedBalanceDue:
-		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+		return nil, common.NewBadRequest("loan is closed — nothing to extend")
 	}
 	existing, err := FindByLoanID(ctx, l.ID)
 	if err != nil {
@@ -147,6 +149,7 @@ func updateOrnament(ctx context.Context, ornamentID uint, in UpdateOrnamentInput
 	if err != nil {
 		return nil, common.NewBadRequest("no gold rate has been published yet")
 	}
+	prevPurity, prevNet, prevValue := o.Purity, o.NetWeight, o.GoldValue
 	o.Name = in.Name
 	o.Purity = in.Purity
 	o.GrossWeight = in.GrossWeight
@@ -158,6 +161,11 @@ func updateOrnament(ctx context.Context, ornamentID uint, in UpdateOrnamentInput
 	}
 	if err := valueOrnament(o, rate); err != nil {
 		return nil, err
+	}
+	// An ornament whose purity and net weight are unchanged keeps the value it was given when saved: re-valuing it at
+	// today's rate on every edit made the loan's eligible amount drift from what the Edit Loan screen had shown.
+	if prevValue > 0 && o.Purity == prevPurity && math.Abs(o.NetWeight-prevNet) < 0.0005 {
+		o.GoldValue = prevValue
 	}
 	if err := persistOrnament(ctx, o); err != nil {
 		return nil, err
@@ -272,7 +280,7 @@ func findOrnamentByCustomerID(ctx context.Context, customerID uint, from, to *ti
 		Where("loans.customer_id = ? AND ornaments.released_at IS NULL", customerID)
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("loans.loan_number ILIKE ? OR ornaments.name ILIKE ?", like, like)
+		q = q.Where("loans.loan_number ILIKE ? OR ornaments.name ILIKE ? OR ornaments.purity ILIKE ?", like, like, like)
 	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
@@ -293,13 +301,19 @@ func findOrnamentByCustomerID(ctx context.Context, customerID uint, from, to *ti
 }
 
 func insertPurityTest(ctx context.Context, t *models.OrnamentPurityTest) error {
-	return config.DB.
-		WithContext(ctx).Save(t).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(t).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfOrnament(db, t.OrnamentID)
 }
 
 func addImage(ctx context.Context, img *models.OrnamentImage) error {
-	return config.DB.
-		WithContext(ctx).Create(img).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(img).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfOrnament(db, img.OrnamentID)
 }
 
 func AddOrnament(c echo.Context) error {

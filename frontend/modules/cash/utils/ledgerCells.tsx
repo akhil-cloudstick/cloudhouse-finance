@@ -1,5 +1,6 @@
 "use client";
 
+import { type ReactNode } from "react";
 import { LedgerRefLink } from "@/common/components/LedgerRefLink";
 import { expenseCategoryOf, loanNumberOfCategory } from "@/common/hooks/use-expense-category-ids";
 import { MODE_LEDGER_ROUTE } from "@/modules/cash/services/cashService";
@@ -8,8 +9,25 @@ import { routeHref } from "@/common/services/appRoutes";
 import { useCanOpenRoute } from "@/common/hooks/use-can-open-route";
 import { isLoanSource } from "@/modules/cash/services/cashSourceService";
 
-// Matches "Bank pledge — <bank> — LN-00007" so the loan number (already in Ref No) is dropped from the row.
+/* Clickable cells for a cash-movement ledger row — shared by Cash.tsx's
+ * Ledger tab and the Reports Ledger / Statement Export
+ * (LedgerExportView.tsx), so both link references the same way. */
+
+// particularsFor mirrors LedgerExportView.tsx's "Particulars" column — the
+// same purpose-or-source text, with a party link layered on top (category /
+// customer / bank drill-down).
+// "Bank pledge — <bank> — LN-00007" / "Bank pledge release — <bank> — LN-00007"
+// (see cash.MovementService.RecordBankPledgeCashIn/CashOut). The loan number is
+// already in the Ref No column, so the row reads just "Bank pledge" with the
+// bank's name on the line below.
 const BANK_PLEDGE_RE = /^(Bank pledge(?: release)?) — (.+) — (?:LN|PL|INV)-\S+$/;
+
+// A ledger row's Particulars can carry a long remark; the table shows a short version and the full text on hover.
+const CLIP_AT = 70;
+export function clipText(text: string): ReactNode {
+  if (text.length <= CLIP_AT) return text;
+  return <span title={text}>{text.slice(0, CLIP_AT).trimEnd()}…</span>;
+}
 
 export function particularsFor(m: CashMovementView, categoryIds: Record<string, number>) {
   const pledge = m.purpose ? BANK_PLEDGE_RE.exec(m.purpose) : null;
@@ -21,9 +39,17 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
       </span>
     );
   }
-  // A gold-loan repayment (source "Collection", LN- reference) reads "Gold Loan".
+  // A gold-loan repayment (source "Collection", LN- reference) reads "Gold
+  // Loan"; personal-loan collections keep their existing label.
   const source = m.source === "Collection" && loanNumberFor(m).startsWith("LN-") ? "Gold Loan" : m.source;
+  // A self transfer's purpose already says "Self transfer — <category>", so
+  // its credit row shows just that, same as its debit row.
   const text = m.type === "in" && m.source !== "Self Transfer" ? (m.purpose ? `${source} · ${m.purpose}` : source) : m.purpose || "—";
+  // An approved expense's row links to its category ledger first — that's
+  // the ledger it belongs to; its From Bank still has its own bank ledger.
+  // A self transfer reads "Self transfer — <category>" followed by the row's
+  // bank as a link to that bank's ledger (From bank on the debit row, To bank
+  // on the credit row).
   if (m.source === "Self Transfer" && m.bankId) {
     return (
       <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", verticalAlign: "middle", flexWrap: "wrap", gap: 6 }}>
@@ -32,13 +58,27 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
       </span>
     );
   }
+  // The auction's proceeds and its surplus settlement belong to that loan's auction: they open the Auction History, not
+  // the Auction expenses ledger that the expense category below would give.
+  if (m.purpose && /^Auction (sale proceeds|surplus settlement)/.test(m.purpose)) {
+    const loanNo = loanNumberFor(m);
+    if (loanNo.startsWith("LN-")) {
+      // The settlement's remarks are not shown in the ledger; they live in the Auction History info modal.
+      return <LedgerRefLink kind="auction" id={`history:${loanNo}`} label={text || "Auction"} />;
+    }
+  }
   const category = expenseCategoryOf(m.purpose);
   const categoryId = category ? categoryIds[category.toLowerCase()] : undefined;
   if (categoryId) {
     return <LedgerRefLink kind="category" id={categoryId} label={text || category!} />;
   }
-  // A loan-sourced Add Cash entry links to that loan's own ledger via its same-named repayment category.
-  const loanCategoryId = m.type === "in" && m.source ? categoryIds[m.source.toLowerCase()] : undefined;
+  // A loan-sourced Add Cash entry links to that loan's own ledger — served
+  // by the loan's same-named repayment category.
+  // (Any named source with a category row — Savings too — opens its own ledger.)
+  // Only a loan source opens its own (party) ledger; any other Credit In never
+  // links to the category's Expense ledger — it shows in the party ledger and
+  // links through its Mode cell to the payment-mode ledger.
+  const loanCategoryId = m.type === "in" && m.source && isLoanSource(m.source) ? categoryIds[m.source.toLowerCase()] : undefined;
   if (loanCategoryId) {
     return <LedgerRefLink kind="category" id={loanCategoryId} label={text || m.source!} />;
   }
@@ -51,25 +91,41 @@ export function particularsFor(m: CashMovementView, categoryIds: Record<string, 
   return text;
 }
 
-// Pulls the loan number out of a "… — LN-00049" purpose suffix; "" when there's none.
+// loanNumberFor pulls the loan number back out of `purpose` — every
+// loan-related movement's Purpose carries it as a "… — LN-00049" suffix
+// (see cash.MovementService.RecordLoanDisbursementCashOut/
+// RecordLoanPaymentCashIn/etc), there's no dedicated column for it. "" for a
+// movement with none (manual top-ups, expenses, gold sales, …) — the internal
+// transaction group id / movement id is deliberately never shown as a Ref No.
 const LOAN_NUMBER_RE = /—\s*((?:LN|PL|INV)-\S+)\s*$/;
 export function loanNumberFor(m: CashMovementView): string {
   const match = m.purpose ? LOAN_NUMBER_RE.exec(m.purpose) : null;
   return match?.[1] || "";
 }
 
+// Ref No column. An expense (which includes a loan repayment — those are
+// booked as expenses in the loan's category) or a loan-sourced Add Cash shows
+// the bank it moved through, linked to that bank's ledger, and stays blank
+// shows "—" when there is none (e.g. a Cash-mode expense). A real LN-/PL-/INV-
+// number links to its loan/investment. Everything else is "—" — never the
+// internal transaction id.
+// A self transfer's category ("Self transfer — Loan HDFC 4471" → "Loan HDFC 4471").
 const SELF_TRANSFER_PREFIX = "Self transfer — ";
 export function selfTransferCategory(purpose?: string): string {
   return purpose && purpose.startsWith(SELF_TRANSFER_PREFIX) ? purpose.slice(SELF_TRANSFER_PREFIX.length).trim() : "";
 }
 
 export function refCellFor(m: CashMovementView, categoryIds?: Record<string, number>) {
+  // A self transfer to a loan links to that loan's own ledger.
   if (m.source === "Self Transfer") {
     const cat = selfTransferCategory(m.purpose);
     const id = cat && isLoanSource(cat) ? categoryIds?.[cat.toLowerCase()] : undefined;
+    // The chip reads the bank loan number recorded in Add Cash (the loan's own
+    // id), falling back to the loan's name when none is on file.
     return id ? <LedgerRefLink kind="category" id={id} label={loanNumberOfCategory(cat) || cat} /> : "—";
   }
-  // A repayment booked as an expense on a bank loan reads as the loan's number, not the bank paid from.
+  // A repayment booked as an expense on a bank loan reads as that loan's number, linked to the loan's own
+  // ledger — not the bank it was paid from (that bank has its own column / ledger).
   const expenseCat = expenseCategoryOf(m.purpose);
   if (expenseCat && isLoanSource(expenseCat)) {
     const loanId = categoryIds?.[expenseCat.toLowerCase()];
@@ -89,6 +145,9 @@ export function refCellFor(m: CashMovementView, categoryIds?: Record<string, num
   return "—";
 }
 
+// Hover text for the Ref No cell. A loan repayment (self transfer, expense or
+// loan-sourced Add Cash) shows the bank loan number recorded when that loan
+// was first added in Add Cash — not the bank the money moved through.
 export function refTitleFor(m: CashMovementView): string {
   const category =
     m.source === "Self Transfer" ? selfTransferCategory(m.purpose)
@@ -100,6 +159,9 @@ export function refTitleFor(m: CashMovementView): string {
   return m.bankName || loanNumberFor(m);
 }
 
+// Every mode is a drill-down link to that mode's own ledger — plain text for
+// a role that can't open the Ledger (the cell also appears on Loan Detail and
+// Reports, which don't need cash view).
 export function modeCellFor(mode: string | undefined) {
   if (!mode) return "—";
   const route = MODE_LEDGER_ROUTE[mode];
@@ -113,13 +175,18 @@ function ModeLink({ route, mode }: ModeLinkProps) {
   return canOpen(route) ? <a href={routeHref(route)}>{mode}</a> : <>{mode}</>;
 }
 
+// Ref cell for a party/mode ledger row with no loan/investment number: a
+// loan-sourced Add Cash entry (row `type` is its source name, e.g. "Loan …")
+// links to that loan's own ledger — its same-named repayment category.
 export function loanCatRef(r: { type: string; reference?: string; description?: string }, categoryIds: Record<string, number>) {
+  // A repayment booked as an expense on a bank loan: the loan's number, linked to the loan's ledger.
   const expenseCat = expenseCategoryOf(r.description);
   if (expenseCat && isLoanSource(expenseCat)) {
     const loanId = categoryIds[expenseCat.toLowerCase()];
     const number = loanNumberOfCategory(expenseCat) || expenseCat;
     return loanId ? <LedgerRefLink kind="category" id={loanId} label={number} /> : number;
   }
+  // A self transfer to a loan: its category is the loan, named in the description.
   if (r.type === "Self Transfer") {
     const cat = selfTransferCategory(r.description);
     const catId = cat && isLoanSource(cat) ? categoryIds[cat.toLowerCase()] : undefined;

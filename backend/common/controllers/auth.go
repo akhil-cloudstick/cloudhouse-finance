@@ -56,7 +56,7 @@ func resolveTenant(ctx context.Context, code string) (uint, error) {
 	if len(all) == 1 {
 		return all[0].ID, nil
 	}
-	return 0, NewBadRequest("please use your organisation's sign-in link, or enter your business code")
+	return 0, NewBadRequest("enter your business code")
 }
 
 func login(ctx context.Context, businessCode, identifier, password string) (string, *commonModels.Employee, error) {

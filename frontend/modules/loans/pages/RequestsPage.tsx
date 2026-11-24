@@ -1,125 +1,236 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { StatusChip } from "@/common/components/ui/StatusChip";
 import { Icon } from "@/common/components/Icon";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
-import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { usePersistedState, usePersistedPage } from "@/common/hooks/use-persisted-state";
 import { useLoans } from "@/modules/loans/store/LoansProvider";
 import { listLoanRequestsPage, getLoanByNumber, downloadReleaseAgreementPDF, downloadPartialReleaseReceiptPDF } from "@/modules/loans/services/loanService";
 import { type RequestView } from "@/modules/loans/types/loan-types";
+import { listPackets } from "@/modules/packets/services/packetService";
 import { useToast } from "@/common/components/ToastProvider";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useResponsivePageSize, useScrollPageSize } from "@/common/utils/responsive";
 const STATUS_OPTIONS = [
-  { value: "Pending", label: "Pending" },
-  { value: "Approved", label: "Approved" },
-  { value: "Rejected", label: "Rejected" },
+	{ value: "Pending", label: "Pending" },
+	{ value: "Approved", label: "Approved" },
+	{ value: "Rejected", label: "Rejected" },
 ];
 const TYPE_OPTIONS = [
-  { value: "extension", label: "Extension" },
-  { value: "release", label: "Release" },
+	{ value: "extension", label: "Extension" },
+	{ value: "release", label: "Release" },
 ];
 import { ReleaseReviewModalContent } from "@/modules/loans/components/ReleaseReviewModalContent";
 import { ExtensionReviewModalContent } from "@/modules/loans/components/ExtensionReviewModalContent";
 import { routeHref } from "@/common/services/appRoutes";
+import { EsignLanguageModalContent } from "@/modules/loans/components/EsignLanguageModalContent";
+import { RELEASE_LANG_OPTIONS } from "@/modules/loans/utils/indemnityBond";
 import { fmtDate } from "@/common/utils/format";
 import { singleFlight } from "@/common/utils/singleFlight";
 
-export function RequestsPage() {
-  const { openModal } = useModal();
-  const { refresh: refreshLoans } = useLoans();
-  // Without "can update loan" the review modal opens read-only, so the row button says View rather than Review.
-  const { can } = useAuth();
-  const canDecide = can("Loan_Management", "can_update_loan");
-  const toast = useToast();
+/* Real "Extensions & Release" review page — staff approve/reject the
+ * extension/release requests logged by the customer-mobile app (or by staff
+ * on a customer's behalf via LoanDetail.tsx). Both types now go through
+ * their own staged approval chain (Extension: Loan Officer -> Branch
+ * Manager -> Management; Release: Manager -> Management), reviewed via the
+ * Review/View modal below — see ExtensionReviewModal.tsx / ReleaseReviewModal.tsx
+ * and backend/internal/loan/service.go's ApproveExtensionRequest /
+ * ApproveReleaseRequest. Approving the final stage pushes the loan's due
+ * date out (Extension) or moves it to "Closure Requested" (Release).
+ * Which stages each chain has is per-business configuration (Roles &
+ * Permissions → Approval Workflow). */
+// The dashboard tiles open this page with a reserved route argument instead of a loan number.
+const PENDING_PRESETS: Record<string, string> = { "pending-extension": "extension", "pending-release": "release" };
 
-  const basePageSize = useResponsivePageSize(15, 15);
-  const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
-  const [reqs, setReqs] = useState<RequestView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [status, setStatus] = usePersistedState("requests:status", "");
-  const [type, setType] = usePersistedState("requests:type", "");
-  // `qInput` is what's typed; `q` is the debounced value that drives the server query.
-  const [qInput, setQInput] = useState("");
-  const [q, setQ] = useState("");
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
-  const [downloadMenuId, setDownloadMenuId] = useState<number | null>(null);
+export function RequestsPage({ focusLoanNumber: routeArg }: { focusLoanNumber?: string } = {}) {
+	const presetType = routeArg ? PENDING_PRESETS[routeArg] : undefined;
+	const focusLoanNumber = presetType ? undefined : routeArg;
+	const { openModal } = useModal();
+	const { refresh: refreshLoans } = useLoans();
+	// Without "can update loan" the review modal opens read-only (its
+	// checklist and approve/reject controls hide themselves), so the row
+	// button says View rather than Review.
+	const { can } = useAuth();
+	const canDecide = can("Loan_Management", "can_update_loan");
+	const toast = useToast();
 
-  async function downloadReleaseAgreement(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:release-agreement:"+r.id+":"+lang, async () => {
-    setDownloadMenuId(null);
-    setDownloadingId(r.id);
-    try {
-      const loan = await getLoanByNumber(r.loanNumber);
-      await downloadReleaseAgreementPDF(loan.numericId, lang);
-    } catch {
-      toast("Could not generate the release agreement — try again");
-    } finally {
-      setDownloadingId(null);
-    }
-  }); }
+	const basePageSize = useResponsivePageSize(15, 15);
+	const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
+	const [reqs, setReqs] = useState<RequestView[]>([]);
+	// packet number of each loan, for the Loan column (only for a role that may see packets)
+	const [packetByLoan, setPacketByLoan] = useState<Record<number, string>>({});
+	const canViewPackets = can("Packet_Management", "can_view_packet_module");
+	useEffect(() => {
+		if (!canViewPackets) return;
+		listPackets()
+			.then((ps) => setPacketByLoan(Object.fromEntries(ps.map((p) => [p.loanId, p.code]))))
+			.catch(() => setPacketByLoan({}));
+	}, [canViewPackets, reqs.length]);
+	const [loading, setLoading] = useState(true);
+	const [page, setPage] = usePersistedPage("requests");
+	const [total, setTotal] = useState(0);
+	const [status, setStatus] = usePersistedState("requests:status", "");
+	const [type, setType] = usePersistedState("requests:type", "");
+	const [fromDate, setFromDate] = usePersistedState("requests:from", "");
+	const [toDate, setToDate] = usePersistedState("requests:to", "");
+	// `qInput` is what's typed; `q` is the debounced value that drives the
+	// server query, so each keystroke doesn't fire a request.
+	const [qInput, setQInput] = useState(focusLoanNumber || "");
+	const [q, setQ] = useState(focusLoanNumber || "");
+	const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
-  // Keyed off the REQUEST rather than the loan — the receipt lists only what THIS request released.
-  async function downloadPartialReceipt(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:partial-receipt:"+r.id+":"+lang, async () => {
-    setDownloadMenuId(null);
-    setDownloadingId(r.id);
-    try {
-      await downloadPartialReleaseReceiptPDF(r.id, lang);
-    } catch {
-      toast("Could not generate the partial release receipt — try again");
-    } finally {
-      setDownloadingId(null);
-    }
-  }); }
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
-  // Re-fetches whatever page is on screen so an admin reviewing isn't bounced back to page 1.
-  const refresh = useCallback(() => {
-    listLoanRequestsPage(page, { status: status || undefined, type: type || undefined, q: q || undefined }, pageSize)
-      .then((res) => { setReqs(res.items); setTotal(res.total); })
-      .catch(() => { setReqs([]); setTotal(0); })
-      .finally(() => setLoading(false));
-  }, [page, status, type, q, pageSize]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
+  // The sidebar's Requests link (or a same-page reload) returns to the plain main list: close any open
+  // review/detail modal on arrival, and when the route argument clears (a loan focus / dashboard preset
+  // is dropped) reset search, status, type and dates.
+  const { closeAllModals } = useModal();
+  const prevArg = useRef(routeArg);
   useEffect(() => {
-    const t = qInput.trim();
-    if (t === q) return;
-    const handle = setTimeout(() => { setQ(t); setPage(1); }, 300);
-    return () => clearTimeout(handle);
-  }, [qInput, q]);
+    if (!routeArg) closeAllModals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const had = prevArg.current;
+    prevArg.current = routeArg;
+    if (!had || routeArg) return;
+    closeAllModals();
+    setStatus(""); setType(""); setFromDate(""); setToDate("");
+    setQInput(""); setQ(""); setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeArg]);
 
-  const filterCategories: FilterCategory[] = [
-    { key: "type", label: "Type", kind: "static", singleSelect: true, options: TYPE_OPTIONS },
-    { key: "status", label: "Status", kind: "static", singleSelect: true, options: STATUS_OPTIONS },
-  ];
-  const filterValue: FilterValue = { type: type ? [type] : [], status: status ? [status] : [] };
+	// Lets an Approved release row's document be re-downloaded right from
+	// this list, without navigating to Loan Detail first — same generator
+	// LoanDetail.tsx's own Documents menu uses.
+	async function downloadReleaseAgreement(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:release-agreement:"+r.id+":"+lang, async () => {
+		setDownloadingId(r.id);
+		try {
+			const loan = await getLoanByNumber(r.loanNumber);
+			await downloadReleaseAgreementPDF(loan.numericId, lang);
+		} catch {
+			toast("Could not generate the release agreement — try again");
+		} finally {
+			setDownloadingId(null);
+		}
+	}); }
 
-  function refreshAfterSave() {
-    refresh();
-    refreshLoans();
+	// Partial Ornament Release counterpart — keyed off the REQUEST rather
+	// than the loan (the receipt lists only what THIS request released), same
+	// Approved-only gate as the full-release FORM 7 agreement above.
+	async function downloadPartialReceipt(r: RequestView, lang: "en" | "ml") { return singleFlight("loans:partial-receipt:"+r.id+":"+lang, async () => {
+		setDownloadingId(r.id);
+		try {
+			await downloadPartialReleaseReceiptPDF(r.id, lang);
+		} catch {
+			toast("Could not generate the partial release receipt — try again");
+		} finally {
+			setDownloadingId(null);
+		}
+	}); }
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+	// Re-fetches whatever page is currently on screen — used both by the
+	// page-change effect below and after a decision/review-save, so an admin
+	// working through page 3 isn't bounced back to page 1 every time.
+  // A dashboard tile arrives with a preset: the remembered (stale) filters must not be fetched first, and a slow
+  // earlier response must never overwrite the preset's list — that was the intermittent "entire page" load.
+  // Applied DURING render (before any effect/fetch) and re-applied whenever the preset changes, so it also wins
+  // when this page is already mounted (tile clicked again / other tile) and over any remembered filters.
+  const [appliedPreset, setAppliedPreset] = useState<string | undefined>(undefined);
+  const presetReady = !presetType || appliedPreset === presetType;
+  if (presetType && appliedPreset !== presetType) {
+    setAppliedPreset(presetType);
+    setStatus("Pending");
+    setType(presetType);
+    setFromDate("");
+    setToDate("");
+    setQInput("");
+    setQ("");
+    setPage(1);
   }
+  const fetchSeq = useRef(0);
+	const refresh = useCallback(() => {
+    if (presetType && !presetReady) return;
+    const seq = ++fetchSeq.current;
+		listLoanRequestsPage(page, { status: status || undefined, type: type || undefined, q: q || undefined, from: fromDate || undefined, to: toDate || undefined }, pageSize)
+      .then((res) => { if (seq === fetchSeq.current) { setReqs(res.items); setTotal(res.total); } })
+      .catch(() => { if (seq === fetchSeq.current) { setReqs([]); setTotal(0); } })
+      .finally(() => { if (seq === fetchSeq.current) setLoading(false); });
+  }, [page, status, type, q, fromDate, toDate, pageSize, presetType, presetReady]);
 
-  return (
-    <>
-      <div className="page-h">
-        <div><h1>Loan Extensions &amp; Gold Release</h1><p>Extension/release requests </p></div>
+	useEffect(() => { refresh(); }, [refresh]);
+
+	// Arrived from the dashboard's Needs Attention list (/requests/<loanNumber>):
+	// narrow to that loan's pending requests (a remembered Approved/Rejected or
+	// type filter would hide them), and open the review straight away when
+	// there is exactly one.
+	const focusHandled = useRef(false);
+	// Arrived from a dashboard Extension / Gold Release tile: that type's Pending list.
+	useEffect(() => {
+		if (!presetType) return;
+	}, [presetType]);
+	useEffect(() => {
+		if (!focusLoanNumber) return;
+		setStatus("Pending");
+		setType("");
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [focusLoanNumber]);
+	useEffect(() => {
+		if (!focusLoanNumber || focusHandled.current || loading || status !== "Pending" || q !== focusLoanNumber) return;
+		const mine = reqs.filter((r) => r.loanNumber === focusLoanNumber && r.status === "Pending");
+		focusHandled.current = true;
+		if (mine.length !== 1) return;
+		const r = mine[0];
+		openModal(
+			r.type === "Extension"
+				? <ExtensionReviewModalContent request={r} onSaved={refreshAfterSave} />
+				: <ReleaseReviewModalContent request={r} onSaved={refreshAfterSave} />,
+			true
+		);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [reqs, loading, status, q, focusLoanNumber]);
+
+	useEffect(() => {
+		const t = qInput.trim();
+		if (t === q) return;
+		const handle = setTimeout(() => { setQ(t); setPage(1); }, 300);
+		return () => clearTimeout(handle);
+	}, [qInput, q]);
+
+	// One grouped filter for Type and Status (single choice each).
+	const filterCategories: FilterCategory[] = [
+		{ key: "type", label: "Type", kind: "static", options: TYPE_OPTIONS },
+		{ key: "status", label: "Status", kind: "static", options: STATUS_OPTIONS },
+		{ key: "__date", label: "Requested date", kind: "date" as const },
+	];
+	const filterValue: FilterValue = { type: type ? type.split(",") : [], status: status ? status.split(",") : [], __dateFrom: fromDate || undefined, __dateTo: toDate || undefined };
+
+	function refreshAfterSave() {
+		refresh();
+		refreshLoans();
+	}
+
+	return (
+		<>
+			<div className="page-h">
+        <div><h1>Extension &amp; Release</h1><p>Extension/release requests </p></div>
         <div className="sp" />
-        <div className="search"><Icon name="search" /><input className="inp" placeholder="Search loan no, customer, phone…" title="Searches: loan number, customer name, customer code, phone" value={qInput} onChange={(e) => setQInput(e.target.value)} /></div>
+        <TableSearch placeholder="Search loan no, customer, phone…" searches="loan number, customer name, customer code, phone" value={qInput} onChange={setQInput} />
       </div>
       <hr className="gold-rule" style={{ margin: "4px 0 10px" }} />
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div className="filter-row-right" style={{ marginBottom: 12 }}>
           <FilterPanel
             categories={filterCategories}
             value={filterValue}
             onChange={(next) => {
-              setType(Array.isArray(next.type) ? next.type[0] || "" : "");
-              setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
+              setType(Array.isArray(next.type) ? next.type.join(",") : "");
+              setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
+              setFromDate(next.__dateFrom || "");
+              setToDate(next.__dateTo || "");
               setPage(1);
             }}
             hideChips
@@ -128,37 +239,40 @@ export function RequestsPage() {
         </div>
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
-          <table className="tbl tbl-cards">
+          <table className="tbl tbl-cards tbl-center">
+            <TableCols widths={[11, 10, 16, 19, 11, 13, 20]} />
             <thead>
-              <tr><th>Request</th><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
+              <tr><th>Type</th><th>Loan</th><th>Customer</th><th>Detail</th><th>Date</th><th>Status</th><th style={{ textAlign: "center" }}>Actions</th></tr>
             </thead>
             <tbody>
               {loading && !(cards && reqs.length > 0) ? (
-                <tr><td colSpan={8} className="empty">Loading requests…</td></tr>
+                <tr><td colSpan={7} className="empty">Loading requests…</td></tr>
               ) : reqs.length === 0 ? (
-                <tr><td colSpan={8} className="empty">No extension or release requests yet.</td></tr>
+                <tr><td colSpan={7} className="empty">No extension or release requests yet.</td></tr>
               ) : reqs.map((r) => (
                 <tr key={r.id}>
-                  <td data-label="Request"><span className="id">#{r.id}</span></td>
-                  <td data-label="Type">
-                    <span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type}</span>
-                    {r.type === "Release" && r.isPartial && (
-                      <span className="chip" style={{ marginLeft: 4 }}>Partial</span>
-                    )}
+                  <td data-label="Type" style={{ whiteSpace: "nowrap", textAlign: "center" }}>
+                    <span className={`chip ${r.type === "Extension" ? "info" : r.type === "Release" ? "brand" : "amber"}`}>{r.type === "Release" && r.isPartial ? "Partial Release" : r.type}</span>
+                    {/* A partial release (only some ornaments handed back) reads "Partial Release" in the one chip, since the
+                        review chain and CompleteRelease behave differently for it (see backend/internal/loan/
+                        model_request.go's LoanRequest.IsPartial). */}
                   </td>
                   <td data-label="Loan"><a href={routeHref(`loan/${r.loanNumber}`)}>{r.loanNumber}</a></td>
                   <td data-label="Customer">{r.customerName}</td>
-                  <td data-label="Detail">{r.detail}</td>
-                  <td data-label="Date">{fmtDate(r.requestedAt)}</td>
+                  <td data-label="Detail"><span title={r.detail} style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.detail}</span></td>
+                  <td data-label="Date" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.requestedAt)}</td>
                   <td data-label="Status">
                     <StatusChip status={r.status} />
+                    {/* Set by RecordReleaseRequestPayment when a recorded discount+payment
+                        fell short of the final settlement — see ReleaseReviewModal.tsx. */}
                     {r.paymentDueDate && r.status === "Pending" && !r.paymentRecorded && new Date(r.paymentDueDate) < new Date() && (
                       <span className="chip" style={{ marginLeft: 6, color: "var(--red)", borderColor: "var(--red)" }}>Payment Overdue</span>
                     )}
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>
-                    {/* Fixed flex layout keeps the View button aligned regardless of whether the Download button is shown. */}
-                    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6 }}>
+                    {/* View / Review always keeps the same size. No space is held back for Download: the buttons sit against the
+                        right edge, so a Review row's button moves over into the spot Download would have taken. */}
+                    <div className="req-acts" style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
                       <button
                         className="btn ghost sm"
                         style={{ minWidth: 74, textAlign: "center", justifyContent: "center" }}
@@ -171,46 +285,29 @@ export function RequestsPage() {
                       >
                         {r.status === "Pending" && canDecide ? "Review" : "View"}
                       </button>
-                      <div
-                        className="docs-dd"
-                        style={{ visibility: r.type === "Release" && r.status === "Approved" ? "visible" : "hidden" }}
-                      >
+                      {r.type === "Release" && r.status === "Approved" && (
+                      <div className="docs-dd" style={{ flex: "none" }}>
                         <button
                           type="button"
                           className="btn ghost sm"
                           style={{ padding: "6px 10px", display: "inline-flex", alignItems: "center" }}
                           title={downloadingId === r.id ? "Preparing…" : "Download Release Agreement"}
                           disabled={downloadingId === r.id}
-                          onClick={() => setDownloadMenuId((cur) => (cur === r.id ? null : r.id))}
-                          tabIndex={r.type === "Release" && r.status === "Approved" ? 0 : -1}
+                          onClick={() => openModal(
+                            <EsignLanguageModalContent
+                              loanNumber={r.loanNumber}
+                              customerName={r.customerName}
+                              title={r.isPartial ? "Partial Release Receipt" : "Release Agreement"}
+                              confirmLabel="🖨 Download"
+                              options={RELEASE_LANG_OPTIONS}
+                              onConfirm={(lang) => (r.isPartial ? downloadPartialReceipt(r, lang === "ml" ? "ml" : "en") : downloadReleaseAgreement(r, lang === "ml" ? "ml" : "en"))}
+                            />
+                          )}
                         >
                           <Icon name="download" />
                         </button>
-                        {downloadMenuId === r.id && (
-                          <div className="docs-dd-menu" style={{ minWidth: 170, right: 0 }}>
-                            {/* A partial release never produces the FORM 7 full-release agreement — only its own receipt. */}
-                            {r.isPartial ? (
-                              <>
-                                <a href="#" onClick={(e) => { e.preventDefault(); downloadPartialReceipt(r, "en"); }}>
-                                  <Icon name="doc" /><span className="tx">Partial Receipt — English</span>
-                                </a>
-                                <a href="#" onClick={(e) => { e.preventDefault(); downloadPartialReceipt(r, "ml"); }}>
-                                  <Icon name="doc" /><span className="tx">Partial Receipt — Malayalam</span>
-                                </a>
-                              </>
-                            ) : (
-                              <>
-                                <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "en"); }}>
-                                  <Icon name="doc" /><span className="tx">English</span>
-                                </a>
-                                <a href="#" onClick={(e) => { e.preventDefault(); downloadReleaseAgreement(r, "ml"); }}>
-                                  <Icon name="doc" /><span className="tx">Malayalam</span>
-                                </a>
-                              </>
-                            )}
-                          </div>
-                        )}
                       </div>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -222,8 +319,10 @@ export function RequestsPage() {
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
           <button className="btn plain sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next ›</button>
         </div>
+        {/* <div className="ft">Release settlement = Principal + Interest + Penal + Charges − Payments/Waivers · verified against packet location &amp; bank pledge status</div> */}
       </div>
     </>
   );

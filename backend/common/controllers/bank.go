@@ -30,6 +30,7 @@ var bankRefColumns = []struct{ table, column string }{
 }
 
 var bankPhoneRe = regexp.MustCompile(`^\d{10}$`)
+var bankAccountNoRe = regexp.MustCompile(`^\d{1,18}$`)
 
 type bankRequest struct {
 	Name      string `json:"name"`
@@ -65,6 +66,35 @@ type BankView struct {
 	commonModels.Bank
 	BranchName string  `json:"branch_name"`
 	Balance    float64 `json:"balance"`
+	// Gold currently repledged to this bank (status Active): how many pledges and their total amount.
+	ActivePledgeCount  int64   `json:"active_pledge_count"`
+	ActivePledgeAmount float64 `json:"active_pledge_amount"`
+}
+
+type bankPledgeTotals struct {
+	BankID uint
+	Count  int64
+	Amount float64
+}
+
+// activePledgeTotals sums the Active bank pledges of the given banks, keyed by bank id.
+func activePledgeTotals(ctx context.Context, bankIDs []uint) (map[uint]bankPledgeTotals, error) {
+	out := map[uint]bankPledgeTotals{}
+	if len(bankIDs) == 0 {
+		return out, nil
+	}
+	var rows []bankPledgeTotals
+	err := config.DB.WithContext(ctx).Table("bank_pledge_records").
+		Select("bank_id, COUNT(*) AS count, COALESCE(SUM(pledged_amount), 0) AS amount").
+		Where("status = ? AND bank_id IN ?", "Active", bankIDs).
+		Group("bank_id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.BankID] = r
+	}
+	return out, nil
 }
 
 func insertBank(ctx context.Context, b *commonModels.Bank) error {
@@ -72,15 +102,16 @@ func insertBank(ctx context.Context, b *commonModels.Bank) error {
 		WithContext(ctx).Omit(clause.Associations).Create(b).Error
 }
 
-func findBanks(ctx context.Context, query string, branchID *uint, limit, offset int) ([]commonModels.Bank, int64, error) {
+func findBanks(ctx context.Context, query string, branchIDs []uint, limit, offset int) ([]commonModels.Bank, int64, error) {
 	var banks []commonModels.Bank
 	q := config.DB.
 		WithContext(ctx).Preload("BusinessBranch").Order("name asc")
 	if query != "" {
-		q = q.Where("name ILIKE ?", "%"+query+"%")
+		q = ApplySearch(q, query, "banks.name", "banks.branch", "banks.ifsc", "banks.account_no", "banks.phone",
+			"(SELECT b.name FROM branches b WHERE b.id = banks.branch_id)")
 	}
-	if branchID != nil {
-		q = q.Where("branch_id = ?", *branchID)
+	if len(branchIDs) > 0 {
+		q = q.Where("branch_id IN ?", branchIDs)
 	}
 	var total int64
 	if limit > 0 {
@@ -93,10 +124,13 @@ func findBanks(ctx context.Context, query string, branchID *uint, limit, offset 
 	return banks, total, err
 }
 
-func findBankByName(ctx context.Context, name string) (*commonModels.Bank, error) {
+// findBankByNameAndBranch matches a bank by name together with the bank's own
+// branch, case-insensitively and without treating % or _ as wildcards. One bank
+// name may have many branches; only the pair must be unique.
+func findBankByNameAndBranch(ctx context.Context, name, branch string) (*commonModels.Bank, error) {
 	var b commonModels.Bank
 	if err := config.DB.
-		WithContext(ctx).Where("name ILIKE ?", name).First(&b).Error; err != nil {
+		WithContext(ctx).Where("lower(name) = lower(?) AND lower(coalesce(branch, '')) = lower(?)", name, branch).First(&b).Error; err != nil {
 		return nil, err
 	}
 	return &b, nil
@@ -144,12 +178,32 @@ func reassignBankID(ctx context.Context, fromID, toID uint) error {
 	return nil
 }
 
-func listBanks(ctx context.Context, query string, branchID *uint, limit, offset int) ([]commonModels.Bank, int64, error) {
-	return findBanks(ctx, query, branchID, limit, offset)
+func listBanks(ctx context.Context, query string, branchIDs []uint, limit, offset int) ([]commonModels.Bank, int64, error) {
+	return findBanks(ctx, query, branchIDs, limit, offset)
 }
 
-func listWithBalances(ctx context.Context, query string, branchID *uint, limit, offset int) (views []BankView, count int64, total, unassigned float64, err error) {
-	rows, count, err := findBanks(ctx, query, branchID, limit, offset)
+// branchBankBalances sums BankBalances over each chosen branch; no branches means every branch at once.
+func branchBankBalances(ctx context.Context, branchIDs []uint) (map[uint]float64, float64, error) {
+	if len(branchIDs) == 0 {
+		return BankBalances(ctx, nil)
+	}
+	sum := map[uint]float64{}
+	var side float64
+	for _, id := range branchIDs {
+		b, s, err := BankBalances(ctx, &id)
+		if err != nil {
+			return nil, 0, err
+		}
+		for k, v := range b {
+			sum[k] += v
+		}
+		side += s
+	}
+	return sum, side, nil
+}
+
+func listWithBalances(ctx context.Context, query string, branchIDs []uint, limit, offset int) (views []BankView, count int64, total, unassigned float64, err error) {
+	rows, count, err := findBanks(ctx, query, branchIDs, limit, offset)
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}
@@ -157,20 +211,28 @@ func listWithBalances(ctx context.Context, query string, branchID *uint, limit, 
 	var bankSide float64
 	if BankBalances != nil &&
 		!config.IsDemoRun(ctx) {
-		if balances, bankSide, err = BankBalances(ctx, branchID); err != nil {
+		if balances, bankSide, err = branchBankBalances(ctx, branchIDs); err != nil {
 			return nil, 0, 0, 0, err
 		}
 	}
+	ids := make([]uint, len(rows))
+	for i, b := range rows {
+		ids[i] = b.ID
+	}
+	pledges, err := activePledgeTotals(ctx, ids)
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
 	views = make([]BankView, len(rows))
 	for i, b := range rows {
-		views[i] = BankView{Bank: b, Balance: balances[b.ID]}
+		views[i] = BankView{Bank: b, Balance: balances[b.ID], ActivePledgeCount: pledges[b.ID].Count, ActivePledgeAmount: pledges[b.ID].Amount}
 		if b.BusinessBranch != nil {
 			views[i].BranchName = b.BusinessBranch.Name
 		}
 	}
 	all := rows
 	if limit > 0 {
-		if all, _, err = findBanks(ctx, query, branchID, 0, 0); err != nil {
+		if all, _, err = findBanks(ctx, query, branchIDs, 0, 0); err != nil {
 			return nil, 0, 0, 0, err
 		}
 	}
@@ -201,11 +263,14 @@ func FindBankOrCreate(ctx context.Context, in BankCreateInput) (*commonModels.Ba
 	if trimmed == "" {
 		return nil, false, NewBadRequest("name is required")
 	}
+	if acc := strings.TrimSpace(in.AccountNo); acc != "" && !bankAccountNoRe.MatchString(acc) {
+		return nil, false, NewBadRequest("account number must be digits only, up to 18 digits")
+	}
 	phone := strings.TrimSpace(in.Phone)
 	if phone != "" && !bankPhoneRe.MatchString(phone) {
 		return nil, false, NewBadRequest("phone number must be exactly 10 digits")
 	}
-	existing, err := findBankByName(ctx, trimmed)
+	existing, err := findBankByNameAndBranch(ctx, trimmed, strings.TrimSpace(in.Branch))
 	if err == nil {
 		return existing, false, nil
 	}
@@ -240,12 +305,15 @@ func updateBank(ctx context.Context, id uint, in BankCreateInput) (*commonModels
 	if trimmed == "" {
 		return nil, NewBadRequest("name is required")
 	}
+	if acc := strings.TrimSpace(in.AccountNo); acc != "" && !bankAccountNoRe.MatchString(acc) {
+		return nil, NewBadRequest("account number must be digits only, up to 18 digits")
+	}
 	phone := strings.TrimSpace(in.Phone)
 	if phone != "" && !bankPhoneRe.MatchString(phone) {
 		return nil, NewBadRequest("phone number must be exactly 10 digits")
 	}
-	if existing, _ := findBankByName(ctx, trimmed); existing != nil && existing.ID != id {
-		return nil, NewConflict("a bank with this name already exists")
+	if existing, _ := findBankByNameAndBranch(ctx, trimmed, strings.TrimSpace(in.Branch)); existing != nil && existing.ID != id {
+		return nil, NewConflict("a bank with this name and branch already exists")
 	}
 	rec.Name = trimmed
 	if in.BranchID != 0 {
@@ -299,7 +367,10 @@ func mergeBank(ctx context.Context, sourceID, targetID uint) (*commonModels.Bank
 func ListBanks(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := PageParams(c)
-	scope := auth.GetBranchScope(c)
+	scope, ok := queryBranchIDs(c)
+	if !ok {
+		return Fail(c, http.StatusBadRequest, "that branch is outside your current branch selection")
+	}
 	if limit == 0 {
 		rec, _, _, _, err := listWithBalances(ctx, c.QueryParam("search"), scope, 0, 0)
 		if err != nil {

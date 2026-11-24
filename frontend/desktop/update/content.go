@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -25,7 +24,7 @@ func relaunchSelf() error {
 	if err != nil {
 		return err
 	}
-	return exec.Command(exe).Start()
+	return relaunch(exe)
 }
 
 // ContentManifest is the shared (not per-tenant) web-content feed.

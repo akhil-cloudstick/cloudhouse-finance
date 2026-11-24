@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { View } from "react-native";
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { Sheet } from "./Sheet";
@@ -14,6 +15,10 @@ type ConfirmSheetProps = {
   title: string;
   message: React.ReactNode;
   confirmLabel?: string;
+  /** The dismiss button (default "Cancel"). */
+  cancelLabel?: string;
+  /** Only the confirm button is shown; the sheet is still dismissed by tapping outside it. */
+  hideCancel?: boolean;
   danger?: boolean;
   /** Show a remarks input (value is passed to onConfirm). */
   remarks?: { label: string; placeholder?: string; required?: boolean; initial?: string };
@@ -30,6 +35,8 @@ export function ConfirmSheet({
   title,
   message,
   confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  hideCancel,
   danger,
   remarks,
   loading,
@@ -44,7 +51,7 @@ export function ConfirmSheet({
   }
   return (
     <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={70}>
-      {danger ? <WarningBanner>{message}</WarningBanner> : <Txt style={{ fontSize: 13, lineHeight: 19, marginVertical: 10 }}>{message}</Txt>}
+      {danger ? <WarningBanner>{message}</WarningBanner> : typeof message === "string" ? <Txt style={{ fontSize: 13, lineHeight: 19, marginVertical: 10 }}>{message}</Txt> : <View style={{ marginVertical: 10 }}>{message}</View>}
       {remarks ? (
         <Field label={remarks.label}>
           <Input placeholder={remarks.placeholder} value={text} onChangeText={setText} multiline />
@@ -52,7 +59,7 @@ export function ConfirmSheet({
       ) : null}
       {error ? <Txt style={{ color: C.red, fontSize: 12, fontWeight: "600", marginBottom: 6 }}>{error}</Txt> : null}
       <BtnRow2>
-        <PrimaryButton label="Cancel" variant="outline" onPress={onClose} disabled={loading} />
+        {hideCancel ? null : <PrimaryButton label={cancelLabel} variant="outline" onPress={onClose} disabled={loading} />}
         <PrimaryButton
           label={confirmLabel}
           variant={danger ? "danger" : "primary"}

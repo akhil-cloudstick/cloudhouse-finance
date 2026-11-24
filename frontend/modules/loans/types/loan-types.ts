@@ -2,140 +2,156 @@ import type { SANCTION_STAGES, AUCTION_STAGES } from "@/modules/loans/services/l
 
 /* Mirrors backend/internal/loan/handler.go's ornamentRequest exactly. */
 export type OrnamentRequestInput = {
-  name: string;
-  purity: string; // "24K" | "22K" | "18K"
-  grossWeight: number;
-  deductionWeight: number;
-  quantity: number;
-  remarks?: string;
-  // Every photo of this ornament, attached when the loan is created.
-  images?: string[];
+	name: string;
+	purity: string; // "24K" | "22K" | "18K"
+	grossWeight: number;
+	deductionWeight: number;
+	quantity: number;
+	remarks?: string;
+	// Every photo of this ornament, attached when the loan is created.
+	images?: string[];
 };
 /* Mirrors backend/internal/loan/handler.go's loanRequest exactly. */
 export type CreateLoanInput = {
-  branchId: number;
-  customerId: number;
-  schemeId: number;
-  openedDate: string; // "YYYY-MM-DD"
-  dueDate: string; // "YYYY-MM-DD"
-  principalAmount: number;
-  ornaments: OrnamentRequestInput[];
-  // Optional — checks the auto-created tracking packet straight into this
-  // locker at creation instead of leaving it ungrouped for a later manual
-  // check-in (see backend/internal/packet/service.go's Create).
-  lockerId?: number;
-  // Optional — the saved draft this loan was submitted from, discarded
-  // server-side once the loan exists (see the backend's loanRequest.DraftID).
-  draftId?: number;
-  // Optional free text captured at creation — anything the standard fields
-  // don't cover, carried through onto the printed Statement of Account.
-  additionalInfo?: string;
-  // One photo of the whole pledged lot, shown on the loan details card.
-  overallPhotoUrl?: string;
-  // Per-loan choice of how the scheme's service charge is collected.
-  serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal";
+	branchId: number;
+	// A number, or uuid:<uuid> for a customer registered on this PC that the server has not numbered yet.
+	customerId: number | string;
+	// A number, or uuid:<uuid> for a scheme made on this PC that the server has not numbered yet.
+	schemeId: number | string;
+	openedDate: string; // "YYYY-MM-DD"
+	dueDate: string; // "YYYY-MM-DD"
+	principalAmount: number;
+	ornaments: OrnamentRequestInput[];
+	// Optional — checks the auto-created tracking packet straight into this
+	// locker at creation instead of leaving it ungrouped for a later manual
+	// check-in (see backend/internal/packet/service.go's Create).
+	lockerId?: number;
+	// Optional — the saved draft this loan was submitted from, discarded
+	// server-side once the loan exists (see the backend's loanRequest.DraftID).
+	draftId?: number;
+	// Optional free text captured at creation — anything the standard fields
+	// don't cover, carried through onto the printed Statement of Account.
+	additionalInfo?: string;
+	// One photo of the whole pledged lot, shown on the loan details card.
+	overallPhotoUrl?: string;
+	// Per-loan choice of how the scheme's service charge is collected.
+	serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal";
 };
 /* Shape returned by the Go backend (backend/internal/loan/model.go's Loan —
  * returned directly, not through a separate response DTO). Only the
  * fields this module needs are typed here. */
 export type BackendOrnamentImage = { id: number; ornamentId: number; imageUrl: string; createdAt: string };
 export type BackendOrnamentPurityTest = {
-  id: number;
-  ornamentId: number;
-  testedPurity: string;
-  testedGrossWeight: number;
-  testedDeductionWeight: number;
-  testedNetWeight: number;
-  testingRemarks: string;
-  testedBy: string;
-  testedAt: string;
+	id: number;
+	ornamentId: number;
+	testedPurity: string;
+	testedGrossWeight: number;
+	testedDeductionWeight: number;
+	testedNetWeight: number;
+	testingRemarks: string;
+	testedBy: string;
+	testedAt: string;
 };
 export type BackendOrnament = {
-  id: number;
-  loanId: number;
-  name: string;
-  purity: string;
-  grossWeight: number;
-  deductionWeight: number;
-  netWeight: number;
-  quantity: number;
-  goldValue: number;
-  remarks: string;
-  purityTest?: BackendOrnamentPurityTest | null;
-  images?: BackendOrnamentImage[];
-  releasedAt?: string | null;
+	id: number;
+	loanId: number;
+	name: string;
+	purity: string;
+	grossWeight: number;
+	deductionWeight: number;
+	netWeight: number;
+	quantity: number;
+	goldValue: number;
+	remarks: string;
+	purityTest?: BackendOrnamentPurityTest | null;
+	images?: BackendOrnamentImage[];
+	releasedAt?: string | null;
 };
 export type BackendLoanApproval = {
-  id: number;
-  loanId: number;
-  stage: string;
-  action: string;
-  actorEmployeeId: number;
-  remarks: string;
-  createdAt: string;
+	id: number;
+	loanId: number;
+	stage: string;
+	action: string;
+	actorEmployeeId: number;
+  actorName?: string;
+	remarks: string;
+	createdAt: string;
 };
 export type BackendLoanPayment = {
-  id: number;
-  loanId: number;
-  amount: number;
-  type: string;
-  processingFee: number;
-  processingFeeApplied: number;
-  paidOn: string;
-  receivedByEmployeeId: number;
-  description: string;
-  /* Derived/display-only — the single mode's name when exactly one split
-   * amount below is non-zero, "Split" when more than one is. */
-  method: string;
-  cashAmount: number;
-  upiAmount: number;
-  bankTransferAmount: number;
-  chequeAmount: number;
-  reference: string;
-  penalInterestApplied: number;
-  interestApplied: number;
-  principalApplied: number;
-  runningBalance: number;
-  /* Links this payment to the CashMovement row(s) it produced (one row per
-   * non-zero mode among cashAmount/upiAmount/bankTransferAmount/
-   * chequeAmount above, all sharing this group id) — empty for a payment
-   * that never recorded cash (e.g. a Waiver) or whose cash-recording
-   * failed. */
-  cashTransactionGroupId?: string;
-  bankId?: number | null;
-  bankRef?: { id: number; name: string } | null;
-  createdAt: string;
+	id: number;
+	loanId: number;
+	amount: number;
+	type: string;
+	processingFee: number;
+	processingFeeApplied: number;
+	paidOn: string;
+	receivedByEmployeeId: number;
+	description: string;
+	discountKind?: string; // Discount rows: customer / interest / penal_interest
+	linkedPaymentId?: number; // a discount: the payment it was given together with
+	/* Derived/display-only — the single mode's name when exactly one split
+	 * amount below is non-zero, "Split" when more than one is. */
+	method: string;
+	cashAmount: number;
+	upiAmount: number;
+	bankTransferAmount: number;
+	chequeAmount: number;
+	reference: string;
+	penalInterestApplied: number;
+	interestApplied: number;
+	principalApplied: number;
+	runningBalance: number;
+	/* Links this payment to the CashMovement row(s) it produced (one row per
+	 * non-zero mode among cashAmount/upiAmount/bankTransferAmount/
+	 * chequeAmount above, all sharing this group id) — empty for a payment
+	 * that never recorded cash (e.g. a Waiver) or whose cash-recording
+	 * failed. */
+	cashTransactionGroupId?: string;
+	bankId?: number | null;
+	bankRef?: { id: number; name: string } | null;
+	createdAt: string;
 };
 export type BackendBankPledgeRecord = {
-  id: number;
-  loanId: number;
-  bankId: number | null;
-  bankName: string;
-  pledgedAmount: number;
-  pledgeDate: string;
-  releaseDate: string | null;
-  bankPledgeDueDate: string | null;
-  pledgedGrossWeight: number;
-  pledgedNetWeight: number;
-  bankInterestRate: number;
-  referenceNumber: string;
-  createdAt: string;
+	id: number;
+	loanId: number;
+	bankId: number | null;
+	bankName: string;
+	pledgedAmount: number;
+	pledgeDate: string;
+	releaseDate: string | null;
+	bankPledgeDueDate: string | null;
+	pledgedGrossWeight: number;
+	pledgedNetWeight: number;
+	bankInterestRate: number;
+	referenceNumber: string;
+	createdAt: string;
+	/* Ornaments this pledge covers; empty/absent = the loan's whole gold. */
+	ornamentIds?: number[] | null;
+	ornamentNames?: string[] | null;
 
-  /* Added with the cash-treatment toggle. Optional here because this same type
-   * is used for pledges embedded in a loan response, where older serialized
-   * payloads may not carry them — see toBankPledgeView for the defaults. */
-  cashTreatment?: BankPledgeCashTreatment;
-  status?: "Active" | "Released" | "Voided";
-  voidedAt?: string | null;
-  voidReason?: string;
-  events?: {
-    id: number;
-    action: "Pledged" | "Released" | "Voided";
-    actorRole?: string;
-    amount: number;
-    remarks?: string;
-    createdAt: string;
-  }[] | null;
+	/* Added with the cash-treatment toggle. Optional here because this same type
+	 * is used for pledges embedded in a loan response, where older serialized
+	 * payloads may not carry them — see toBankPledgeView for the defaults. */
+	cashTreatment?: BankPledgeCashTreatment;
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	receivedBankId?: number | null;
+	releaseCashAmount?: number;
+	releaseUpiAmount?: number;
+	releaseBankTransferAmount?: number;
+	releaseBankId?: number | null;
+	status?: "Active" | "Released" | "Voided";
+	voidedAt?: string | null;
+	voidReason?: string;
+	events?: {
+		id: number;
+		action: "Pledged" | "Released" | "Voided";
+		actorRole?: string;
+		amount: number;
+		remarks?: string;
+		createdAt: string;
+	}[] | null;
 };
 /* Minimal shapes of the nested Branch/Customer/Scheme the backend preloads
  * onto every loan response — only the fields this module reads. */
@@ -143,78 +159,88 @@ type NestedBranch = { id: number; name: string; code: string };
 type NestedCustomer = { id: number; name: string; code: string; phone: string };
 type NestedScheme = { id: number; name: string; interestRate: number; ltvPercent: number; interestMethod: string; penalRate: number };
 export type BackendLoan = {
-  id: number;
-  loanNumber: string;
-  branchId: number;
-  branch?: NestedBranch;
-  customerId: number;
-  customer?: NestedCustomer;
-  schemeId: number;
-  scheme?: NestedScheme;
-  // The loan's own frozen scheme terms as they stood at creation (or the
-  // last explicit scheme swap) — see backend Loan.SchemeInterestRate's doc
-  // comment. Display must read these, not the live `scheme` above, so
-  // editing a scheme later never changes what an existing loan shows it was
-  // charged under.
-  schemeInterestRate: number;
-  schemeLtvPercent: number;
-  schemeInterestMethod: string;
-  schemePenalRate: number;
-  openedDate: string;
-  dueDate: string;
-  additionalInfo?: string;
-  overallPhotoUrl?: string;
-  totalNetWeight: number;
-  totalGoldValue: number;
-  eligibleLoanAmount: number;
-  principalAmount: number;
-  outstandingAmount: number;
-  accruedInterest: number;
-  interestPaid: number;
-  accruedPenalInterest: number;
-  penalInterestPaid: number;
-  outstandingInterest: number;
-  outstandingPenalInterest: number;
-  outstandingProcessingFee: number;
-  totalOutstandingBalance: number;
-  settlementAmount: number;
-  totalPaid: number;
-  status: string;
-  approvalStage: string;
-  // Frozen at final sanction (Approve reaching FinalSanction), distinct from
-  // principalAmount above which can still change pre-approval — see backend
-  // Loan.SanctionedAmount's own doc comment. Zero/absent until the loan
-  // actually clears final sanction.
-  sanctionedAmount?: number;
-  disbursedAmount?: number;
-  serviceChargeMode?: string;
-  serviceChargeAmount?: number;
-  disbursementDate?: string | null;
-  bankPledgeStatus: string;
-  isDueSoon: boolean;
-  isOverdue: boolean;
-  isDefaulted: boolean;
-  daysOverdue: number;
-  auctionDate?: string | null;
-  auctionAmount?: number | null;
-  indemnityBondDocumentId?: string;
-  indemnityBondSignRequestId?: string;
-  indemnityBondSignStatus?: string;
-  indemnityBondSignedUrl?: string;
-  indemnityBondSignedAt?: string | null;
-  pledgeSlipSignStatus?: string;
-  pledgeSlipSignedUrl?: string;
-  ornaments?: BackendOrnament[];
-  approvals?: BackendLoanApproval[];
-  payments?: BackendLoanPayment[];
-  bankPledges?: BackendBankPledgeRecord[];
-  approvalWarning?: string;
-  // Set only when the sanction chain rejected the loan (status "Rejected").
-  rejectedByName?: string;
-  rejectedAt?: string | null;
-  rejectionRemarks?: string;
-  createdAt: string;
-  updatedAt: string;
+	id: number;
+	// The id the PC gave the loan, known before the server numbers it (see loanOffline.ts).
+	uuid?: string;
+	// Top-ups taken on this PC that the server has not received yet, so the offline ledger can list them (loanService.topUpLoan).
+	localTopUps?: LoanTopUpView[];
+	loanNumber: string;
+	branchId: number;
+	branch?: NestedBranch;
+	customerId: number;
+	customer?: NestedCustomer;
+	schemeId: number;
+	scheme?: NestedScheme;
+	// The loan's own frozen scheme terms as they stood at creation (or the
+	// last explicit scheme swap) — see backend Loan.SchemeInterestRate's doc
+	// comment. Display must read these, not the live `scheme` above, so
+	// editing a scheme later never changes what an existing loan shows it was
+	// charged under.
+	schemeInterestRate: number;
+	schemeLtvPercent: number;
+  currentSchemeLtvPercent?: number;
+	schemeInterestMethod: string;
+	schemePenalRate: number;
+	openedDate: string;
+	dueDate: string;
+	closedAt?: string | null;
+	additionalInfo?: string;
+	overallPhotoUrl?: string;
+	totalNetWeight: number;
+	totalGoldValue: number;
+	eligibleLoanAmount: number;
+	principalAmount: number;
+	outstandingAmount: number;
+	accruedInterest: number;
+	interestPaid: number;
+	accruedPenalInterest: number;
+	penalInterestPaid: number;
+	outstandingInterest: number;
+	outstandingPenalInterest: number;
+	outstandingProcessingFee: number;
+	totalOutstandingBalance: number;
+	settlementAmount: number;
+	totalPaid: number;
+	status: string;
+	approvalStage: string;
+	// Frozen at final sanction (Approve reaching FinalSanction), distinct from
+	// principalAmount above which can still change pre-approval — see backend
+	// Loan.SanctionedAmount's own doc comment. Zero/absent until the loan
+	// actually clears final sanction.
+	sanctionedAmount?: number;
+	disbursedAmount?: number;
+	serviceChargeMode?: string;
+	serviceChargeAmount?: number;
+	// The scheme's charge terms the loan carries (None / Flat / Percent), needed to re-price an edited loan.
+	serviceChargeType?: string;
+	serviceChargeValue?: number;
+	disbursementDate?: string | null;
+	bankPledgeStatus: string;
+	isDueSoon: boolean;
+	isOverdue: boolean;
+	isDefaulted: boolean;
+  auctionStage?: string;
+	daysOverdue: number;
+	auctionDate?: string | null;
+	auctionAmount?: number | null;
+	indemnityBondDocumentId?: string;
+	indemnityBondSignRequestId?: string;
+	indemnityBondSignStatus?: string;
+	indemnityBondSignedUrl?: string;
+	indemnityBondSignedAt?: string | null;
+	pledgeSlipSignStatus?: string;
+	pledgeSlipSignedUrl?: string;
+	ornaments?: BackendOrnament[];
+	approvals?: BackendLoanApproval[];
+	payments?: BackendLoanPayment[];
+	bankPledges?: BackendBankPledgeRecord[];
+	approvalWarning?: string;
+	// Set only when the sanction chain rejected the loan (status "Rejected").
+	rejectedByName?: string;
+	rejectedAt?: string | null;
+	rejectionRemarks?: string;
+	createdAt: string;
+	updatedAt: string;
 };
 /* UI-facing shape consumed by Loans.tsx / LoanDetail.tsx / LoanRow.tsx —
  * mirrors customersApi.ts's CustomerView convention: `id` is the string the
@@ -222,133 +248,158 @@ export type BackendLoan = {
  * matching the old mock Loan.id shape of "GL-1001"-style strings so
  * #loan/<id> hash routing keeps working unchanged). */
 export type OrnamentView = {
-  id: number;
-  name: string;
-  purity: string;
-  grossWeight: number;
-  netWeight: number;
-  quantity: number;
-  goldValue: number;
-  remarks: string;
-  photoUrl?: string;
-  // All photos of this ornament, oldest first; photoUrl is the preview.
-  photoUrls: string[];
-  // Set once CompleteRelease actually hands this ornament back — null while
-  // still physically pledged. See backend/internal/loan/model_ornament.go's
-  // Ornament.ReleasedAt doc comment.
-  releasedAt: string | null;
+	id: number;
+	name: string;
+	purity: string;
+	grossWeight: number;
+	netWeight: number;
+	quantity: number;
+	goldValue: number;
+	remarks: string;
+	photoUrl?: string;
+	// All photos of this ornament, oldest first; photoUrl is the preview.
+	photoUrls: string[];
+	// Set once CompleteRelease actually hands this ornament back — null while
+	// still physically pledged. See backend/internal/loan/model_ornament.go's
+	// Ornament.ReleasedAt doc comment.
+	releasedAt: string | null;
 };
 export type PaymentView = {
-  id: number;
-  amount: number;
-  type: string;
-  processingFee: number;
-  processingFeeApplied: number;
-  paidOn: string; // "YYYY-MM-DD"
-  receivedByEmployeeId: number;
-  description: string;
-  method: string;
-  cashAmount: number;
-  upiAmount: number;
-  bankTransferAmount: number;
-  chequeAmount: number;
-  reference: string;
-  penalInterestApplied: number;
-  interestApplied: number;
-  principalApplied: number;
-  runningBalance: number;
-  cashTransactionGroupId?: string;
-  // Which bank the UPI/Bank Transfer/Cheque portion landed in — see
-  // backend LoanPayment.BankID's doc comment. Nil for a Cash-only payment.
-  bankId?: number | null;
-  bankName?: string;
+	id: number;
+	amount: number;
+	type: string;
+	processingFee: number;
+	processingFeeApplied: number;
+	paidOn: string; // "YYYY-MM-DD"
+	receivedByEmployeeId: number;
+	description: string;
+	discountKind?: string; // Discount rows: customer / interest / penal_interest
+	linkedPaymentId?: number; // a discount: the payment it was given together with
+	method: string;
+	cashAmount: number;
+	upiAmount: number;
+	bankTransferAmount: number;
+	chequeAmount: number;
+	reference: string;
+	penalInterestApplied: number;
+	interestApplied: number;
+	principalApplied: number;
+	runningBalance: number;
+	cashTransactionGroupId?: string;
+	// Which bank the UPI/Bank Transfer/Cheque portion landed in — see
+	// backend LoanPayment.BankID's doc comment. Nil for a Cash-only payment.
+	bankId?: number | null;
+	bankName?: string;
 };
 export type BankPledgeView = {
-  id: number;
-  bankId: number | null;
-  bankName: string;
-  pledgedAmount: number;
-  pledgeDate: string;
-  releaseDate: string | null;
-  bankPledgeDueDate: string | null;
-  pledgedGrossWeight: number;
-  pledgedNetWeight: number;
-  isReleased: boolean;
-  bankInterestRate: number;
-  referenceNumber: string;
-  /* Whether this pledge put the bank's advance into Cash-in-Hand. Determines
-   * whether releasing it books cash back out, so it is surfaced on the loan's
-   * pledge rows, not just in the history view. */
-  cashTreatment: BankPledgeCashTreatment;
-  status: "Active" | "Released" | "Voided";
-  voidReason: string;
+	id: number;
+	bankId: number | null;
+	bankName: string;
+	pledgedAmount: number;
+	pledgeDate: string;
+	releaseDate: string | null;
+	bankPledgeDueDate: string | null;
+	pledgedGrossWeight: number;
+	pledgedNetWeight: number;
+	isReleased: boolean;
+	/* Ornaments this pledge covers; empty = the loan's whole gold. */
+	ornamentIds: number[];
+	bankInterestRate: number;
+	referenceNumber: string;
+	/* Whether this pledge put the bank's advance into Cash-in-Hand. Determines
+	 * whether releasing it books cash back out, so it is surfaced on the loan's
+	 * pledge rows, not just in the history view. */
+	cashTreatment: BankPledgeCashTreatment;
+	status: "Active" | "Released" | "Voided";
+	voidReason: string;
+	/* How the pledge was received / its release paid (for the edit form). */
+	cashAmount: number;
+	upiAmount: number;
+	bankTransferAmount: number;
+	receivedBankId: number | null;
+	releaseCashAmount: number;
+	releaseUpiAmount: number;
+	releaseBankTransferAmount: number;
+	releaseBankId: number | null;
 };
 export type LoanView = {
-  id: string; // loanNumber
-  numericId: number; // raw backend id, needed for mutation endpoints
-  loanNumber: string;
-  branchId: number;
-  branchName: string;
-  customerId: string; // stringified, matches CustomerView.id
-  customerName: string;
-  customerCode: string;
-  schemeId: string; // stringified, matches SchemeView.id
-  schemeName: string;
-  schemeRate: number;
-  schemeLtv: number;
-  schemeMethod: string;
-  schemePenal: number;
-  opened: string; // "YYYY-MM-DD"
-  due: string;
-  additionalInfo: string;
-  overallPhotoUrl: string;
-  totalNetWeight: number;
-  totalGoldValue: number;
-  eligibleLoanAmount: number;
-  principal: number;
-  outstanding: number;
-  accruedInterest: number;
-  interestPaid: number;
-  accruedPenalInterest: number;
-  penalInterestPaid: number;
-  outstandingInterest: number;
-  outstandingPenalInterest: number;
-  outstandingProcessingFee: number;
-  totalOutstandingBalance: number;
-  settlementAmount: number;
-  totalPaid: number;
-  status: string;
-  approvalStage: string;
-  sanctionedAmount: number;
-  disbursedAmount: number;
-  serviceChargeMode: string;
-  serviceChargeAmount: number;
-  disbursementDate: string | null;
-  bankPledgeStatus: string;
-  isDueSoon: boolean;
-  isOverdue: boolean;
-  isDefaulted: boolean;
-  daysOverdue: number;
-  approvalWarning: string;
-  rejectedByName: string;
-  rejectedAt: string | null;
-  rejectionRemarks: string;
-  auctionDate: string | null;
-  auctionAmount: number | null;
-  // Indemnity bond Aadhaar eSign (Setu) — indemnityBondSignStatus mirrors
-  // Setu's own SignatureStatus.Status verbatim: "" (never started),
-  // "sign_initiated", "sign_complete", or "failed". See
-  // loansApi.ts's startIndemnityBondEsign/checkIndemnityBondEsign and
-  // LoanDetail.tsx's "Send for Aadhaar eSign" action.
-  indemnityBondSignStatus: string;
-  indemnityBondSignedUrl: string;
-  indemnityBondSignedAt: string | null;
-  // GML pledge slip eSign (customer signs) — same status values as the bond's.
-  pledgeSlipSignStatus: string;
-  pledgeSlipSignedUrl: string;
-  ornaments: OrnamentView[];
-  payments: PaymentView[];
-  bankPledges: BankPledgeView[];
+	id: string; // loanNumber, or PENDING-xxxxxxxx until the server numbers a loan made offline
+	numericId: number; // raw backend id, needed for mutation endpoints; 0 until the server has the loan
+	uuid: string; // the id the PC gave the loan, "" for a loan that predates offline mode
+	loanNumber: string;
+	branchId: number;
+	branchName: string;
+	customerId: string; // stringified, matches CustomerView.id
+	customerName: string;
+	customerCode: string;
+	schemeId: string; // stringified, matches SchemeView.id
+	schemeName: string;
+	schemeRate: number;
+	schemeLtv: number;
+  // The scheme's LTV now, as the server will check an edit against it (schemeLtv is the one frozen on the loan).
+  currentSchemeLtv?: number;
+	schemeMethod: string;
+	schemePenal: number;
+	opened: string; // "YYYY-MM-DD"
+	due: string;
+	/** YYYY-MM-DD the loan was closed, "" while open (or closed before this was recorded). */
+	closed: string;
+	additionalInfo: string;
+	overallPhotoUrl: string;
+	totalNetWeight: number;
+	totalGoldValue: number;
+	eligibleLoanAmount: number;
+	principal: number;
+	outstanding: number;
+	accruedInterest: number;
+	interestPaid: number;
+	accruedPenalInterest: number;
+	penalInterestPaid: number;
+	outstandingInterest: number;
+	outstandingPenalInterest: number;
+	outstandingProcessingFee: number;
+	totalOutstandingBalance: number;
+	settlementAmount: number;
+	totalPaid: number;
+	status: string;
+	approvalStage: string;
+	sanctionedAmount: number;
+	disbursedAmount: number;
+	serviceChargeMode: string;
+	serviceChargeAmount: number;
+	serviceChargeType?: string;
+	serviceChargeValue?: number;
+	disbursementDate: string | null;
+	bankPledgeStatus: string;
+	isDueSoon: boolean;
+	isOverdue: boolean;
+	isDefaulted: boolean;
+  auctionStage?: string;
+	daysOverdue: number;
+	approvalWarning: string;
+	rejectedByName: string;
+  /** Names of the people who approved the loan (sanction stages), "" until approved. */
+  approvedBy: string;
+  /** Each sanction stage that was acted on, with who did it. */
+  approvals: { stage: string; action: string; actorName: string }[];
+	rejectedAt: string | null;
+	rejectionRemarks: string;
+	auctionDate: string | null;
+	auctionAmount: number | null;
+	// Indemnity bond Aadhaar eSign (Setu) — indemnityBondSignStatus mirrors
+	// Setu's own SignatureStatus.Status verbatim: "" (never started),
+	// "sign_initiated", "sign_complete", or "failed". See
+	// loansApi.ts's startIndemnityBondEsign/checkIndemnityBondEsign and
+	// LoanDetail.tsx's "Send for Aadhaar eSign" action.
+	indemnityBondSignStatus: string;
+	indemnityBondSignedUrl: string;
+	indemnityBondSignedAt: string | null;
+	// GML pledge slip eSign (customer signs) — same status values as the bond's.
+	pledgeSlipSignStatus: string;
+	pledgeSlipSignedUrl: string;
+	ornaments: OrnamentView[];
+	payments: PaymentView[];
+	bankPledges: BankPledgeView[];
 };
 /* --- Customer 360 sub-table rows -----------------------------------------
  * The 5 customer-scoped, server-paginated sub-tables (GET
@@ -373,56 +424,56 @@ export type CustomerBankPledgeRowView = BankPledgeView & { loanId: number; loanN
  * submitted through createLoan() in the normal way. Drafts are private to
  * the employee who saved them, enforced server-side from the JWT. */
 export type DraftOrnamentInput = {
-  name: string;
-  purity: string;
-  grossWeight: number;
-  quantity: number;
-  imageUrl?: string;
-  imageName?: string;
-  imageUrls?: string[];
+	name: string;
+	purity: string;
+	grossWeight: number;
+	quantity: number;
+	imageUrl?: string;
+	imageName?: string;
+	imageUrls?: string[];
 };
 export type SaveDraftInput = {
-  branchId: number;
-  overallPhotoUrl?: string;
-  customerId?: number;
-  schemeId?: number;
-  lockerId?: number;
-  principalOverride?: number;
-  ornaments: DraftOrnamentInput[];
+	branchId: number;
+	overallPhotoUrl?: string;
+	customerId?: number;
+	schemeId?: number;
+	lockerId?: number;
+	principalOverride?: number;
+	ornaments: DraftOrnamentInput[];
 };
 export type BackendLoanDraft = {
-  id: number;
-  createdByEmployeeId: number;
-  branchId: number;
-  branch?: { id: number; name: string };
-  customerId?: number;
-  customer?: { id: number; name: string; code: string };
-  schemeId?: number;
-  scheme?: { id: number; name: string };
-  lockerId?: number;
-  principalOverride?: number;
-  overallPhotoUrl?: string;
-  ornaments: {
-    id: number;
-    name: string;
-    purity: string;
-    grossWeight: number;
-    quantity: number;
-    imageUrl: string;
-    imageName: string;
-    imageUrls?: string[] | null;
-    position: number;
-  }[];
-  createdAt: string;
-  updatedAt: string;
+	id: number;
+	createdByEmployeeId: number;
+	branchId: number;
+	branch?: { id: number; name: string };
+	customerId?: number;
+	customer?: { id: number; name: string; code: string };
+	schemeId?: number;
+	scheme?: { id: number; name: string };
+	lockerId?: number;
+	principalOverride?: number;
+	overallPhotoUrl?: string;
+	ornaments: {
+		id: number;
+		name: string;
+		purity: string;
+		grossWeight: number;
+		quantity: number;
+		imageUrl: string;
+		imageName: string;
+		imageUrls?: string[] | null;
+		position: number;
+	}[];
+	createdAt: string;
+	updatedAt: string;
 };
 export type IndemnityBondEsignStart = {
-  id: string;
-  documentId: string;
-  status: string;
-  url: string;
-  // One signing link per signer, borrower first, then witness 1 and 2.
-  signers?: { identifier: string; displayName: string; url: string }[];
+	id: string;
+	documentId: string;
+	status: string;
+	url: string;
+	// One signing link per signer, borrower first, then witness 1 and 2.
+	signers?: { identifier: string; displayName: string; url: string }[];
 };
 export type EsignWitnessInput = { name: string; phone: string };
 /* Renders the loan's indemnity bond (in `lang`) server-side, uploads it to
@@ -432,44 +483,47 @@ export type EsignWitnessInput = { name: string; phone: string };
  * same "open URL, then poll" flow as DigiLocker Aadhaar verification. */
 export type IndemnityBondDeliverBy = "open" | "whatsapp" | "dashboard";
 export type IndemnityBondEsignCheck = {
-  loan: BackendLoan;
-  status: string;
-  // Per-signer completion in request order: customer, then witness 1 and 2.
-  signers?: { signed: boolean }[];
+	loan: BackendLoan;
+	status: string;
+	// Per-signer completion in request order: customer, then witness 1 and 2.
+	signers?: { signed: boolean }[];
 };
 export type ServicingClass = "due_soon" | "overdue" | "defaulted";
 export type LoanFilters = {
-  q?: string;
-  status?: string | string[]; // an array matches any of the statuses
-  // Read-time classes (not stored statuses): the Loans page's Due Soon / Overdue /
-  // Defaulted tabs. A single one replaces `status` on the server; several are
-  // OR-ed with each other and with `status`.
-  servicing?: ServicingClass | ServicingClass[];
-  branchId?: number | number[];
-  customerId?: number | number[];
-  bankPledgeStatus?: string;
-  schemeId?: number;
-  from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
-  to?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
+	q?: string;
+	status?: string | string[]; // an array matches any of the statuses
+	// Read-time classes (not stored statuses): the Loans page's Due Soon / Overdue /
+	// Defaulted tabs. A single one replaces `status` on the server; several are
+	// OR-ed with each other and with `status`.
+	servicing?: ServicingClass | ServicingClass[];
+	branchId?: number | number[];
+	customerId?: number | number[];
+	bankPledgeStatus?: string | string[];
+  bank?: string | string[]; // names of the banks an active pledge is with
+	schemeId?: number | number[];
+	auctionStage?: string | string[]; // latest auction record at any of these stages
+	from?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
+	to?: string; // YYYY-MM-DD, bounds openedDate (inclusive)
 };
 export type PurityTestInput = {
-  testedPurity: string;
-  testedGrossWeight: number;
-  testedDeductionWeight: number;
-  testingRemarks?: string;
-  testedBy: string;
-  testedAt: string; // "YYYY-MM-DD"
+	testedPurity: string;
+	testedGrossWeight: number;
+	testedDeductionWeight: number;
+	testingRemarks?: string;
+	testedBy: string;
+	testedAt: string; // "YYYY-MM-DD"
 };
 export type SanctionStage = (typeof SANCTION_STAGES)[number];
 export type ApprovalStageRecord = {
-  id: number;
-  loanId: number;
-  stage: string;
-  action: string;
-  actorEmployeeId: number;
-  actorRole: string;
-  remarks: string;
-  createdAt: string;
+	id: number;
+	loanId: number;
+	stage: string;
+	action: string;
+	actorEmployeeId: number;
+	actorRole: string;
+  actorName?: string;
+	remarks: string;
+	createdAt: string;
 };
 // employeeId/role are NOT sent — the backend derives the acting employee's
 // identity and role from the authenticated JWT (see
@@ -481,128 +535,155 @@ export type ApprovalStageRecord = {
 // like an "Approved" action does at the two stages above it. It is not
 // valid at any other stage (backend: Service.Approve).
 export type ApprovalInput = {
-  stage: SanctionStage | string;
-  action: "Approved" | "Rejected" | "Verified";
-  remarks?: string;
-  // Only meaningful (and only validated server-side) when this call is the
-  // one that clears the FINAL enabled sanction stage (FinalSanction by
-  // default, but whichever stage is last in this business's configured
-  // chain) and triggers disbursement — must sum to the principal amount.
-  cashAmount?: number;
-  upiAmount?: number;
-  bankTransferAmount?: number;
-  chequeAmount?: number;
-  // Which bank the UPI/Bank Transfer/Cheque portion was sent from —
-  // mirrors PaymentInput.bankId. Only stored at FinalSanction disbursement.
-  bankId?: number;
-  // How the withheld service charge is recorded (same four-mode split as the
-  // payout; must sum to the loan's service charge). Omitted = recorded as Cash.
-  chargeCashAmount?: number;
-  chargeUpiAmount?: number;
-  chargeBankTransferAmount?: number;
-  chargeChequeAmount?: number;
-  chargeBankId?: number;
+	stage: SanctionStage | string;
+	action: "Approved" | "Rejected" | "Verified";
+	remarks?: string;
+	// Only meaningful (and only validated server-side) when this call is the
+	// one that clears the FINAL enabled sanction stage (FinalSanction by
+	// default, but whichever stage is last in this business's configured
+	// chain) and triggers disbursement — must sum to the principal amount.
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	chequeAmount?: number;
+	// Which bank the UPI/Bank Transfer/Cheque portion was sent from —
+	// mirrors PaymentInput.bankId. Only stored at FinalSanction disbursement.
+	bankId?: number;
+	// How the withheld service charge is recorded (same four-mode split as the
+	// payout; must sum to the loan's service charge). Omitted = recorded as Cash.
+	chargeCashAmount?: number;
+	chargeUpiAmount?: number;
+	chargeBankTransferAmount?: number;
+	chargeChequeAmount?: number;
+	chargeBankId?: number;
 };
 /* Editable even after final sanction (see backend Service.UpdateLoan's own
  * doc comment) — scheme and/or principal amount, either independently.
  * Ornaments themselves go through the existing addOrnament/updateOrnament/
  * deleteOrnament calls below, one ornament at a time, not through this. */
-export type UpdateLoanInput = { schemeId?: number; principalAmount?: number; overallPhotoUrl?: string };
+export type UpdateLoanInput = {
+	schemeId?: number | string; principalAmount?: number; openedDate?: string; /* YYYY-MM-DD */ overallPhotoUrl?: string; additionalInfo?: string; // additionalInfo: "" clears it
+  serviceChargeMode?: "WithheldFromPayout" | "AddedToPrincipal"; // how the service charge is taken
+	// how the payout of a loan already paid out was made
+	cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; bankId?: number;
+	// the loan's branch and the locker for its gold — only for a role that may see every branch
+	branchId?: number; lockerId?: number;
+	// the amounts chosen for later payments that no longer fit once the loan is recalculated
+	adjustFollowing?: { id: number; amount: number }[];
+	// what a release did that the edit undoes: the gold packet, a partial release
+	reversePacket?: boolean; restorePartialRelease?: boolean;
+};
 // employeeId is NOT sent — the backend derives the receiving employee's
 // identity from the authenticated JWT, never the request body (see
 // platform.ActorFromContext).
 export type PaymentInput = {
-  amount: number;
-  // What the amount may pay off. The API accepts only these five (see the
-  // handler's staffSelectablePaymentTypes); Adjustment/Waiver and the auction
-  // types are raised by their own flows, never posted from here.
-  type: "Interest" | "Penal Interest" | "Principal" | "Partial" | "Full Settlement" | string;
-  processingFee?: number; // extra charge collected alongside amount — never applied to penal/interest/principal
-  paidOn: string;
-  cashAmount?: number;
-  upiAmount?: number;
-  bankTransferAmount?: number;
-  chequeAmount?: number;
-  // Which bank the UPI/Bank Transfer/Cheque portion landed in — required
-  // when any of those three is non-zero (see backend's
-  // ErrBankRequiredForSplitMode).
-  bankId?: number;
-  reference?: string;
-  description?: string;
-  // Overrides the system-calculated interest bucket for this payment only
-  // (see backend/internal/loan/service.go's PaymentInput.InterestOverride
-  // doc comment) — omit to use the live-calculated figure, same as before
-  // this existed.
-  interestOverride?: number;
+	amount: number;
+	// What the amount may pay off. The API accepts only these five (see the
+	// handler's staffSelectablePaymentTypes); Adjustment/Waiver and the auction
+	// types are raised by their own flows, never posted from here.
+	type: "Interest" | "Penal Interest" | "Principal" | "Partial" | "Full Settlement" | string;
+	processingFee?: number; // extra charge collected alongside amount — never applied to penal/interest/principal
+	paidOn: string;
+	// A write-off taken off the loan on the same date. amount stays what the customer actually pays.
+	discount?: number;
+	// What the discount is given against: a customer discount (the default), or interest / penal interest only.
+	discountKind?: DiscountKind;
+	discountReason?: string;
+	discountMode?: string;
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	chequeAmount?: number;
+	// Which bank the UPI/Bank Transfer/Cheque portion landed in — required
+	// when any of those three is non-zero (see backend's
+	// ErrBankRequiredForSplitMode).
+	bankId?: number;
+	reference?: string;
+	description?: string;
+	// Overrides the system-calculated interest bucket for this payment only
+	// (see backend/internal/loan/service.go's PaymentInput.InterestOverride
+	// doc comment) — omit to use the live-calculated figure, same as before
+	// this existed.
+	interestOverride?: number;
 };
 /* Top-up: draws additional cash against an already-Active loan's spare
  * eligible value (headroom = eligibleLoanAmount - outstanding), without
  * closing/reopening it — see backend/internal/loan/service.go's
  * Service.TopUpLoan. */
 export type TopUpInput = {
-  amount: number;
-  cashAmount?: number;
-  upiAmount?: number;
-  bankTransferAmount?: number;
-  chequeAmount?: number;
-  bankId?: number; // required when the breakdown includes UPI or Bank Transfer
-  occurredOn?: string; // "YYYY-MM-DD" — omit for today
-  reference?: string;
-  // "require" (default, if omitted) blocks the top-up when the loan has
-  // outstanding interest/penal interest — staff must record that payment
-  // separately first. "deduct" clears it out of this top-up's own cash
-  // payout instead (the customer still draws the full requested amount
-  // against the loan, but gets less cash out).
-  settleInterest?: "require" | "deduct";
+	amount: number;
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	chequeAmount?: number;
+	bankId?: number; // required when the breakdown includes UPI or Bank Transfer
+	occurredOn?: string; // "YYYY-MM-DD" — omit for today
+	reference?: string;
+	// "require" (default, if omitted) blocks the top-up when the loan has
+	// outstanding interest/penal interest — staff must record that payment
+	// separately first. "deduct" clears it out of this top-up's own cash
+	// payout instead (the customer still draws the full requested amount
+	// against the loan, but gets less cash out).
+	settleInterest?: "require" | "deduct";
 };
+export type DiscountKind = "customer" | "interest" | "penal_interest";
+export const DISCOUNT_KIND_LABELS: Record<DiscountKind, string> = {
+	customer: "Custom discount",
+	interest: "Interest",
+	penal_interest: "Penal interest",
+};
+
 export type LoanTopUpView = {
-  id: number;
-  amount: number;
-  eligibleAmountAtTopUp: number;
-  cashAmount: number;
-  upiAmount: number;
-  bankTransferAmount: number;
-  chequeAmount: number;
-  occurredOn: string;
-  reference: string;
-  // Pending = waiting in the loan_topup approval chain (nothing paid out
-  // yet); Rejected = turned down there. Only Active rows are real
-  // disbursements.
-  status: "Active" | "Reversed" | "Pending" | "Rejected";
-  // The pending stage value while Pending ("PendingBranchManager", …),
-  // "Approved"/"Rejected" once decided, "" when paid out with no chain.
-  approvalStage: string;
-  settleInterest: string;
-  createdAt: string;
+	id: number;
+	amount: number;
+	eligibleAmountAtTopUp: number;
+	cashAmount: number;
+	upiAmount: number;
+	bankTransferAmount: number;
+	chequeAmount: number;
+	occurredOn: string;
+	reference: string;
+	// Pending = waiting in the loan_topup approval chain (nothing paid out
+	// yet); Rejected = turned down there. Only Active rows are real
+	// disbursements.
+	status: "Active" | "Reversed" | "Pending" | "Rejected";
+	// The pending stage value while Pending ("PendingBranchManager", …),
+	// "Approved"/"Rejected" once decided, "" when paid out with no chain.
+	approvalStage: string;
+	settleInterest: string;
+	bankId?: number | null;
+	createdAt: string;
 };
 /* One decision on a pending top-up — stage is the stage KEY
  * ("BranchManager"/"Management"). The final enabled stage pays it out. The
  * acting employee/role come from the JWT. */
 export type TopUpApprovalInput = { stage: string; action: "Approved" | "Rejected"; remarks?: string };
 export type BankPledgeInput = {
-  bankId?: number;
-  bankName: string;
-  pledgedAmount: number;
-  pledgeDate: string;
-  bankInterestRate?: number;
-  referenceNumber?: string;
-  bankPledgeDueDate?: string;
+	bankId?: number;
+	bankName: string;
+	pledgedAmount: number;
+	pledgeDate: string;
+	bankInterestRate?: number;
+	referenceNumber?: string;
+	bankPledgeDueDate?: string;
 
-  /* Whether the bank's advance actually entered the branch till ("CashIn") or
-   * the pledge is pure book-keeping with no cash effect ("RecordOnly").
-   * Omitting it means RecordOnly server-side — cash only moves when the
-   * operator explicitly opts in. Immutable once saved: a wrong choice is
-   * corrected by voiding the record (voidBankPledge) and re-creating it, never
-   * by editing, since rewriting it would falsify booked cash history. */
-  cashTreatment?: BankPledgeCashTreatment;
+	/* Whether the bank's advance actually entered the branch till ("CashIn") or
+	 * the pledge is pure book-keeping with no cash effect ("RecordOnly").
+	 * Omitting it means RecordOnly server-side — cash only moves when the
+	 * operator explicitly opts in. Immutable once saved: a wrong choice is
+	 * corrected by voiding the record (voidBankPledge) and re-creating it, never
+	 * by editing, since rewriting it would falsify booked cash history. */
+	cashTreatment?: BankPledgeCashTreatment;
 
-  /* How a "CashIn" advance was received, and the branch bank account a UPI/
-   * Bank Transfer/Cheque share landed in. Omitted = all Cash. */
-  cashAmount?: number;
-  upiAmount?: number;
-  bankTransferAmount?: number;
-  chequeAmount?: number;
-  receivedBankId?: number;
+	/* How a "CashIn" advance was received, and the branch bank account a UPI/
+	 * Bank Transfer/Cheque share landed in. Omitted = all Cash. */
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	chequeAmount?: number;
+	receivedBankId?: number;
+	/* Pledge only these ornaments; omit to pledge the whole loan's gold. */
+	ornamentIds?: number[];
 };
 export type BankPledgeCashTreatment = "CashIn" | "RecordOnly";
 /* --- Bank re-pledge history ---------------------------------------------
@@ -610,67 +691,78 @@ export type BankPledgeCashTreatment = "CashIn" | "RecordOnly";
  * released re-pledge vanished from the UI entirely. These endpoints expose the
  * full record set with its audit trail. */
 export type BankPledgeEventView = {
-  id: number;
-  action: "Pledged" | "Released" | "Voided";
-  actorRole: string;
-  amount: number;
-  remarks: string;
-  createdAt: string;
+	id: number;
+	action: "Pledged" | "Released" | "Voided";
+	actorRole: string;
+	amount: number;
+	remarks: string;
+	createdAt: string;
 };
 export type BankPledgeRecordView = {
-  id: number;
-  loanId: number;
-  // Populated only by rows that carry their parent loan alongside them
-  // (the History tab's branch-wide query) — a plain per-loan history call
-  // (GET /loans/:id/bank-pledge/history) already has the loan in context,
-  // so its rows leave these blank rather than re-fetching what the caller
-  // already has.
-  loanNumber?: string;
-  customerName?: string;
-  bankName: string;
-  pledgedAmount: number;
-  pledgeDate: string;
-  releaseDate: string | null;
-  bankPledgeDueDate: string | null;
-  bankInterestRate: number;
-  referenceNumber: string;
-  cashTreatment: BankPledgeCashTreatment;
-  status: "Active" | "Released" | "Voided";
-  voidedAt: string | null;
-  voidReason: string;
-  events: BankPledgeEventView[];
+	id: number;
+	loanId: number;
+	// Populated only by rows that carry their parent loan alongside them
+	// (the History tab's branch-wide query) — a plain per-loan history call
+	// (GET /loans/:id/bank-pledge/history) already has the loan in context,
+	// so its rows leave these blank rather than re-fetching what the caller
+	// already has.
+	loanNumber?: string;
+	customerName?: string;
+	bankName: string;
+	pledgedAmount: number;
+	pledgeDate: string;
+	releaseDate: string | null;
+	bankPledgeDueDate: string | null;
+	bankInterestRate: number;
+	referenceNumber: string;
+	cashTreatment: BankPledgeCashTreatment;
+	status: "Active" | "Released" | "Voided";
+	voidedAt: string | null;
+	voidReason: string;
+	events: BankPledgeEventView[];
+	bankId?: number | null;
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	receivedBankId?: number | null;
+	releaseCashAmount?: number;
+	releaseUpiAmount?: number;
+	releaseBankTransferAmount?: number;
+	releaseBankId?: number | null;
+	/* Pledged ornaments' names; empty = the whole loan's gold. */
+	ornamentNames?: string[];
 };
 export type AuctionStage = (typeof AUCTION_STAGES)[number] | "Withdrawn";
 export type AuctionSettlementStatus =
-  | "Pending"
-  | "SettledByRepayment"
-  | "WrittenOff"
-  | "SettledToCustomer"
-  | "SettledToLoanCo";
+	| "Pending"
+	| "SettledByRepayment"
+	| "WrittenOff"
+	| "SettledToCustomer"
+	| "SettledToLoanCo";
 export type AuctionSurplusDisposition = "RefundedToCustomer" | "RecordedAsIncome";
 export type AuctionNoticeView = {
-  id: number;
-  issuedAt: string;
-  method: string;
-  remarks: string;
+	id: number;
+	issuedAt: string;
+	method: string;
+	remarks: string;
 };
 /* AuctionEventView is the staff-action audit trail. Notices already covered
  * customer communication; who scheduled, sold, or settled a case previously
  * left no trace at all. */
 export type AuctionEventView = {
-  id: number;
-  action: string;
-  actorRole: string;
-  remarks: string;
-  createdAt: string;
+	id: number;
+	action: string;
+	actorRole: string;
+	remarks: string;
+	createdAt: string;
 };
 export type AuctionDecisionKind = "PartialRepayment" | "Shortfall";
 export type AuctionDecisionStatus =
-  | "Pending"
-  | "KeepInAuction"
-  | "RemovedFromAuction"
-  | "WriteOff"
-  | "PursueBalance";
+	| "Pending"
+	| "KeepInAuction"
+	| "RemovedFromAuction"
+	| "WriteOff"
+	| "PursueBalance";
 /* AuctionDecisionRequestView is an escalation awaiting a human ruling. Raised
  * by the system, never by staff, so the decision cannot be quietly skipped:
  *  - PartialRepayment: customer part-paid; the auction is FROZEN until someone
@@ -678,74 +770,86 @@ export type AuctionDecisionStatus =
  *  - Shortfall: the sale did not cover the debt; only Branch Manager/
  *    Management/Administrator may write it off or pursue it. */
 export type AuctionDecisionRequestView = {
-  id: number;
-  auctionRecordId: number;
-  loanId: number;
-  kind: AuctionDecisionKind;
-  amountPaid: number;
-  outstandingAtRequest: number;
-  status: AuctionDecisionStatus;
-  decidedByRole: string;
-  decisionRemarks: string;
-  createdAt: string;
-  decidedAt: string | null;
+	id: number;
+	auctionRecordId: number;
+	loanId: number;
+	kind: AuctionDecisionKind;
+	amountPaid: number;
+	outstandingAtRequest: number;
+	status: AuctionDecisionStatus;
+	decidedByRole: string;
+	decisionRemarks: string;
+	createdAt: string;
+	decidedAt: string | null;
 };
 export type AuctionRecordView = {
-  id: number;
-  loanId: number;
-  stage: AuctionStage;
-  auctionEligibleDate: string;
-  auctionDate: string | null;
-  auctionReferenceNumber: string;
-  saleAmount: number;
-  auctionExpenses: number;
-  surplusShortfall: number;
-  /* Money owed BACK to the customer when the gold fetched more than the debt.
-   * Tracked explicitly because the full net proceeds are booked into the till,
-   * so without this the customer's share would silently sit in branch cash. */
-  surplusPayableAmount: number;
-  surplusDisposition: AuctionSurplusDisposition | "";
-  finalSettlementStatus: AuctionSettlementStatus;
-  notices: AuctionNoticeView[];
-  events: AuctionEventView[];
-  decisionRequests: AuctionDecisionRequestView[];
+	id: number;
+	loanId: number;
+	stage: AuctionStage;
+	auctionEligibleDate: string;
+	auctionDate: string | null;
+	auctionReferenceNumber: string;
+	saleAmount: number;
+	auctionExpenses: number;
+	surplusShortfall: number;
+	/* Money owed BACK to the customer when the gold fetched more than the debt.
+	 * Tracked explicitly because the full net proceeds are booked into the till,
+	 * so without this the customer's share would silently sit in branch cash. */
+	surplusPayableAmount: number;
+  /** Due at the time of sale (null on cases sold before it was stored). Auction History detail only. */
+  duePrincipal: number | null;
+  dueInterest: number | null;
+  duePenal: number | null;
+  dueTotal: number | null;
+	surplusDisposition: AuctionSurplusDisposition | "";
+	/** Notes entered when the surplus was settled ("" if none). */
+	surplusRemarks: string;
+	finalSettlementStatus: AuctionSettlementStatus;
+	notices: AuctionNoticeView[];
+	events: AuctionEventView[];
+	decisionRequests: AuctionDecisionRequestView[];
 };
 type BackendAuctionEvent = {
-  id: number;
-  action: string;
-  actorRole?: string;
-  remarks?: string;
-  createdAt: string;
+	id: number;
+	action: string;
+	actorRole?: string;
+	remarks?: string;
+	createdAt: string;
 };
 export type BackendAuctionDecisionRequest = {
-  id: number;
-  auctionRecordId: number;
-  loanId: number;
-  kind: AuctionDecisionKind;
-  amountPaid: number;
-  outstandingAtRequest: number;
-  status: AuctionDecisionStatus;
-  decidedByRole?: string;
-  decisionRemarks?: string;
-  createdAt: string;
-  decidedAt?: string | null;
+	id: number;
+	auctionRecordId: number;
+	loanId: number;
+	kind: AuctionDecisionKind;
+	amountPaid: number;
+	outstandingAtRequest: number;
+	status: AuctionDecisionStatus;
+	decidedByRole?: string;
+	decisionRemarks?: string;
+	createdAt: string;
+	decidedAt?: string | null;
 };
 export type BackendAuctionRecord = {
-  id: number;
-  loanId: number;
-  stage: AuctionStage;
-  auctionEligibleDate: string;
-  auctionDate: string | null;
-  auctionReferenceNumber: string;
-  saleAmount: number;
-  auctionExpenses: number;
-  surplusShortfall: number;
-  surplusPayableAmount?: number;
-  surplusDisposition?: AuctionSurplusDisposition | "";
-  finalSettlementStatus: AuctionSettlementStatus;
-  notices: { id: number; issuedAt: string; method: string; remarks: string }[] | null;
-  events?: BackendAuctionEvent[] | null;
-  decisionRequests?: BackendAuctionDecisionRequest[] | null;
+	id: number;
+	loanId: number;
+	stage: AuctionStage;
+	auctionEligibleDate: string;
+	auctionDate: string | null;
+	auctionReferenceNumber: string;
+	saleAmount: number;
+	auctionExpenses: number;
+	surplusShortfall: number;
+	surplusPayableAmount?: number;
+  duePrincipal?: number | null;
+  dueInterest?: number | null;
+  duePenal?: number | null;
+  dueTotal?: number | null;
+	surplusDisposition?: AuctionSurplusDisposition | "";
+	surplusRemarks?: string;
+	finalSettlementStatus: AuctionSettlementStatus;
+	notices: { id: number; issuedAt: string; method: string; remarks: string }[] | null;
+	events?: BackendAuctionEvent[] | null;
+	decisionRequests?: BackendAuctionDecisionRequest[] | null;
 };
 export type BackendCustomerAuctionRow = BackendAuctionRecord & { loanNumber: string };
 export type CustomerAuctionRowView = AuctionRecordView & { loanNumber: string };
@@ -765,133 +869,144 @@ export type ConcludedAuctionRowView = AuctionRecordView & { loanNumber: string; 
 export type LoanLedgerPart = { mode: string; amount: number; index: number; count: number };
 // component names what a split repayment row was applied to (e.g. an auction's proceeds).
 // accruing marks interest worked out up to the day the ledger is opened and not saved yet.
-type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string; accruing?: boolean };
+type LedgerEntryBase = { key: string; date: string; amount: number; part?: LoanLedgerPart; component?: string; mode?: string; accruing?: boolean; paidThrough?: string };
 export type LoanLedgerEntry =
-  | (LedgerEntryBase & { kind: "sanction"; balance: number; payment: PaymentView | null })
-  | (LedgerEntryBase & { kind: "payment"; balance: number; row: PaymentView; auction: AuctionRecordView | null })
-  | (LedgerEntryBase & { kind: "topup"; balance: number; row: LoanTopUpView })
-  | (LedgerEntryBase & { kind: "interest"; balance: number })
-  | (LedgerEntryBase & { kind: "penal"; balance: number })
-  | (LedgerEntryBase & { kind: "service-charge"; balance: number })
-  | (LedgerEntryBase & { kind: "auction-sale"; balance: null; row: AuctionRecordView })
-  | (LedgerEntryBase & { kind: "auction-surplus"; balance: null; row: AuctionRecordView });
+	| (LedgerEntryBase & { kind: "sanction"; balance: number; payment: PaymentView | null })
+	| (LedgerEntryBase & { kind: "payment"; balance: number; row: PaymentView; auction: AuctionRecordView | null })
+	| (LedgerEntryBase & { kind: "topup"; balance: number; row: LoanTopUpView })
+	| (LedgerEntryBase & { kind: "interest"; balance: number })
+	| (LedgerEntryBase & { kind: "penal"; balance: number })
+	| (LedgerEntryBase & { kind: "service-charge"; balance: number })
+	| (LedgerEntryBase & { kind: "auction-sale"; balance: null; row: AuctionRecordView })
+	| (LedgerEntryBase & { kind: "auction-surplus"; balance: null; row: AuctionRecordView });
 // totalDebit/totalCredit sum the Debit/Credit columns over every row in the
 // filtered range, not just this page — the footer's Total row.
 export type LoanLedgerPage = { items: LoanLedgerEntry[]; total: number; limit: number; offset: number; totalDebit: number; totalCredit: number };
 export type LoanLedgerQuery = {
-  from?: string;
-  to?: string;
-  // Entry kinds to keep: sanction | payment | topup | interest | penal | auction.
-  kinds?: string[];
-  limit: number;
-  offset: number;
-  // Open on the page holding this row — by key, else by date + amount.
-  focusKey?: string;
-  focusDate?: string;
-  focusAmount?: number;
+	from?: string;
+	to?: string;
+	// Entry kinds to keep: sanction | payment | topup | interest | penal | auction.
+	kinds?: string[];
+	limit: number;
+	offset: number;
+	// Open on the page holding this row — by key, else by date + amount.
+	focusKey?: string;
+	focusDate?: string;
+	focusAmount?: number;
 };
 export type BackendLoanLedgerEntry = {
-  kind: LoanLedgerEntry["kind"];
-  key: string;
-  date: string;
-  amount: number;
-  balance: number | null;
-  part?: LoanLedgerPart;
-  component?: string;
-  mode?: string;
-  accruing?: boolean;
-  payment?: BackendLoanPayment;
-  topUp?: LoanTopUpView;
-  auction?: BackendAuctionRecord;
+	kind: LoanLedgerEntry["kind"];
+	key: string;
+	date: string;
+	amount: number;
+	balance: number | null;
+	part?: LoanLedgerPart;
+	component?: string;
+	mode?: string;
+	accruing?: boolean;
+	// the date the loan's interest is paid up to once this payment is counted (YYYY-MM-DD)
+	paidThrough?: string;
+	payment?: BackendLoanPayment;
+	topUp?: LoanTopUpView;
+	auction?: BackendAuctionRecord;
 };
 /* --- Extension & release requests ("Extensions & Release" page) ---------
  * Mirrors backend/internal/loan/model.go's LoanRequest. Staff log these on
  * a customer's behalf today (from LoanDetail.tsx / CustomerDetail.tsx); the
  * Android app can create the same records later via the same endpoints. */
 export type BackendLoanRequest = {
-  id: number;
-  loanId: number;
-  loan?: BackendLoan;
-  type: LoanRequestType;
-  status: "Pending" | "Approved" | "Rejected";
-  requestedBy: "Customer" | "Staff";
-  detail: string;
-  requestedExtensionMonths?: number | null;
-  newDueDate?: string | null;
-  // Release only — the same Manager→Management chain used for loan
-  // sanctioning (see backend/internal/loan/model.go's LoanRequest).
-  approvalStage?: string;
-  // isPartial/customerSawGold/paymentRecorded/locked are the reworked
-  // Partial Ornament Release fields — see backend/internal/loan/
-  // model_request.go's LoanRequest doc comment. paymentVerified/
-  // packetVerified/bankPledgeVerified/customerConfirmed are the RETIRED
-  // 4-item checklist, kept only because the backend still serialises them
-  // (nothing writes/reads them any more) — not used by this file any more.
-  isPartial: boolean;
-  customerSawGold: boolean;
-  paymentRecorded: boolean;
-  locked: boolean;
-  paymentVerified: boolean;
-  packetVerified: boolean;
-  bankPledgeVerified: boolean;
-  customerConfirmed: boolean;
-  verificationNotes: string;
-  charges: number;
-  // How much of `charges` has already been posted onto the loan as a real
-  // payment (see backend/internal/loan/service.go's RecordReleasePayment) —
-  // `charges - chargesApplied` is what's still left to collect.
-  chargesApplied: number;
-  settlementAmount: number;
-  // "Record Payment" step on the Manager-stage release review screen — see
-  // backend/internal/loan/service.go's RecordReleasePayment.
-  recordedDiscount: number;
-  recordedPayment: number;
-  paymentDueDate?: string | null;
-  // Partial Ornament Release's selected-ornament set — see
-  // backend/internal/loan/model_request.go's LoanRequestOrnament.
-  ornamentSelections?: { id: number; requestId: number; ornamentId: number }[];
-  remarks: string;
-  requestedAt: string;
-  decidedAt?: string | null;
-  decidedByEmployeeId?: number | null;
-  createdAt: string;
+	id: number;
+	loanId: number;
+	loan?: BackendLoan;
+	type: LoanRequestType;
+	status: "Pending" | "Approved" | "Rejected";
+	requestedBy: "Customer" | "Staff";
+	detail: string;
+	requestedExtensionMonths?: number | null;
+	newDueDate?: string | null;
+	// Release only — the same Manager→Management chain used for loan
+	// sanctioning (see backend/internal/loan/model.go's LoanRequest).
+	approvalStage?: string;
+	// isPartial/customerSawGold/paymentRecorded/locked are the reworked
+	// Partial Ornament Release fields — see backend/internal/loan/
+	// model_request.go's LoanRequest doc comment. paymentVerified/
+	// packetVerified/bankPledgeVerified/customerConfirmed are the RETIRED
+	// 4-item checklist, kept only because the backend still serialises them
+	// (nothing writes/reads them any more) — not used by this file any more.
+	isPartial: boolean;
+	customerSawGold: boolean;
+	paymentRecorded: boolean;
+	locked: boolean;
+	paymentVerified: boolean;
+	packetVerified: boolean;
+	bankPledgeVerified: boolean;
+	customerConfirmed: boolean;
+	verificationNotes: string;
+	charges: number;
+	// How much of `charges` has already been posted onto the loan as a real
+	// payment (see backend/internal/loan/service.go's RecordReleasePayment) —
+	// `charges - chargesApplied` is what's still left to collect.
+	chargesApplied: number;
+	settlementAmount: number;
+	// "Record Payment" step on the Manager-stage release review screen — see
+	// backend/internal/loan/service.go's RecordReleasePayment.
+	recordedDiscount: number;
+	recordedPayment: number;
+	paymentDueDate?: string | null;
+	// Partial Ornament Release's selected-ornament set — see
+	// backend/internal/loan/model_request.go's LoanRequestOrnament.
+	ornamentSelections?: { id: number; requestId: number; ornamentId: number }[];
+	remarks: string;
+	requestedAt: string;
+	decidedAt?: string | null;
+	decidedByEmployeeId?: number | null;
+  decidedByName?: string;
+  approvals?: { stage: string; action: string; actorName?: string; createdAt?: string }[];
+	createdAt: string;
 };
 export type LoanRequestType = "Extension" | "Release";
 export type RequestView = {
-  id: number;
-  loanId: string; // loanNumber, matches LoanView.id
-  loanNumericId: number; // raw backend loan id, needed to fetch full loan financials
-  loanNumber: string;
-  customerName: string;
-  type: LoanRequestType;
-  status: "Pending" | "Approved" | "Rejected";
-  detail: string;
-  requestedAt: string; // "YYYY-MM-DD"
-  remarks: string;
-  requestedExtensionMonths: number | null;
-  approvalStage: string; // "" for Extension requests
-  isPartial: boolean;
-  customerSawGold: boolean;
-  paymentRecorded: boolean;
-  locked: boolean;
-  verificationNotes: string;
-  charges: number;
-  chargesApplied: number;
-  settlementAmount: number;
-  recordedDiscount: number;
-  recordedPayment: number;
-  paymentDueDate: string | null; // "YYYY-MM-DD", null if not set
-  // Ornament IDs selected for release on this request — empty for a plain
-  // full release (or an Extension request).
-  ornamentIds: number[];
+	id: number;
+	loanId: string; // loanNumber, matches LoanView.id
+	loanNumericId: number; // raw backend loan id, needed to fetch full loan financials
+	loanNumber: string;
+	customerName: string;
+	type: LoanRequestType;
+	status: "Pending" | "Approved" | "Rejected";
+	detail: string;
+	requestedAt: string; // "YYYY-MM-DD"
+	remarks: string;
+	requestedExtensionMonths: number | null;
+	approvalStage: string; // "" for Extension requests
+  decidedByName: string;
+  approvals: { stage: string; action: string; actorName: string; date: string }[];
+	isPartial: boolean;
+	customerSawGold: boolean;
+	paymentRecorded: boolean;
+	locked: boolean;
+	verificationNotes: string;
+	charges: number;
+	chargesApplied: number;
+	settlementAmount: number;
+	recordedDiscount: number;
+	recordedPayment: number;
+	paymentDueDate: string | null; // "YYYY-MM-DD", null if not set
+	// Ornament IDs selected for release on this request — empty for a plain
+	// full release (or an Extension request).
+	ornamentIds: number[];
+	/** A decision on this request is saved on this PC and not sent to the server yet. */
+	syncPending?: boolean;
 };
 export type LoanRequestFilters = {
-  status?: string;
-  loanId?: number;
-  /* "extension" | "release" — server-side, matches LoanRequest.Type. */
-  type?: string;
-  /* Server-side search: loan number, customer name / code / phone. */
-  q?: string;
+	status?: string;
+	loanId?: number;
+	/* "extension" | "release" — server-side, matches LoanRequest.Type. */
+	type?: string;
+	/* Server-side search: loan number, customer name / code / phone. */
+	q?: string;
+	/* YYYY-MM-DD bounds on the requested date (inclusive). */
+	from?: string;
+	to?: string;
 };
 /* Gold-value risk assessment — mirrors backend/internal/loan/service.go's
  * LoanRiskRow exactly. Compares each open loan's principal against what its
@@ -900,16 +1015,16 @@ export type LoanRequestFilters = {
  * not the value the loan was opened at. */
 export type LoanRiskLevel = "Safe" | "AtRisk" | "Loss";
 export type LoanRiskRow = {
-  loanId: number;
-  loanNumber: string;
-  customerId: number;
-  customerName: string;
-  status: string;
-  principalAmount: number;
-  outstandingAmount: number;
-  totalNetWeight: number;
-  currentGoldValue: number;
-  riskLevel: LoanRiskLevel;
+	loanId: number;
+	loanNumber: string;
+	customerId: number;
+	customerName: string;
+	status: string;
+	principalAmount: number;
+	outstandingAmount: number;
+	totalNetWeight: number;
+	currentGoldValue: number;
+	riskLevel: LoanRiskLevel;
 };
 // Mirrors backend/internal/loan/handler.go's ListRiskAssessment response
 // envelope — counts/total cover every loan matching status/date (NOT the
@@ -928,6 +1043,8 @@ export type ChecklistInput = {
   customerSawGold?: boolean;
   verificationNotes?: string;
   charges?: number;
+  /* The release date (YYYY-MM-DD), changed while the request is pending. */
+  requestedAt?: string;
 };
 /* "Record Payment" step on the release review screen — now driven by the
  * SAME general payment shape PaymentModalContent posts to /loans/:id/payments
@@ -938,18 +1055,22 @@ export type ChecklistInput = {
  * Manager stage — there is no more separate "does this clear the balance"
  * branch on the frontend, the backend handles the whole waterfall. */
 export type ReleasePaymentInput = {
-  type?: string;
-  amount: number;
-  discount?: number;
-  cashAmount?: number;
-  upiAmount?: number;
-  bankTransferAmount?: number;
-  chequeAmount?: number;
-  bankId?: number;
-  method?: string;
-  reference?: string;
-  interestOverride?: number;
-  dueDate?: string;
+	type?: string;
+	amount: number;
+	discount?: number;
+	cashAmount?: number;
+	upiAmount?: number;
+	bankTransferAmount?: number;
+	chequeAmount?: number;
+	bankId?: number;
+	method?: string;
+	reference?: string;
+	interestOverride?: number;
+	dueDate?: string;
+	paidOn?: string; // YYYY-MM-DD; omitted = today
+	discountReason?: string; // required by the API when discount > 0
+	discountMode?: string; // Cash / UPI / Bank Transfer / Cheque
+	discountKind?: DiscountKind; // what the discount is given against
 };
 // employeeId is NOT sent — see platform.ActorFromContext's doc comment.
 // stage is the release flow's stage KEY ("Manager"/"Management") — which of
@@ -971,16 +1092,17 @@ export type ExtensionApprovalInput = { stage: string; action: "Approved" | "Reje
 /* Same shape NewLoan.tsx's buildDraft() already assembles for the old
  * client-side printIndemnityBond() call — ornaments included. */
 export type IndemnityBondPreviewInput = {
-  loanNumber: string;
-  name?: string;
-  dob?: string;
-  address?: string;
-  branchName?: string;
-  phone?: string;
-  pan?: string;
-  aadhaar?: string;
-  principalAmount?: number;
-  interestRate?: number;
-  dueDate?: string;
-  ornaments: { name: string; purity?: string; grossWeight: number; netWeight: number; value: number }[];
+	loanNumber: string;
+	name?: string;
+	dob?: string;
+	address?: string;
+	branchName?: string;
+	phone?: string;
+	pan?: string;
+	aadhaar?: string;
+	principalAmount?: number;
+	interestRate?: number;
+	dueDate?: string;
+  openedDate?: string; // "YYYY-MM-DD"; sent as opened_date, blank date lines without it
+	ornaments: { name: string; purity?: string; grossWeight: number; netWeight: number; value: number }[];
 };

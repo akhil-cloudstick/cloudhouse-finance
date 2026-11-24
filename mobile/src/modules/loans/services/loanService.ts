@@ -2,23 +2,29 @@ import { apiRequestEnveloped as apiRequest } from "@/common/services/httpClient"
 import { type LoanDraft, type SaveDraftInput, Loan, LoanApproval, LoanRequest, LoanRiskLevel, LoanRiskRow, LoanTopUp, type LoanRiskCounts, type CreateLoanInput, type OrnamentRequestInput, type SanctionStage, type UpdateLoanInput, type BondLang, type BondDeliverBy, type IndemnityBondEsignStart, type IndemnityBondEsignCheck, type LoanLedgerEntry } from "@/modules/loans/types/loan-types";
 import type { SplitAmounts } from "@/modules/investments/types/investment-types";
 
-// All filters are server-side, per the "no client-side filtering" rule.
+// q/status/branchId/customerId mirror backend/internal/loan/handler.go's
+// LoanFilter — all server-side, per the plan's "no client-side filtering" rule.
 export function listLoans(params?: { q?: string; status?: string; branchId?: number; customerId?: number }) {
   return apiRequest<Loan[]>("/loans", { params });
 }
 
-// Page-scoped variant: passing `limit` flips the backend into the {items, hasMore} envelope.
+// Page-scoped variant: passing `limit` flips the backend (handler.go's
+// List) into the {items, hasMore} envelope instead of the bare array above —
+// used by the paginated mobile Loans list (10/page, one API call per page).
 export function listLoansPage(params: {
   q?: string;
   status?: string;
-  servicing?: string; // due_soon | overdue | defaulted
+  servicing?: string; // due_soon | overdue | defaulted (read-time classifications)
   branchId?: number | string; // comma-joined for several
   customerId?: number | string;
-  schemeId?: number;
+  schemeId?: number | string;
   from?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
   to?: string; // "YYYY-MM-DD", bounds openedDate (inclusive)
-  // Auction case buckets computed server-side: eligible | defaulted | auctioned_balance_due.
+  // Auction case buckets, computed server-side (replaces the old on-phone
+  // isDefaulted filter): eligible | defaulted | auctioned_balance_due.
   auctionCase?: string;
+  auction_case?: string; // all | eligible | defaulted | auctioned_balance_due (snake_case as the backend reads it)
+  auction_stage?: string; // comma-joined auction stages (sent snake_case as the backend reads it)
   bankPledgeStatus?: string;
   excludeBankPledged?: boolean;
   limit: number;
@@ -27,24 +33,31 @@ export function listLoansPage(params: {
   return apiRequest<{ items: Loan[]; hasMore: boolean; total?: number }>("/loans", { params });
 }
 
-// Sums interest + penal interest applied over [from,to]; not branch-scoped. from/to default
-// server-side to [first-of-current-month, today] when omitted.
+// Mirrors frontend/modules/loans/services/loanService.ts's getInterestCollected
+// — GET /loans/interest-collected (backend/internal/loan/handler.go's
+// GetInterestCollected), sums LoanPayment.interest_applied +
+// penal_interest_applied over [from,to]. NOT branch-scoped (same as web);
+// from/to default server-side to [first-of-current-month, today] when
+// omitted, matching web Dashboard's own no-args call.
 export function getInterestCollected(from?: string, to?: string) {
   return apiRequest<{ interestCollected: number; from: string; to: string }>("/loans/interest-collected", {
     params: { from, to },
   });
 }
 
-// Risk-eligible statuses sent as the `status` filter's options ("All statuses" sends none).
+// Risk-eligible statuses — mirrors loanService.ts's RISK_STATUSES, sent as
+// the `status` filter's options ("All statuses" sends none).
 export const RISK_STATUSES = ["Active", "Due Soon", "Overdue", "Closure Requested", "Defaulted", "Auction Eligible"] as const;
 
-// `total`/`counts` cover every loan matching status/from/to (not riskLevel), not just this page,
-// for the screen's KPI tiles.
+// GET /loans/risk-assessment — see LoanRiskRow's own doc comment. `total`/
+// `counts` cover every loan matching status/from/to (NOT riskLevel below —
+// see loanService.ts's LoanRiskCounts doc comment on the web side), not
+// just this page, for the screen's KPI tiles.
 export function listLoanRiskAssessmentPage(params: {
   q?: string;
   status?: string;
   servicing?: string; // due_soon | overdue | defaulted
-  riskLevel?: LoanRiskLevel;
+  riskLevel?: string; // one level or a comma-separated list
   from?: string; // "YYYY-MM-DD", bounds openedDate
   to?: string;
   limit: number;
@@ -66,7 +79,12 @@ export function createLoan(input: CreateLoanInput) {
   return apiRequest<Loan>("/loans", { method: "POST", body: { ...rest, ...(overallPhotoUrl ? { overall_photo_url: overallPhotoUrl } : {}) } });
 }
 
-// Attaches an already-uploaded image to an ornament, one call per image (an ornament can carry more than one).
+// Attaches an already-uploaded ("/uploads/..." — see src/common/services/uploadService.ts)
+// image to an ornament. Called after createLoan() returns, once per
+// photographed row — mirrors frontend/modules/loans/services/loanService.ts's
+// addOrnamentImage, same route/body (backend/internal/loan/handler.go's
+// AddOrnamentImage). An ornament can carry more than one image; this call
+// just adds one.
 export function addOrnamentImage(ornamentId: number, imageUrl: string) {
   return apiRequest<unknown>(`/loans/ornaments/${ornamentId}/images`, {
     method: "POST",
@@ -82,13 +100,18 @@ export function updateOrnament(ornamentId: number, input: OrnamentRequestInput) 
   return apiRequest<Loan>(`/loans/ornaments/${ornamentId}`, { method: "PUT", body: input });
 }
 
-// Refused server-side if this is the loan's last remaining ornament, or if the loan is already Closed/Auctioned.
+// Refused server-side if this is the loan's last remaining ornament, or if
+// the loan is already Closed/Auctioned — see backend Service.DeleteOrnament.
 export function deleteOrnament(ornamentId: number) {
   return apiRequest<Loan>(`/loans/ornaments/${ornamentId}`, { method: "DELETE" });
 }
 
-// Maps the retired AuthorizedManagement value onto its replacement stage; a decided loan is null,
-// anything else is a pending stage.
+// Maps the retired AuthorizedManagement value onto the stage that replaced
+// it, so a loan fetched before the backend migration ran still resolves to
+// a pending stage instead of none. A decided loan (Approved / Rejected / "")
+// is null; anything else is a pending stage — accepting only the three
+// legacy keys hid Approve/Disburse on every loan waiting at an "R<roleId>"
+// stage.
 export function normalizeSanctionStage(stage: string | null | undefined): SanctionStage | null {
   const s = stage === "AuthorizedManagement" ? "FinalSanction" : stage ?? "";
   return s && s !== "Approved" && s !== "Rejected" ? s : null;
@@ -96,7 +119,9 @@ export function normalizeSanctionStage(stage: string | null | undefined): Sancti
 
 export function approveLoan(
   loanId: number,
-  // Split required on the FINAL enabled stage's approval, which disburses the loan; must add up to the disbursed amount.
+  // The split is required on the FINAL enabled stage's approval, which
+  // disburses the loan: it must add up to the disbursed amount
+  // (platform.ValidateSplit).
   input: { stage: SanctionStage | string; action: "Approved" | "Rejected" | "Verified"; remarks?: string; bankId?: number } & Partial<SplitAmounts>
 ) {
   return apiRequest<Loan>(`/loans/${loanId}/approve`, { method: "POST", body: input });
@@ -106,6 +131,10 @@ export function listLoanApprovals(loanId: number) {
   return apiRequest<LoanApproval[]>(`/loans/${loanId}/approvals`);
 }
 
+// --- Extension / release requests (backend/internal/loan/handler.go's
+// CreateExtensionRequest/CreateReleaseRequest/ListRequests/DecideRequest/
+// VerifyReleaseChecklist/ApproveReleaseRequest/CompleteRelease) -------------
+
 export function createExtensionRequest(
   loanId: number,
   input: { months: number; detail?: string; requestedBy?: string }
@@ -113,8 +142,9 @@ export function createExtensionRequest(
   return apiRequest<LoanRequest>(`/loans/${loanId}/extension-request`, { method: "POST", body: input });
 }
 
-// ornamentIds: empty, or every still-pledged ornament, is a full release; a strict subset is partial.
-export function createReleaseRequest(loanId: number, input: { detail?: string; requestedBy?: string; ornamentIds?: number[] }) {
+// ornamentIds: the ornaments to hand back. Empty, or every still-pledged
+// ornament, is a full release; a strict subset is a partial release.
+export function createReleaseRequest(loanId: number, input: { detail?: string; requestedBy?: string; ornamentIds?: number[]; requestedAt?: string }) {
   return apiRequest<LoanRequest>(`/loans/${loanId}/release-request`, { method: "POST", body: input });
 }
 
@@ -122,12 +152,17 @@ export function listLoanRequests(params?: { status?: string; loanId?: number }) 
   return apiRequest<LoanRequest[]>("/loans/requests", { params });
 }
 
-// Page-scoped variant: passing `limit` flips the backend into the {items, hasMore} envelope.
+// Page-scoped variant: passing `limit` flips the backend into the
+// {items, hasMore} envelope instead of the bare array above — mirrors
+// listLoansPage, used by the standalone Requests list screen (10/page).
 export function listLoanRequestsPage(params: {
-  // Server-side search (loan no. / customer name / customer ID); type: "extension" | "release".
+  // Server-side search (loan no. / customer name / customer ID) and request
+  // type filter: "extension" | "release".
   q?: string;
   type?: string;
   status?: string;
+  from?: string;
+  to?: string;
   loanId?: number;
   limit: number;
   offset: number;
@@ -135,7 +170,9 @@ export function listLoanRequestsPage(params: {
   return apiRequest<{ items: LoanRequest[]; hasMore: boolean }>("/loans/requests", { params });
 }
 
-// Single-step decision for Extension requests (and a Release request before its checklist/approval-chain steps start).
+// action: "Approved" | "Rejected" — the single-step decision used for
+// Extension requests (and for a Release request before its checklist/
+// approval-chain steps have started).
 export function decideLoanRequest(requestId: number, action: "Approved" | "Rejected", remarks?: string) {
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/decide`, {
     method: "PUT",
@@ -143,7 +180,8 @@ export function decideLoanRequest(requestId: number, action: "Approved" | "Rejec
   });
 }
 
-// The "customer has seen the gold" flag is locked once a release payment is recorded.
+// Release verification: the single "customer has seen the gold" flag
+// (locked once a release payment is recorded), plus notes and charges.
 export function verifyReleaseChecklist(
   requestId: number,
   input: {
@@ -155,8 +193,11 @@ export function verifyReleaseChecklist(
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/verify`, { method: "PUT", body: input });
 }
 
-// Split must sum to `amount`. Sets paymentRecorded/locked and advances the request to Management
-// the first time; dueDate only needed when a FULL release is still short after it.
+// Records a payment (and optional discount, posted first as its own entry)
+// against a release request; unapplied charges are folded in server-side.
+// The split must sum to `amount` (platform.ValidateSplit). Sets
+// paymentRecorded/locked and advances the request to Management the first
+// time. dueDate is only needed when a FULL release is still short after it.
 export function recordReleasePayment(
   requestId: number,
   input: {
@@ -171,12 +212,21 @@ export function recordReleasePayment(
     dueDate?: string;
     // The branch bank account a UPI / Bank Transfer share was received in.
     bankId?: number;
+    // The day of the release payment (YYYY-MM-DD); omitted = today.
+    paidOn?: string;
+    // Required by the API when discount > 0.
+    discountReason?: string;
+    discountKind?: "customer" | "interest" | "penal_interest";
+    discountMode?: string; // Cash | UPI | Bank Transfer | Cheque
   }
 ) {
   return apiRequest<LoanRequest>(`/loans/requests/${requestId}/release-payment`, { method: "POST", body: input });
 }
 
-// `stage` is the stage key from the request's flow (loan_extension / loan_release).
+// Stage decision on an Extension / Release request —
+// POST /loans/requests/:requestId/approve; the backend dispatches on the
+// request's own Type. `stage` is the stage KEY from the request's flow in
+// src/common/services/approvalWorkflowService.ts (loan_extension / loan_release).
 export function approveLoanRequest(
   requestId: number,
   input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }
@@ -187,7 +237,9 @@ export function approveLoanRequest(
 export const approveReleaseRequest = approveLoanRequest;
 export const approveExtensionRequest = approveLoanRequest;
 
-// Requires the outstanding balance to be zero and no active bank pledge (enforced server-side).
+// Finalizes a fully-approved release request: hands the gold back to the
+// customer and closes the loan. Requires the outstanding balance to be
+// zero and no active bank pledge (enforced server-side).
 export function completeRelease(loanId: number) {
   return apiRequest<Loan>(`/loans/${loanId}/complete-release`, { method: "POST" });
 }
@@ -196,7 +248,9 @@ export function updateLoan(loanId: number, input: UpdateLoanInput) {
   return apiRequest<Loan>(`/loans/${loanId}`, { method: "PATCH", body: input });
 }
 
-// No undo. Gated server-side by its own "can hard delete loan" permission, independent of "can delete loan".
+// Permanently deletes a loan and every record tied to it — a real DELETE,
+// no undo. Gated server-side by its own "can hard delete loan" permission,
+// independent of the ordinary "can delete loan" grant.
 export function hardDeleteLoan(loanId: number) {
   return apiRequest<unknown>(`/loans/${loanId}/hard-delete`, { method: "DELETE" });
 }
@@ -217,15 +271,19 @@ export function checkIndemnityBondEsign(loanId: number) {
   return apiRequest<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`);
 }
 
-// Raises principal + outstanding by `amount`, up to the loan's headroom (eligibleLoanAmount − outstanding).
+// Top up an Active loan — POST /loans/:id/topup (backend/internal/loan/
+// handler.go topUpRequest). Raises principal + outstanding by `amount`, up to
+// the loan's headroom (eligibleLoanAmount − outstanding); the split must add
+// up to the amount. Returns the updated loan.
 export function topUpLoan(
   loanId: number,
   input: {
     amount: number;
     occurredOn?: string;
     reference?: string;
-    // "require" (default) blocks the top-up while outstanding interest/penal interest stands;
-    // "deduct" clears it out of this top-up's own cash payout instead.
+    // "require" (default, if omitted) blocks the top-up while outstanding
+    // interest/penal interest stands; "deduct" clears it out of this
+    // top-up's own cash payout instead.
     settleInterest?: "require" | "deduct";
     // The branch bank account a UPI / Bank Transfer share of the payout leaves from.
     bankId?: number;
@@ -234,12 +292,15 @@ export function topUpLoan(
   return apiRequest<Loan>(`/loans/${loanId}/topup`, { method: "POST", body: input });
 }
 
-// Final stage's approval pays out the top-up with the split captured at request.
+// Stage decision on a Pending top-up (tenant's "loan_topup" flow) — the
+// final stage's approval pays it out with the split captured at request.
 export function approveTopUp(topUpId: number, input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }) {
   return apiRequest<LoanTopUp>(`/loans/topups/${topUpId}/approve`, { method: "POST", body: input });
 }
 
-// The loan payload itself doesn't carry top-ups; feeds the Payment Ledger alongside its payments.
+// A loan's top-ups — GET /loans/:id/topups (same call the web LoanDetail
+// makes; the loan payload itself doesn't carry them). Feeds the Payment
+// Ledger alongside the loan's payments.
 export function listTopUps(loanId: number) {
   return apiRequest<LoanTopUp[]>(`/loans/${loanId}/topups`);
 }
@@ -247,6 +308,8 @@ export function listTopUps(loanId: number) {
 export function getLoanLedger(loanId: number, params: { limit: number; offset: number; from?: string; to?: string; kinds?: string }) {
   return apiRequest<{ items: LoanLedgerEntry[] | null; total: number; totalDebit?: number; totalCredit?: number }>(`/loans/${loanId}/ledger`, { params });
 }
+
+// --- Saved drafts (web's saveDraft / updateDraft / listDrafts / deleteDraft) -------------------
 
 // Drafts carry two fields the contract map doesn't know (overall photo, per-ornament photo list), so
 // they are sent under the backend's own names.
@@ -282,4 +345,136 @@ export function listDrafts() {
 
 export function deleteDraft(draftId: number) {
   return apiRequest<void>(`/loans/drafts/${draftId}`, { method: "DELETE" });
+}
+
+// --- Edit Loan on a disbursed loan: dry-run preview + save with the chosen flags (mirrors web previewLoanEdit /
+// updateLoan's adjustFollowing / reversePacket / restorePartialRelease). The contract adapter does not rename
+// these keys, so they are spelled snake_case here and the response is read in either spelling.
+export type LoanEditFollowing = { id: number; paidOn: string; type?: string; reference?: string; current: number; suggested: number; needsChange?: boolean };
+export type LoanEditDependent = { kind: "packet" | "partial_release"; description: string; current: string; suggested: string; warning?: string };
+export type LoanEditInterestChange = { on: string; interestBefore: number; interestAfter: number; penalBefore: number; penalAfter: number };
+export type LoanEditPreview = { following: LoanEditFollowing[]; dependents: LoanEditDependent[]; interestChanges: LoanEditInterestChange[] };
+export type LoanEditFlags = {
+  adjustFollowing?: { id: number; amount: number }[];
+  reversePacket?: boolean;
+  restorePartialRelease?: boolean;
+};
+
+const editBody = (input: UpdateLoanInput, flags?: LoanEditFlags) => {
+  const { overallPhotoUrl, additionalInfo, branchId, lockerId, serviceChargeMode, ...core } = input;
+  return {
+  ...core,
+  ...(serviceChargeMode !== undefined ? { service_charge_mode: serviceChargeMode } : {}),
+  ...(overallPhotoUrl !== undefined ? { overall_photo_url: overallPhotoUrl } : {}),
+  ...(additionalInfo !== undefined ? { additional_info: additionalInfo } : {}),
+  ...(branchId !== undefined ? { branch_id: branchId } : {}),
+  ...(lockerId !== undefined ? { locker_id: lockerId } : {}),
+  ...(flags?.adjustFollowing?.length ? { adjust_following: flags.adjustFollowing } : {}),
+  ...(flags?.reversePacket ? { reverse_packet: true } : {}),
+  ...(flags?.restorePartialRelease ? { restore_partial_release: true } : {}),
+  };
+};
+
+export async function previewLoanEdit(loanId: number, input: UpdateLoanInput): Promise<LoanEditPreview> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r: any = await apiRequest<unknown>(`/loans/${loanId}?dry_run=true`, { method: "PATCH", body: editBody(input) });
+  return {
+    following: (r?.following ?? []).map((f: any) => ({ ...f, paidOn: f.paidOn ?? f.paid_on, needsChange: f.needsChange ?? f.needs_change })),
+    dependents: r?.dependents ?? [],
+    interestChanges: (r?.interestChanges ?? r?.interest_changes ?? []).map((c: any) => ({
+      on: c.on,
+      interestBefore: c.interestBefore ?? c.interest_before ?? 0,
+      interestAfter: c.interestAfter ?? c.interest_after ?? 0,
+      penalBefore: c.penalBefore ?? c.penal_before ?? 0,
+      penalAfter: c.penalAfter ?? c.penal_after ?? 0,
+    })),
+  };
+}
+
+export function updateLoanWithFlags(loanId: number, input: UpdateLoanInput, flags?: LoanEditFlags) {
+  return apiRequest<Loan>(`/loans/${loanId}`, { method: "PATCH", body: editBody(input, flags) });
+}
+
+// --- Bank pledge edit / delete, sanction edit, release record, pledge-slip eSign (mirrors web loanService.ts) ---
+export type EditBankPledgeInput = {
+  bankId?: number;
+  bankName?: string;
+  pledgedAmount?: number;
+  pledgeDate?: string;
+  bankPledgeDueDate?: string; // "" clears it
+  bankInterestRate?: number;
+  referenceNumber?: string;
+  cashTreatment?: "CashIn" | "RecordOnly";
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  receivedBankId?: number;
+  releaseDate?: string;
+  releaseCashAmount?: number;
+  releaseUpiAmount?: number;
+  releaseBankTransferAmount?: number;
+  releaseBankId?: number;
+};
+export type BankPledgeEditPreview = { before: import("@/modules/loans/types/loan-types").BankPledgeRecord; after: import("@/modules/loans/types/loan-types").BankPledgeRecord | null; dryRun: boolean };
+
+export function editBankPledge(loanId: number, pledgeId: number, input: EditBankPledgeInput, dryRun = false) {
+  return apiRequest<BankPledgeEditPreview>(`/loans/${loanId}/bank-pledge/${pledgeId}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+}
+export function deleteBankPledge(loanId: number, pledgeId: number, dryRun = false) {
+  return apiRequest<BankPledgeEditPreview>(`/loans/${loanId}/bank-pledge/${pledgeId}${dryRun ? "?dry_run=true" : ""}`, { method: "DELETE" });
+}
+
+export type SanctionEditDependent = { kind: string; description: string; current: string; suggested: string; warning?: string };
+export type SanctionEditPreview = {
+  before: { principal: number; interest: number; penalInterest: number; total: number; status: string };
+  after: { principal: number; interest: number; penalInterest: number; total: number; status: string };
+  following?: LoanEditFollowing[];
+  dependents?: SanctionEditDependent[];
+};
+export type EditLoanDisbursementInput = {
+  disbursedOn?: string;
+  dueDate?: string;
+  sanctionedAmount?: number;
+  serviceCharge?: number;
+  cashAmount?: number;
+  upiAmount?: number;
+  bankTransferAmount?: number;
+  bankId?: number;
+  reversePacket?: boolean;
+  restorePartialRelease?: boolean;
+  adjustFollowing?: { id: number; amount: number }[];
+};
+export function editLoanDisbursement(loanId: number, input: EditLoanDisbursementInput, dryRun = false) {
+  const { adjustFollowing, restorePartialRelease, ...rest } = input;
+  const body = { ...rest, ...(adjustFollowing ? { adjust_following: adjustFollowing } : {}), ...(restorePartialRelease ? { restore_partial_release: true } : {}) };
+  return apiRequest<SanctionEditPreview>(`/loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body });
+}
+
+export function editReleaseRecord(requestId: number, input: { requestedAt?: string; remarks?: string; verificationNotes?: string }) {
+  return apiRequest<unknown>(`/loans/requests/${requestId}/release-record`, { method: "PATCH", body: input });
+}
+export function deleteReleaseRecord(requestId: number) {
+  return apiRequest<unknown>(`/loans/requests/${requestId}/release-record`, { method: "DELETE" });
+}
+
+export function startPledgeSlipEsign(loanId: number, redirectUrl: string, deliverBy: BondDeliverBy = "open") {
+  return apiRequest<IndemnityBondEsignStart>(`/loans/${loanId}/indemnity-bond/esign/start`, { method: "POST", body: { document: "slip", redirectUrl, deliverBy } });
+}
+export function checkPledgeSlipEsign(loanId: number) {
+  return apiRequest<IndemnityBondEsignCheck>(`/loans/${loanId}/indemnity-bond/esign/status`, { params: { document: "slip" } });
+}
+
+/** Mirrors web loanDisplayStatus: one status — Defaulted / Overdue / Due Soon / Active / Closure Requested / ... */
+export function loanDisplayStatus(l: Loan): string {
+  switch (l.status) {
+    case "Active": case "Due Soon": case "Overdue": case "Auction Eligible": break;
+    default: return l.status;
+  }
+  const outstanding = l.totalOutstandingBalance ?? l.outstandingAmount ?? 0;
+  if (outstanding <= 0.01) return "Closure Requested";
+  if (l.status === "Auction Eligible") return l.status;
+  if (l.isDefaulted) return "Defaulted";
+  if (l.isOverdue) return (l.outstandingInterest ?? 0) > 0.01 || (l.outstandingPenalInterest ?? 0) > 0.01 ? "Overdue" : "Active";
+  if (l.isDueSoon) return "Due Soon";
+  return "Active";
 }

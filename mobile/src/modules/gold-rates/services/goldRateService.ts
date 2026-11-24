@@ -12,6 +12,32 @@ export function listGoldRatesPage(params: { limit: number; offset: number }) {
   return apiRequest<{ items: GoldRate[]; hasMore: boolean }>("/gold-rates", { params });
 }
 
+// The designation arrives as `set_by_designation` (the API layer has no rename for it).
+type RawGoldRate = GoldRate & { set_by_designation?: string; entries?: RawGoldRate[] };
+const normaliseRate = (r: RawGoldRate): GoldRate => ({
+  ...r,
+  date: r.date ? r.date.slice(0, 10) : "",
+  setByDesignation: r.setByDesignation ?? r.set_by_designation ?? "",
+  entries: r.entries?.map(normaliseRate),
+});
+
+/** Gold Rates page: one row per day (its newest rate, with that day's changes in `entries`) — the same listing,
+ * search and filters (date range, set by) as the web Gold Rates page (frontend listGoldRateDaysPage). */
+export async function listGoldRateDaysPage(params: { limit: number; offset: number; q?: string; from?: string; to?: string; setBy?: string[] }) {
+  const rec = await apiRequest<{ items: RawGoldRate[] | null; hasMore: boolean; total?: number }>("/gold-rates", {
+    params: {
+      limit: params.limit,
+      offset: params.offset,
+      group: "day",
+      search: params.q?.trim() || undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      set_by: params.setBy?.length ? params.setBy.join(",") : undefined,
+    },
+  });
+  return { items: (rec?.items ?? []).map(normaliseRate), hasMore: !!rec?.hasMore, total: rec?.total };
+}
+
 export function latestGoldRate() {
   return apiRequest<GoldRate>("/gold-rates/latest");
 }
@@ -28,6 +54,7 @@ export function publishGoldRate(input: { date?: string; karat: 24 | 22 | 18; rat
 
 // Publishes every changed karat as ONE history row (keys 24/22/18) — same as web's
 // publishGoldRates; the backend carries any karat left out forward unchanged.
-export function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string) {
-  return apiRequest<GoldRate>("/gold-rates", { method: "POST", body: { rates, setBy } });
+// `fineness` (keys 22 / 18) saves the Auto-mode fineness with the rate, like web; omitted, the last one carries forward.
+export function publishGoldRates(rates: Partial<Record<24 | 22 | 18, number>>, setBy: string, date?: string, fineness?: Partial<Record<22 | 18, number>>) {
+  return apiRequest<GoldRate>("/gold-rates", { method: "POST", body: { rates, setBy, ...(fineness ? { fineness } : {}), ...(date ? { date } : {}) } });
 }

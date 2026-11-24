@@ -12,20 +12,19 @@
  * module that is off (platform.RequireTenantModule) regardless.
  */
 export const TENANT_MODULES = {
-  settings: "settings",
   branches: "branches",
   demoReset: "demo_reset",
   whatsapp: "whatsapp",
   personalLoans: "personal_loans",
   investments: "investments",
   multipleInterest: "multiple_interest",
+  quickDayBook: "quick_day_book",
 } as const;
 
 export type TenantModule = (typeof TENANT_MODULES)[keyof typeof TENANT_MODULES];
 
 /** Top-level route under app/(tabs) → the module that must be enabled for it. */
 export const ROUTE_TENANT_MODULE: Record<string, TenantModule> = {
-  settings: TENANT_MODULES.settings,
   branches: TENANT_MODULES.branches,
   "personal-loans": TENANT_MODULES.personalLoans,
   investments: TENANT_MODULES.investments,

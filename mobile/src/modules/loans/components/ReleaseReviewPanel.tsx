@@ -26,21 +26,27 @@ import {
   isBalanced,
   type SplitAmounts,
   SheetFooter,
+  ThemeDropdown,
   Stepper,
   ConfirmSheet,
   toast,
   openPage,
 } from "@/common/components/ui";
-import { inr, todayISO } from "@/common/utils/format";
+import { inr, roundRupee, todayISO } from "@/common/utils/format";
+import { approverItems } from "@/modules/loans/utils/approverItems";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useCanOpen } from "@/common/config/routePermissions";
-import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest } from "@/modules/loans/services/loanService";
-import { isFinalStage, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
-import { listPackets } from "@/modules/packets/services/packetService";
+import { verifyReleaseChecklist, recordReleasePayment, approveReleaseRequest, editReleaseRecord, deleteReleaseRecord } from "@/modules/loans/services/loanService";
+import { isFinalStage, stageByPending, stageTag, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import { listPackets, movePacket } from "@/modules/packets/services/packetService";
 import { printReleaseAgreementPdf, printPartialReleaseReceiptPdf, RELEASE_AGREEMENT_LANGS, DOC_LANG_LABELS, type DocLang } from "@/modules/loans/utils/loanPrint";
 import { LoanRequest, Loan } from "@/modules/loans/types/loan-types";
 import { ApiError } from "@/common/services/httpClient";
 
+// What a discount is given against — same options and labels as web's DISCOUNT_KIND_LABELS.
+type DiscountKind = "customer" | "interest" | "penal_interest";
+const DISCOUNT_KINDS: DiscountKind[] = ["customer", "interest", "penal_interest"];
+const DISCOUNT_KIND_LABELS: Record<DiscountKind, string> = { customer: "Custom discount", interest: "Interest", penal_interest: "Penal interest" };
 
 // Mirrors backend partialReleaseDrift: what the remaining collateral can't
 // cover at the scheme LTV. ApproveReleaseRequest refuses a partial release
@@ -67,6 +73,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const { can, employee } = useAuth();
   const canDecide = can("Loan_Management", "can_update_loan");
   const canVerifyChecklist = can("Release_Approval", "can_verify_release_checklist");
+  const canEditLedger = can("Loan_Management", "can_edit_ledger_entry");
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
   const canOpen = useCanOpen();
   // The "Go to …" shortcuts below only when the user may open where they lead.
   const canGoBankPledge = canOpen("/loans") && can("Bank_Pledge_Management", "can_view_bank_pledge_module");
@@ -86,23 +94,32 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const canRecordPayment = request.approvalStage === "" || request.approvalStage === "PendingManager";
   const isPending = request.status === "Pending";
 
-  const [charges, setCharges] = useState(String(request.charges || 0));
   const [notes, setNotes] = useState(request.verificationNotes || "");
-  const [discount, setDiscount] = useState("0");
-  const [amount, setAmount] = useState("");
+  const [discount, setDiscount] = useState("");
+  // What the discount is given against, as on web: a custom discount, or the interest / penal interest owed.
+  const [discountKind, setDiscountKind] = useState<DiscountKind>("customer");
+  const canDiscount = can("Loan_Management", "can_give_discount");
+  // The day of the release payment — staff can backdate it to the day the customer saw the gold.
+  const [releaseDate, setReleaseDate] = useState(todayISO());
+  // The amount follows what is owed after the discount until staff type their own figure — then it is left alone
+  // (web's amountTyped rule). amountInput only holds what was typed.
+  const [amountInput, setAmountInput] = useState("");
+  const [amountTyped, setAmountTyped] = useState(false);
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [reference, setReference] = useState("");
-  const [dueDate, setDueDate] = useState(request.paymentDueDate || "");
   // Language being fetched ("partial" for the partial-release receipt).
+  // One document row; the language options only open once it is tapped, like the bond.
+  const [pickingLang, setPickingLang] = useState(false);
   const [downloading, setDownloading] = useState<DocLang | `partial-${DocLang}` | null>(null);
   // Seed editable fields only when a different request arrives, so a
   // background refetch never stomps on what staff is typing.
   const [seenId, setSeenId] = useState(request.id);
   useEffect(() => {
     if (request.id !== seenId) {
-      setCharges(String(request.charges || 0));
       setNotes(request.verificationNotes || "");
-      setDueDate(request.paymentDueDate || "");
+      setDiscount("");
+      setDiscountKind("customer");
+      setAmountInput("");
+      setAmountTyped(false);
       setSeenId(request.id);
     }
   }, [request, seenId]);
@@ -115,8 +132,17 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   });
   const packetRecord = packet.data?.[0];
   const packetStatus = packetRecord?.status;
-  const bankPledged = loan.bankPledgeStatus === "Bank Pledged" || !!loan.bankPledges?.some((p) => p.status === "Active");
-  const inLocker = packetStatus === "Locker Stored";
+  // Only the ornaments of THIS request count; a pledge with no ornament list covers the whole loan.
+  const releasingIds = request.isPartial
+    ? (request.ornamentSelections ?? []).map((x) => x.ornamentId)
+    : (loan.ornaments ?? []).filter((o) => !o.releasedAt).map((o) => o.id);
+  const bankPledged = !!loan.bankPledges?.some(
+    (p) => p.status === "Active" && (!p.ornamentIds || p.ornamentIds.length === 0 || p.ornamentIds.some((id) => releasingIds.includes(id))),
+  );
+  const inLocker = !bankPledged && packetStatus === "Locker Stored";
+  // A locker packet is checked out automatically when the customer is marked as having seen the gold.
+  const canMovePackets = can("Packet_Management", "can_update_packet");
+  const packetAutoReleasable = inLocker && canMovePackets;
   const goldStillHeld = bankPledged || inLocker;
   const goldHeldReason = bankPledged ? "pledged to a bank" : "checked into a locker";
 
@@ -130,30 +156,26 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
   const remainingGoldValue = request.isPartial ? pledged.filter((o) => !selectedIds.has(o.id)).reduce((s, o) => s + o.goldValue, 0) : 0;
   const drift = request.isPartial ? partialReleaseDrift(outstanding, remainingGoldValue, ltv) : 0;
 
-  const unappliedCharges = Math.max(0, (+charges || 0) - request.chargesApplied);
   // What still has to come in for the release condition: the whole balance
   // for a full release, only the drift for a partial one.
-  const required = (request.isPartial ? Math.max(0, drift) : outstanding) + unappliedCharges;
+  // Whole rupees, like web — the amount to collect is never a paise figure.
+  const required = roundRupee(request.isPartial ? Math.max(0, drift) : outstanding);
+  // Nothing to collect → no discount to give (web disables the field the same way).
+  const discountBlocked = required <= 0;
+  const discountAmt = canDiscount && !discountBlocked && +discount > 0 ? +discount : 0;
+  // Choosing what the discount is for fills it with what is still owed of it; a custom discount is typed.
+  function chooseDiscountKind(k: DiscountKind) {
+    setDiscountKind(k);
+    const v = k === "interest" ? roundRupee(loan.outstandingInterest ?? 0) : k === "penal_interest" ? roundRupee(loan.outstandingPenalInterest ?? 0) : 0;
+    setDiscount(v > 0 ? String(v) : "");
+  }
+  // What the customer pays after the discount; the Amount shows this until they type their own figure.
+  const modeTotal = Math.max(0, roundRupee(required - discountAmt));
+  const amount = amountTyped ? amountInput : modeTotal > 0 ? String(modeTotal) : "";
   const paymentConditionMet = !!request.paymentRecorded || (request.isPartial ? drift <= 0.01 : outstanding <= 0.01);
-  const shortAfter = required - (+discount || 0) - (+amount || 0);
-  const needsDueDate = !request.isPartial && shortAfter > 0.01;
   // Blocked outright while the gold is at a bank or in a locker — it has to
   // come back (bank pledge released / packet checked out) first.
   const canApprove = !goldStillHeld && !!request.customerSawGold && paymentConditionMet;
-
-  // Prefill the amount (and an all-cash split) with what's required, once per request.
-  const [prefilledFor, setPrefilledFor] = useState<number | null>(null);
-  useEffect(() => {
-    if (prefilledFor !== request.id && canRecordPayment && isPending) {
-      const amt = Math.max(0, +required.toFixed(2));
-      setAmount(String(amt));
-      setPrefilledFor(request.id);
-    }
-  }, [prefilledFor, request.id, canRecordPayment, isPending, required]);
-
-  function setAmountAndSplit(v: string) {
-    setAmount(v);
-  }
 
   function reportError(err: unknown) {
     onError(err instanceof ApiError ? err.message : "Something went wrong — try again.");
@@ -174,10 +196,13 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     }
   }
 
+  // Optimistic: the tick shows on tap instead of after the save + refetch round trip; reverts if the save fails.
+  const [sawGold, setSawGold] = useState(!!request.customerSawGold);
+  useEffect(() => { setSawGold(!!request.customerSawGold); }, [request.customerSawGold]);
   const saveVerification = useMutation({
     mutationFn: (input: Parameters<typeof verifyReleaseChecklist>[1]) => verifyReleaseChecklist(request.id, input),
     onSuccess: onSaved,
-    onError: reportError,
+    onError: (err) => { setSawGold(!!request.customerSawGold); reportError(err); },
   });
 
   const amt = +amount || 0;
@@ -188,16 +213,20 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     mutationFn: () =>
       recordReleasePayment(request.id, {
         amount: amt,
-        discount: +discount || 0,
+        discount: discountAmt,
+        // Same as web: the reason is fixed, a discount moves no money so it is shown as Cash, and the type says what it is against.
+        ...(discountAmt > 0 ? { discountReason: "Discount", discountMode: "Cash", discountKind } : {}),
+        paidOn: releaseDate,
         ...(amt > 0 ? split : ZERO_SPLIT),
         bankId: amt > 0 ? pay?.bankId : undefined,
-        reference: reference.trim() || undefined,
-        dueDate: needsDueDate ? dueDate : undefined,
       }),
     onSuccess: () => {
-      setDiscount("0");
-      setReference("");
-      setPrefilledFor(null);
+      setDiscount("");
+      setDiscountKind("customer");
+      // Clear the amount and keep it "typed" so it does not re-prefill from the
+      // pre-refetch (stale) balance — a second tap could collect the same money again.
+      setAmountInput("");
+      setAmountTyped(true);
       onSaved();
     },
     onError: reportError,
@@ -205,6 +234,21 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
 
   // Reject goes through a themed confirm (with the reason) first.
   const [confirmReject, setConfirmReject] = useState(false);
+  // The release record's own date (edit) and the record itself (delete) — shown once a payment is recorded or the request is decided.
+  const [recordDate, setRecordDate] = useState((request.requestedAt || todayISO()).slice(0, 10));
+  useEffect(() => { setRecordDate((request.requestedAt || todayISO()).slice(0, 10)); }, [request.id, request.requestedAt]);
+  const [confirmDeleteRecord, setConfirmDeleteRecord] = useState(false);
+  const recordEditable = !!request.requestedAt && (request.status !== "Pending" || !!request.paymentRecorded);
+  const saveRecordDate = useMutation({
+    mutationFn: () => editReleaseRecord(request.id, { requestedAt: recordDate }),
+    onSuccess: () => { toast.success("Release date updated"); onSaved(); },
+    onError: reportError,
+  });
+  const removeRecord = useMutation({
+    mutationFn: () => deleteReleaseRecord(request.id),
+    onSuccess: () => { setConfirmDeleteRecord(false); toast.success("Release record deleted"); onSaved(); },
+    onError: (err) => { setConfirmDeleteRecord(false); reportError(err); },
+  });
   const decide = useMutation({
     mutationFn: ({ action, note }: { action: "Approved" | "Rejected"; note?: string }) =>
       approveReleaseRequest(request.id, {
@@ -225,42 +269,45 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
     },
   });
 
-  const sawGoldDisabled = saveVerification.isPending || !canDecide || !canVerifyChecklist || !isPending || !!request.locked || goldStillHeld;
+  const releasePacket = useMutation({
+    mutationFn: (id: number) => movePacket(id, { toStatus: "Released", employeeId: 1, remarks: `Released with release request on ${loan.loanNumber}` }),
+    onSuccess: () => { packet.refetch(); onSaved(); },
+    onError: reportError,
+  });
+
+  const sawGoldDisabled = saveVerification.isPending || releasePacket.isPending || !canDecide || !canVerifyChecklist || !isPending || !!request.locked || !canRecordPayment || (goldStillHeld && !packetAutoReleasable);
 
   return (
     <View>
       {request.status === "Approved" ? (
         <View style={{ marginBottom: 10 }}>
-          {request.isPartial
-            ? RELEASE_AGREEMENT_LANGS.map((lang, i) => (
+          <SheetListItem
+            first
+            icon="doc"
+            title={request.isPartial ? "Partial Release Receipt" : "Release Agreement"}
+            sub={pickingLang ? "Choose the language below" : request.isPartial ? "Download the partial-release receipt" : "Gold handed back to the customer"}
+            onPress={() => setPickingLang((v) => !v)}
+          />
+          {pickingLang
+            ? RELEASE_AGREEMENT_LANGS.map((lang) => (
                 <SheetListItem
                   key={lang}
-                  first={i === 0}
                   icon="doc"
-                  title={`Partial Release Receipt — ${DOC_LANG_LABELS[lang]}`}
-                  sub={downloading === `partial-${lang}` ? "Preparing…" : "Download the partial-release receipt"}
-                  onPress={() => downloadReleaseAgreement(lang, true)}
+                  title={DOC_LANG_LABELS[lang]}
+                  sub={downloading === (request.isPartial ? `partial-${lang}` : lang) ? "Preparing…" : `Download in ${DOC_LANG_LABELS[lang]}`}
+                  onPress={() => downloadReleaseAgreement(lang, !!request.isPartial)}
                 />
               ))
-            : RELEASE_AGREEMENT_LANGS.map((lang, i) => (
-                <SheetListItem
-                  key={lang}
-                  first={i === 0}
-                  icon="doc"
-                  title={`Release Agreement — ${DOC_LANG_LABELS[lang]}`}
-                  sub={downloading === lang ? "Preparing…" : "Gold handed back to the customer"}
-                  onPress={() => downloadReleaseAgreement(lang)}
-                />
-              ))}
+            : null}
         </View>
       ) : null}
 
       <FieldGrid
         style={{ marginBottom: 14 }}
         items={[
-          { k: "Outstanding principal", v: inr(loan.outstandingAmount) },
-          { k: "Outstanding interest", v: inr(loan.outstandingInterest ?? 0) },
-          { k: "Penal interest", v: inr(loan.outstandingPenalInterest ?? 0) },
+          { k: "Outstanding principal", v: inr(roundRupee(loan.outstandingAmount)) },
+          { k: "Outstanding interest", v: inr(roundRupee(loan.outstandingInterest ?? 0)) },
+          { k: "Penal interest", v: inr(roundRupee(loan.outstandingPenalInterest ?? 0)) },
           {
             k: request.isPartial ? "Required to release" : "Final settlement",
             v: inr(required),
@@ -268,6 +315,8 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
           },
         ]}
       />
+
+      {approverItems(request.approvals, (s) => stageTag(wf, "loan_release", s)).length ? <FieldGrid style={{ marginBottom: 14 }} items={approverItems(request.approvals, (s) => stageTag(wf, "loan_release", s))} /> : null}
 
       <SectionTitle flush style={{ marginTop: 0 }}>
         {request.isPartial ? `Ornaments in this request · ${selectedOrnaments.length} of ${pledged.length || selectedIds.size}` : "Ornaments in this request"}
@@ -290,37 +339,37 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
       )}
 
       <TextField
-        label="Charges (₹)"
-        keyboardType="numeric"
-        value={charges}
-        onChangeText={setCharges}
-        onBlur={() => saveVerification.mutate({ charges: +charges || 0 })}
-        editable={canDecide && canVerifyChecklist && isPending && canRecordPayment}
-      />
-      <TextField
         label="Verification notes"
+        maxLength={150}
         placeholder="Notes from physical verification"
         value={notes}
         onChangeText={setNotes}
-        onBlur={() => saveVerification.mutate({ verificationNotes: notes })}
-        editable={canDecide && canVerifyChecklist && isPending}
+        onBlur={() => {
+          if (notes !== (request.verificationNotes || "")) saveVerification.mutate({ verificationNotes: notes });
+        }}
+        // Fixed once the request is decided or has moved past the Manager stage — same lock as web's fieldsLocked.
+        editable={canDecide && canVerifyChecklist && isPending && canRecordPayment && !request.locked}
       />
 
       <View style={sawGoldDisabled ? { opacity: 0.6 } : null}>
         <CheckItem
           variant="confirm"
-          checked={!!request.customerSawGold}
+          checked={sawGold}
           onPress={() => {
-            if (!sawGoldDisabled)
-              saveVerification.mutate({
-                customerSawGold: !request.customerSawGold,
-              });
+            if (sawGoldDisabled) return;
+            const next = !sawGold;
+            if (next && packetAutoReleasable && packetRecord) {
+              releasePacket.mutate(packetRecord.id, { onSuccess: () => { setSawGold(true); saveVerification.mutate({ customerSawGold: true }); } });
+              return;
+            }
+            setSawGold(next);
+            saveVerification.mutate({ customerSawGold: next });
           }}
           title="Customer has seen the gold"
           sub="Required before this request can be approved"
         />
       </View>
-      {goldStillHeld && isPending ? (
+      {goldStillHeld && !packetAutoReleasable && isPending ? (
         <View style={{ marginBottom: 6 }}>
           <WarningBanner>
             Release is blocked — this loan&apos;s gold is still {goldHeldReason}. {bankPledged ? "Release the bank pledge first." : "Check the packet out of the locker first."}
@@ -341,6 +390,17 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
         </View>
       ) : null}
 
+      {recordEditable && (canEditLedger || canDeleteLedger) ? (
+        <View style={{ marginBottom: 10 }}>
+          <DateField label="Release date" value={recordDate} onChange={setRecordDate} min={loan.openedDate?.slice(0, 10) || undefined} max={todayISO()} />
+          <BtnRow2>
+            {canDeleteLedger ? <PrimaryButton label="Delete Record" variant="outline" onPress={() => setConfirmDeleteRecord(true)} disabled={removeRecord.isPending} /> : null}
+            {canEditLedger ? <PrimaryButton label="Save Date" onPress={() => saveRecordDate.mutate()} loading={saveRecordDate.isPending} disabled={recordDate === (request.requestedAt || "").slice(0, 10)} /> : null}
+          </BtnRow2>
+          <ConfirmSheet visible={confirmDeleteRecord} onClose={() => setConfirmDeleteRecord(false)} title="Delete Release Record" danger message="Delete this release record? The money it took is edited as ordinary loan payments and is not removed here." confirmLabel="Delete Record" loading={removeRecord.isPending} onConfirm={() => removeRecord.mutate()} />
+        </View>
+      ) : null}
+
       <SectionTitle flush style={{ marginTop: 0 }}>
         Payment — collect balance to settle this release
       </SectionTitle>
@@ -352,28 +412,55 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
       {canDecide && canRecordPayment && isPending ? (
         <View style={{ marginBottom: 6 }}>
           <FieldRow>
-            <Field label="Discount (₹)">
+            {canDiscount ? (
+              <Field label="Discount Type">
+                <ThemeDropdown value={discountKind} options={DISCOUNT_KINDS} labelOf={(k) => DISCOUNT_KIND_LABELS[k]} onChange={chooseDiscountKind} />
+              </Field>
+            ) : null}
+            {canDiscount ? (
+              <Field label="Discount (₹)">
+                <Input
+                  keyboardType="numeric"
+                  placeholder={discountKind === "penal_interest" ? "Penal Interest" : discountKind === "interest" ? "Interest" : "Discount"}
+                  editable={!discountBlocked}
+                  value={discountBlocked ? "" : discount}
+                  onChangeText={setDiscount}
+                />
+              </Field>
+            ) : null}
+          </FieldRow>
+          <FieldRow>
+            <Field label="Amount (₹)">
               <Input
                 keyboardType="numeric"
-                value={discount}
-                onChangeText={(v) => {
-                  setDiscount(v);
-                  setAmountAndSplit(String(Math.max(0, +(required - (+v || 0)).toFixed(2))));
+                value={amount}
+                onChangeText={(v) => { setAmountTyped(true); setAmountInput(v); }}
+                onBlur={() => {
+                  // Rupees only, like web: a typed amount with paise is rounded to the nearest rupee.
+                  const n = +amount;
+                  if (amount.trim() && Number.isFinite(n) && n > 0 && n !== roundRupee(n)) {
+                    setAmountTyped(true);
+                    setAmountInput(String(roundRupee(n)));
+                    toast.success(`Amount rounded off to ${inr(roundRupee(n))}`);
+                  }
                 }}
               />
             </Field>
-            <Field label="Amount (₹)">
-              <Input keyboardType="numeric" value={amount} onChangeText={setAmountAndSplit} />
-            </Field>
           </FieldRow>
+          <DateField label="Release / payment date" value={releaseDate} onChange={setReleaseDate} max={todayISO()} />
           {amt > 0 ? <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it was received in)" /> : null}
-          {split.cashAmount !== amt ? <TextField label="Reference" placeholder="Transaction / cheque reference (optional)" value={reference} onChangeText={setReference} /> : null}
-          {needsDueDate ? <DateField label="Due date for remaining balance" value={dueDate} onChange={setDueDate} min={todayISO()} /> : null}
           <AccBtn
             label={savePayment.isPending ? "Recording…" : request.paymentRecorded ? "Record Additional Payment" : "Record Payment"}
             primary
-            onPress={() => savePayment.mutate()}
-            disabled={savePayment.isPending || amt + (+discount || 0) <= 0 || !splitOk || (needsDueDate && !dueDate)}
+            onPress={() => {
+              // The same checks, in the same order and wording, as web's payment form.
+              if (!(amt > 0)) { onError("Please enter a valid payment amount."); return; }
+              if (amt + discountAmt < required - 0.005) { onError(`${inr(Math.max(0, required - discountAmt))} amount needed to release gold`); return; }
+              if (canDiscount && !discountBlocked && +discount < 0) { onError("Discount cannot be negative."); return; }
+              if (discountAmt > required + 0.005) { onError(`Discount cannot exceed ${inr(required)}, the amount needed to release the gold.`); return; }
+              savePayment.mutate();
+            }}
+            disabled={savePayment.isPending || !splitOk}
             style={{ marginBottom: 14 }}
           />
         </View>
@@ -385,7 +472,7 @@ export function ReleaseReviewPanel({ request, loan, onSaved, onError }: ReleaseR
 
       {!isPending ? null : !canApprove ? (
         <ReviewWarning>
-          {goldStillHeld
+          {goldStillHeld && !packetAutoReleasable
             ? `Blocked until the gold is no longer ${goldHeldReason}.`
             : !request.customerSawGold && !paymentConditionMet
               ? "Confirm the customer has seen the gold and record the payment before approving."

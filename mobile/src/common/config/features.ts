@@ -26,9 +26,6 @@ export const DEFAULT_PLANS: BillingPlan[] = [
   { id: "unlimited", name: "Unlimited", branches: 0, price: 150000, features: ["No branch limit", "Everything in 5 Branches", "Priority support"] },
 ];
 
-function flag(value: string | undefined): boolean {
-  return value === "true" || value === "1";
-}
 
 export function parsePlans(raw: string | undefined): BillingPlan[] {
   if (!raw) return DEFAULT_PLANS;
@@ -54,9 +51,6 @@ export function parsePlans(raw: string | undefined): BillingPlan[] {
   }
 }
 
-export const FEATURES = {
-  planUpgrade: flag(process.env.EXPO_PUBLIC_ENABLE_PLAN_UPGRADE),
-};
 
 export const BILLING_PLANS: BillingPlan[] = parsePlans(process.env.EXPO_PUBLIC_BILLING_PLANS);
 

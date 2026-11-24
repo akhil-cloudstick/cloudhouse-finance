@@ -41,11 +41,18 @@ func LiveBalance(ctx context.Context, branchID *uint) (float64, error) {
 
 // bankBalance is what the Banks page shows for one bank right now.
 func bankBalance(ctx context.Context, bankID uint) (float64, error) {
-	per, _, err := BankBalances(ctx, nil)
+	// Same rows as BankBalances' per-bank figure, for this one bank only (it runs
+	// on every bank payout; computing every bank's and the overall total was waste).
+	sc := BalanceScope{Bank: true, BankID: &bankID, To: startOfDay(time.Now()).AddDate(0, 0, 1)}
+	net, err := netByScope(ctx, sc)
 	if err != nil {
 		return 0, err
 	}
-	return per[bankID], nil
+	spent, err := sumByScope(ctx, sc)
+	if err != nil {
+		return 0, err
+	}
+	return net - spent, nil
 }
 
 func EnsureCashInHand(ctx context.Context, branchID uint, amount float64) error {

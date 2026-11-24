@@ -1,73 +1,76 @@
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
+import { useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AccRow,
-  AsyncSelect,
-  Buffering,
-  BtnRow2,
-  C,
-  Card,
-  ChipToggle,
-  EmptyText,
-  FabMenu,
-  Field,
-  FieldGrid,
-  FieldRow,
-  FilterChipRow,
-  FiltersBar,
-  FlatHeader,
-  Input,
-  NoticeBanner,
-  PrimaryButton,
-  Screen,
-  SearchInput,
-  SectionTitle,
-  ServerFlatList,
-  Sheet,
-  SheetListItem,
-  StatusChip,
-  ThemeDropdown,
-  Txt,
-  toast,
-} from "@/common/components/ui";
+import { AccRow, AsyncSelect, Buffering, C, Card, DateField, ChipToggle, FabMenu, Field, FieldGrid, FieldRow, FlatHeader, GroupedFilter, emptyGroupedFilter, gfValues, gfDate, type GFSection, type GroupedFilterValue, Input, PrimaryButton, Screen, SearchFilterRow, SearchInput,ServerFlatList, Sheet, SheetListItem, StatusChip, ThemeDropdown, Txt, toast } from "@/common/components/ui";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { listCustomers } from "@/modules/customers/services/customerService";
-import { ApiError } from "@/common/services/httpClient";
-import { addCashToInvestment, createInvestment, createInvestmentPlan, getInvestment, getInvestmentSchedulePage, getInvestmentTransactionsPage, listInvestmentPlans, listInvestmentPlansPage, listInvestmentsPage, markPayoutPaid, matureInvestment, splitForMode, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
-import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InvestmentStatus, type InvestmentTransaction, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
+import { listInvestorsPage } from "@/modules/investments/services/investorService";
+import { addCashToInvestment, createInvestment, editInvestment, createInvestmentPlan, listInvestmentPlans, listInvestmentPlansPage, deleteInvestmentPlan, listInvestmentsPage, markPayoutPaid, matureInvestment, updateInvestmentPlan, withdrawFromInvestment, getPendingInterest, payInterestMonths } from "@/modules/investments/services/investmentService";
+import { type CreatePlanInput, type PaymentMode, type Investment, type InvestmentEngine, type InvestmentPayout, type InvestmentPlan, type InvestmentProductType, type InterestRateType, type PayoutFrequency } from "@/modules/investments/types/investment-types";
 import { SplitPaymentInput, type SplitPayment } from "@/common/components/SplitPaymentInput";
-import { previewInvestmentBondPdf, previewInvestmentStatementPdf } from "@/modules/investments/utils/investmentBond";
-import { dmy, inr } from "@/common/utils/format";
+import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Customer } from "@/modules/customers/types/customer-types";
-import { isUserCancel, loadErrorText, userMessage } from "@/common/services/apiErrors";
+import { FieldErr } from "@/common/components/ErrorText";
+import { userMessage } from "@/common/services/apiErrors";
 
-const STATUS_FILTERS = ["All", "Active", "Matured", "Closed", "Renewed"] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
+// Investments — prototype #header-investments + #page-investments and the
+// inv-filter / inv-create / investment-plans / inv-plan-create / inv-detail /
+// inv-addcash / inv-withdraw / inv-closerenew sheets. Search (INV no.,
+// investor name/code) and the status filter are backend params.
+
+// Any number of statuses can be ticked; none ticked means all investments.
+const STATUS_FILTERS = ["Active", "Matured", "Closed", "Renewed"] as const;
 const PAYMENT_MODES: PaymentMode[] = ["Cash", "UPI", "Bank Transfer", "Cheque"];
 const WITHDRAW_FROM = ["Interest", "Principal", "Both"] as const;
 
-type Filters = { status?: InvestmentStatus };
+// Comma-separated list of statuses (the server accepts one or several).
+type Filters = { status?: string; customerIds?: string; plan_ids?: string; from?: string; to?: string };
 
 const errMsg = (err: unknown, fallback: string) => userMessage(err, fallback);
 const planLabel = (p: InvestmentPlan) => `${p.name} — ${p.interestRatePercent}% · ${p.engine === "Live" ? "Single payout" : p.payoutFrequency} · ${p.tenureMonths}mo`;
 
 export default function InvestmentsScreen() {
+  const router = useRouter();
   const { can } = useAuth();
   const canCreate = can("Investment_Management", "can_create_investment");
   const canUpdate = can("Investment_Management", "can_update_investment");
 
-  const [status, setStatus] = usePersistedState<StatusFilter>("investments:status", "All");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [draft, setDraft] = useState<StatusFilter>("All");
+  // Status, Investor, Plan and a start-date range — same filters as web.
+  const [fv, setFv] = usePersistedState<GroupedFilterValue>("investments:filters", emptyGroupedFilter());
+  const statuses = gfValues(fv, "status");
+  const investorIds = gfValues(fv, "investor");
+  const planIds = gfValues(fv, "plan");
+  const dates = gfDate(fv, "start");
+  const sections: GFSection[] = [
+    { kind: "static", key: "status", label: "Status", options: STATUS_FILTERS.map((s) => ({ value: s, label: s })) },
+    {
+      kind: "async",
+      key: "investor",
+      label: "Investor",
+      fetchPage: (p) => listInvestorsPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((c) => ({ value: String(c.id), label: c.code ? `${c.name} (${c.code})` : c.name })), hasMore: r.hasMore })),
+    },
+    {
+      kind: "async",
+      key: "plan",
+      label: "Plan",
+      fetchPage: (p) => listInvestmentPlansPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: (r.items ?? []).map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore })),
+    },
+    { kind: "date", key: "start", label: "Start date" },
+  ];
 
   const [plansOpen, setPlansOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [detailId, setDetailId] = useState<number | null>(null);
 
-  const filters: Filters = { status: status === "All" ? undefined : status };
+  const filters: Filters = {
+    status: statuses.length ? statuses.join(",") : undefined,
+    customerIds: investorIds.length ? investorIds.join(",") : undefined,
+    plan_ids: planIds.length ? planIds.join(",") : undefined,
+    from: dates.from || undefined,
+    to: dates.to || undefined,
+  };
+  const anyFilter = statuses.length + investorIds.length + planIds.length > 0 || !!dates.from || !!dates.to;
   const list = useServerList<Investment, Filters>({ key: ["investments", "list"], persistKey: "investments", filters, fetchPage: (p) => listInvestmentsPage(p) });
 
   return (
@@ -79,38 +82,46 @@ export default function InvestmentsScreen() {
         />
       }
       floating={
-        canCreate || canUpdate ? (
+        // One corner button that opens upward into both actions.
+        (
           <FabMenu
             label="Investment actions"
             actions={[
+              { label: "Investors", icon: "user", onPress: () => router.push("/investments/investors" as never) },
               ...(canCreate ? [{ label: "New Investment", icon: "plus", onPress: () => setCreateOpen(true) }] : []),
               ...(canUpdate ? [{ label: "Plans", icon: "layers", onPress: () => setPlansOpen(true) }] : []),
             ]}
           />
-        ) : null
+        )
       }
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(i) => String(i.id)}
-        emptyText={list.search || status !== "All" ? "No investments match your search." : "No investments yet."}
+        emptyText={list.search || anyFilter ? "No investments match your search." : "No investments yet."}
         header={
           <View style={{ paddingTop: 12 }}>
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by investment ID or investor name" style={{ paddingBottom: 8 }} />
-            <FiltersBar
-              count={status !== "All" ? 1 : 0}
-              summary={`${status === "All" ? "All investments" : status}${list.total != null ? ` · ${list.total}` : ""}`}
-              onPress={() => {
-                setDraft(status);
-                setFilterOpen(true);
-              }}
-              style={{ marginTop: 0, marginBottom: 10 }}
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search by investment ID or investor name"
+              filter={
+                <GroupedFilter title="Filter Investments" sections={sections} value={fv} onChange={setFv} />
+              }
             />
           </View>
         }
         renderItem={(inv, i) => (
           <AccRow
+            // iPad and bigger: the same columns as the web Investments table.
+            cells={[
+              { h: "Investment / Investor", v: inv.investmentNumber, sub: inv.customer?.name, flex: 1.6 },
+              { h: "Principal", v: inr(inv.principalAmount), num: true },
+              { h: "Rate", v: `${inv.interestRatePercent}% ${inv.payoutFrequency}` },
+              { h: "Maturity", v: dmy(inv.maturityDate) },
+              { h: "Status", v: inv.status, chip: true },
+            ]}
             defaultOpen={i === 0}
             id={inv.investmentNumber}
             name={inv.customer?.name ?? `Customer #${inv.customerId}`}
@@ -121,23 +132,10 @@ export default function InvestmentsScreen() {
               { k: "Rate", v: `${inv.interestRatePercent}% p.a. · ${inv.interestRateType}` },
               { k: "Maturity date", v: dmy(inv.maturityDate) },
             ]}
-            actions={[{ label: "View", primary: true, onPress: () => setDetailId(inv.id) }]}
+            actions={[{ label: "View", primary: true, onPress: () => router.push(`/investments/${inv.id}` as never) }]}
           />
         )}
       />
-
-      <Sheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter Investments" maxHeightPct={55}>
-        <Field label="Status">
-          <FilterChipRow options={STATUS_FILTERS} value={draft} onChange={setDraft} style={{ flexWrap: "wrap" }} />
-        </Field>
-        <PrimaryButton
-          label="Apply Filters"
-          onPress={() => {
-            setStatus(draft);
-            setFilterOpen(false);
-          }}
-        />
-      </Sheet>
 
       <PlansSheet visible={plansOpen} onClose={() => setPlansOpen(false)} />
       <CreateInvestmentSheet
@@ -145,14 +143,16 @@ export default function InvestmentsScreen() {
         onClose={() => setCreateOpen(false)}
         onCreated={(inv) => {
           setCreateOpen(false);
-          setDetailId(inv.id);
+          router.push(`/investments/${inv.id}` as never);
         }}
       />
-      <InvestmentDetailSheet investmentId={detailId} onClose={() => setDetailId(null)} canUpdate={canUpdate} />
     </Screen>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Investment Plans (prototype #investment-plans-modal) + Add/Edit Plan
+// ---------------------------------------------------------------------------
 const FIXED_PAYOUT_FREQUENCIES = ["Monthly", "Quarterly", "Yearly"] as const;
 const FREQ_STEP_MONTHS: Record<string, number> = { Monthly: 1, Quarterly: 3, Yearly: 12 };
 
@@ -207,7 +207,7 @@ function PlansSheet({ visible, onClose }: PlansSheetProps) {
           </View>
         }
       >
-        <ServerFlatList
+        <ServerFlatList stickyHeader
           list={list}
           items={list.items}
           inSheet
@@ -253,23 +253,27 @@ type PlanFormSheetProps = { form: PlanForm | null; setForm: (f: PlanForm | null)
 
 function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
   const qc = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => setError(null), [form?.id, form === null]);
+  const [tried, setTried] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const canDeletePlan = useAuth().can("Investment_Management", "can_delete_investment");
+  useEffect(() => { setTried(false); setConfirmDel(false); }, [form?.id, form === null]);
 
-  function validate(f: PlanForm): string | null {
-    if (!f.name.trim()) return "Please enter a plan name.";
+  const planErrs = (f: PlanForm | null): Record<string, string> => {
+    const e: Record<string, string> = {};
+    if (!f) return e;
+    if (!f.name.trim()) e.name = "Enter a plan name.";
     const rate = Number(f.interestRatePercent);
-    if (f.interestRatePercent.trim() === "" || isNaN(rate) || rate < 0) return "Interest rate must be 0 or more.";
+    if (f.interestRatePercent.trim() === "" || isNaN(rate) || rate < 0) e.rate = "Interest rate must be 0 or more.";
     const tenure = Number(f.tenureMonths);
-    if (!tenure || tenure <= 0) return "Tenure must be greater than 0.";
-    if (f.engine === "Schedule") {
+    if (!tenure || tenure <= 0) e.tenure = "Tenure must be greater than 0.";
+    else if (f.engine === "Schedule") {
       const step = FREQ_STEP_MONTHS[f.payoutFrequency] ?? 1;
-      if (tenure % step !== 0) return `Tenure months must divide evenly by ${f.payoutFrequency}'s ${step}-month step.`;
+      if (tenure % step !== 0) e.tenure = `Tenure months must divide evenly by ${f.payoutFrequency}'s ${step}-month step.`;
     }
-    return null;
-  }
+    return e;
+  };
 
-  const save = useMutation({
+    const save = useMutation({
     mutationFn: () => {
       const f = form!;
       const input: CreatePlanInput = {
@@ -289,10 +293,24 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
       qc.invalidateQueries({ queryKey: ["investmentPlans"] });
       setForm(null);
     },
-    onError: (err) => setError(errMsg(err, "Could not save the plan — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not save the plan — try again.")),
+  });
+
+  const del = useMutation({
+    mutationFn: () => deleteInvestmentPlan(form!.id!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["investmentPlans"] });
+      setForm(null);
+    },
+    onError: (err) => {
+      setConfirmDel(false);
+      toast.error(errMsg(err, "Could not delete the plan — try again."));
+    },
   });
 
   const f = form;
+  const pe = planErrs(f);
+  const fe = (k: string) => (tried ? pe[k] : undefined);
   return (
     <Sheet visible={!!form} onClose={() => setForm(null)} title={f?.id ? "Edit Investment Plan" : "Add Investment Plan"} maxHeightPct={92}>
       {f ? (
@@ -300,12 +318,14 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
           <Field label="Plan name">
             <Input placeholder="e.g. Gold Saver Bond" value={f.name} onChangeText={(v) => setForm({ ...f, name: v })} />
           </Field>
+          <FieldErr m={fe("name")} />
           <Field label="Interest rate type">
             <ChipToggle options={["Simple", "Compound"] as const} value={f.interestRateType} onChange={(v) => setForm({ ...f, interestRateType: v })} />
           </Field>
           <Field label="Interest rate (% p.a.)">
             <Input keyboardType="decimal-pad" placeholder="e.g. 9.5" value={f.interestRatePercent} onChangeText={(v) => setForm({ ...f, interestRatePercent: v })} />
           </Field>
+          <FieldErr m={fe("rate")} />
           <Field label="Payout engine">
             <ChipToggle
               options={["Schedule", "Live"] as const}
@@ -331,17 +351,27 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
               <Input keyboardType="decimal-pad" placeholder="e.g. 25000" value={f.minPrincipal} onChangeText={(v) => setForm({ ...f, minPrincipal: v })} />
             </Field>
           </FieldRow>
+          <FieldErr m={fe("tenure")} />
           <Field label="Status">
             <ChipToggle options={["Active", "Inactive"] as const} value={f.isActive ? "Active" : "Inactive"} onChange={(v) => setForm({ ...f, isActive: v === "Active" })} />
           </Field>
-          {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
+          {f.id && canDeletePlan ? (
+            <>
+              {confirmDel ? <Txt style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>Delete the plan {f.name}? A plan already used by an investment can&apos;t be deleted — mark it inactive instead.</Txt> : null}
+              <PrimaryButton
+                label={confirmDel ? "Tap again to delete plan" : "Delete Plan"}
+                variant="reject"
+                style={{ marginBottom: 10 }}
+                loading={del.isPending}
+                onPress={() => (confirmDel ? del.mutate() : setConfirmDel(true))}
+              />
+            </>
+          ) : null}
           <PrimaryButton
             label="Save Plan"
             loading={save.isPending}
             onPress={() => {
-              const v = validate(f);
-              if (v) return setError(v);
-              setError(null);
+              if (Object.keys(pe).length) return setTried(true);
               save.mutate();
             }}
           />
@@ -351,72 +381,106 @@ function PlanFormSheet({ form, setForm }: PlanFormSheetProps) {
   );
 }
 
-type CreateInvestmentSheetProps = { visible: boolean; onClose: () => void; onCreated: (inv: Investment) => void };
+// `investment` set: corrects that investment (only before any interest or payout) instead of opening a new one.
+type CreateInvestmentSheetProps = { presetCustomer?: Customer | null; visible: boolean; onClose: () => void; onCreated: (inv: Investment) => void; investment?: Investment | null };
 
-function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestmentSheetProps) {
+// ---------------------------------------------------------------------------
+// Create Investment (prototype #inv-create-modal)
+// ---------------------------------------------------------------------------
+export function CreateInvestmentSheet({ presetCustomer, visible, onClose, onCreated, investment }: CreateInvestmentSheetProps) {
   const qc = useQueryClient();
+  const editing = !!investment;
+  const [startDate, setStartDate] = useState("");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [plan, setPlan] = useState<InvestmentPlan | null>(null);
   const [principal, setPrincipal] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      setCustomer(null);
-      setPlan(null);
-      setPrincipal("");
-      setError(null);
+      setCustomer(presetCustomer ?? null);
+      setPlan(investment?.plan ?? null);
+      setPrincipal(investment ? String(investment.principalAmount) : "");
+      setStartDate(investment ? investment.startDate.slice(0, 10) : "");
+      setTried(false);
     }
-  }, [visible]);
+  }, [visible, investment, presetCustomer]);
 
   const plans = useQuery({ queryKey: ["investmentPlans", "active"], queryFn: () => listInvestmentPlans(true), enabled: visible });
   const principalNum = +principal || 0;
+  // Editing keeps how the deposit was paid unless the amount changes (then a new breakdown is needed).
+  const amountChanged = !!investment && Math.abs(principalNum - investment.principalAmount) >= 0.005;
+  // The investment's own plan stays choosable even if it has since been switched off.
+  const planOptions = investment && !(plans.data ?? []).some((p) => p.id === investment.planId) ? [investment.plan, ...(plans.data ?? [])] : (plans.data ?? []);
 
   const submit = useMutation({
-    mutationFn: () => createInvestment({ branchId: customer!.branchId, customerId: customer!.id, planId: plan!.id, principalAmount: principalNum, ...(pay?.split ?? {}), bankId: pay?.bankId }),
+    mutationFn: () => investment
+      ? editInvestment(investment.id, { planId: plan!.id, principalAmount: principalNum, startDate: startDate || undefined, ...(amountChanged ? { ...(pay?.split ?? {}), bankId: pay?.bankId } : {}) })
+      : createInvestment({ branchId: customer!.branchId, customerId: customer!.id, planId: plan!.id, principalAmount: principalNum, ...(pay?.split ?? {}), bankId: pay?.bankId }),
     onSuccess: (inv) => {
       qc.invalidateQueries({ queryKey: ["investments"] });
+      qc.invalidateQueries({ queryKey: ["reminders"] }); // a new or edited investment changes its payout reminders
+      if (editing) {
+        qc.invalidateQueries({ queryKey: ["investment"] });
+        qc.invalidateQueries({ queryKey: ["investmentSchedule"] });
+        qc.invalidateQueries({ queryKey: ["investmentLedger"] });
+        toast.success("Investment updated", `${inv.investmentNumber} — saved`);
+      }
       onCreated(inv);
     },
-    onError: (err) => setError(errMsg(err, "Could not create the investment — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not create the investment — try again.")),
   });
 
-  function validate(): string | null {
-    if (!customer) return "Please select an investor.";
-    if (!plan) return "Please select an investment plan.";
-    if (!principalNum || principalNum <= 0) return "Please enter the principal amount.";
-    if (!pay?.ready) return "The payment breakdown must add up to the principal, with a bank for every UPI / Bank Transfer line.";
-    if (principalNum < plan.minPrincipal) return `Principal must be at least ${inr(plan.minPrincipal)} for this plan.`;
-    return null;
-  }
+  const errs: Record<string, string> = {};
+  if (!editing && !customer) errs.customer = "Select an investor.";
+  if (!plan) errs.plan = "Select an investment plan.";
+  if (!principalNum || principalNum <= 0) errs.principal = "Enter the principal amount.";
+  else if (plan && principalNum < plan.minPrincipal) errs.principal = `Principal must be at least ${inr(plan.minPrincipal)} for this plan.`;
+  if ((!editing || amountChanged) && !pay?.ready) errs.pay = "The payment breakdown must add up to the principal, with a bank for every UPI / Bank Transfer line.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Create Investment" maxHeightPct={88}>
+    <Sheet visible={visible} onClose={onClose} title={investment ? `Edit ${investment.investmentNumber}` : "Create Investment"} maxHeightPct={88}>
+      {investment ? (
+        <Field label="Investor">
+          <Input value={`${investment.customer.name} · ${investment.customer.code}`} editable={false} />
+        </Field>
+      ) : (
       <AsyncSelect<Customer>
         label="Investor"
-        placeholder="Search existing customer by name, ID or phone"
-        queryKey={["customers", "picker"]}
-        fetcher={(q) => listCustomers(q || undefined)}
+        placeholder="Search investor by name, ID or phone"
+        queryKey={["investors", "picker"]}
+        fetcher={async (q) => (await listInvestorsPage({ q: q || undefined, limit: 20, offset: 0 })).items ?? []}
         selectedLabel={customer ? `${customer.name} · ${customer.code ?? ""}` : undefined}
         onClear={() => setCustomer(null)}
         onSelect={setCustomer}
         keyOf={(c) => c.id}
         renderItem={(c) => ({ title: c.name, sub: [c.code, c.phone].filter(Boolean).join(" · ") })}
       />
+      )}
+      <FieldErr m={fe("customer")} />
       <Field label="Investment plan">
         {plans.isLoading ? (
           <Buffering />
         ) : (plans.data ?? []).length === 0 ? (
           <Txt style={{ fontSize: 12, color: C.muted }}>No active plans available.</Txt>
         ) : (
-          <ThemeDropdown<InvestmentPlan> value={plan} options={plans.data ?? []} onChange={setPlan} labelOf={planLabel} keyOf={(p) => p.id} placeholder="Select a plan" />
+          <ThemeDropdown<InvestmentPlan> value={plan} options={planOptions} onChange={setPlan} labelOf={planLabel} keyOf={(p) => p.id} placeholder="Select a plan" />
         )}
       </Field>
+      <FieldErr m={fe("plan")} />
       <Field label="Principal amount">
         <Input keyboardType="decimal-pad" placeholder={plan ? `Min ${inr(plan.minPrincipal)}` : "e.g. 100000"} value={principal} onChangeText={setPrincipal} />
       </Field>
-      {principalNum > 0 ? <SplitPaymentInput total={principalNum} onChange={setPay} bankLabel="Bank (account it landed in)" /> : null}
+      <FieldErr m={fe("principal")} />
+      {editing ? (
+        <Field label="Start date">
+          <DateField value={startDate} max={todayISO()} onChange={setStartDate} />
+        </Field>
+      ) : null}
+      {!editing || amountChanged ? <SplitPaymentInput total={principalNum} onChange={setPay} bankLabel="Bank (account it landed in)" /> : null}
+      <FieldErr m={fe("pay")} />
       <Card style={{ marginHorizontal: 0, marginBottom: 14 }}>
         <FieldGrid
           items={[
@@ -427,216 +491,15 @@ function CreateInvestmentSheet({ visible, onClose, onCreated }: CreateInvestment
           ]}
         />
       </Card>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
-        label="Create Investment"
+        label={editing ? "Save Changes" : "Create Investment"}
         loading={submit.isPending}
         onPress={() => {
-          const v = validate();
-          if (v) return setError(v);
-          setError(null);
+          if (Object.keys(errs).length) return setTried(true);
           submit.mutate();
         }}
       />
     </Sheet>
-  );
-}
-
-type InvestmentDetailSheetProps = { investmentId: number | null; onClose: () => void; canUpdate: boolean };
-
-function InvestmentDetailSheet({ investmentId, onClose, canUpdate }: InvestmentDetailSheetProps) {
-  const canExport = useAuth().can("Ledger_Export", "can_export_ledger");
-  const qc = useQueryClient();
-  const visible = investmentId != null;
-  const id = investmentId ?? 0;
-  const [action, setAction] = useState<"addCash" | "withdraw" | "mature" | "payInterest" | null>(null);
-  const [payout, setPayout] = useState<InvestmentPayout | null>(null);
-  const [printing, setPrinting] = useState(false);
-
-  const investment = useQuery({ queryKey: ["investment", String(id)], queryFn: () => getInvestment(id), enabled: visible });
-  const inv = investment.data;
-  const isLive = inv?.engine === "Live";
-
-  const schedule = useServerList<InvestmentPayout>({
-    key: ["investmentSchedule", id],
-    fetchPage: (p) => getInvestmentSchedulePage(id, p.limit, p.offset),
-    enabled: visible && !!inv && !isLive,
-  });
-  const transactions = useServerList<InvestmentTransaction>({
-    key: ["investmentTransactions", id],
-    fetchPage: (p) => getInvestmentTransactionsPage(id, p.limit, p.offset),
-    enabled: visible && !!inv && isLive,
-  });
-
-  useEffect(() => {
-    setAction(null);
-    setPayout(null);
-  }, [investmentId]);
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["investment", String(id)] });
-    qc.invalidateQueries({ queryKey: ["investmentTransactions", id] });
-    qc.invalidateQueries({ queryKey: ["investmentSchedule", id] });
-    qc.invalidateQueries({ queryKey: ["investments"] });
-  };
-
-  async function printStatement() {
-    if (!inv) return;
-    setPrinting(true);
-    try {
-      await previewInvestmentStatementPdf(inv.id, inv.investmentNumber);
-    } catch (e) {
-      if (isUserCancel(e)) return;
-      toast.error("Preview failed", errMsg(e, "Could not open the statement."));
-    } finally {
-      setPrinting(false);
-    }
-  }
-
-  async function printBond() {
-    if (!inv) return;
-    setPrinting(true);
-    try {
-      await previewInvestmentBondPdf(inv.id, inv.investmentNumber);
-    } catch (e) {
-      if (isUserCancel(e)) return;
-      toast.error("Preview failed", errMsg(e, "Could not open the agreement."));
-    } finally {
-      setPrinting(false);
-    }
-  }
-
-  const title = inv ? `${inv.investmentNumber} — ${inv.customer?.name ?? `Customer #${inv.customerId}`}` : "Investment";
-
-  const header = inv ? (
-    <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600" }}>Started {dmy(inv.startDate)}</Txt>
-        <StatusChip label={inv.status} />
-      </View>
-      <FieldGrid
-        style={{ marginBottom: 16 }}
-        items={[
-          { k: "Plan", v: inv.plan?.name ?? "—" },
-          { k: "Principal", v: inr(inv.principalAmount) },
-          { k: "Rate", v: `${inv.interestRatePercent}% p.a. ${inv.interestRateType}` },
-          { k: "Maturity", v: dmy(inv.maturityDate) },
-          { k: "Tenure", v: `${inv.tenureMonths} months` },
-          { k: "Payout", v: isLive ? "Single payout" : inv.payoutFrequency },
-          ...(isLive
-            ? [
-                { k: "Outstanding principal", v: inr(inv.outstandingPrincipal) },
-                { k: "Outstanding interest", v: inr(inv.outstandingInterest), color: C.brandDeep },
-              ]
-            : [{ k: "Interest paid", v: inr(inv.totalInterestPaid), color: C.green }]),
-        ]}
-      />
-      {inv.renewedFromInvestmentId || inv.renewedToInvestmentId ? (
-        <NoticeBanner>
-          {[
-            inv.renewedFromInvestmentId ? `Renewed from Investment #${inv.renewedFromInvestmentId}` : null,
-            inv.renewedToInvestmentId ? `Renewed to Investment #${inv.renewedToInvestmentId}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </NoticeBanner>
-      ) : null}
-      {canExport ? (
-        <PrimaryButton label="Print Statement" variant="outline" loading={printing} onPress={printStatement} style={{ marginBottom: 10 }} />
-      ) : null}
-      {inv.plan?.productType === "Bond" ? (
-        <PrimaryButton label="Print Agreement" variant="outline" loading={printing} onPress={printBond} style={{ marginBottom: 10 }} />
-      ) : null}
-      {canUpdate && isLive && (inv.status === "Active" || inv.status === "Matured") ? (
-        <BtnRow2 style={{ marginBottom: 10 }}>
-          {inv.status === "Active" ? <PrimaryButton label="Add Cash" variant="outline" onPress={() => setAction("addCash")} /> : null}
-          <PrimaryButton label="Withdraw" variant="outline" onPress={() => setAction("withdraw")} />
-        </BtnRow2>
-      ) : null}
-      {canUpdate && !isLive && (inv.status === "Active" || inv.status === "Matured") ? (
-        <PrimaryButton label="Pay Interest" variant="outline" onPress={() => setAction("payInterest")} style={{ marginBottom: 10 }} />
-      ) : null}
-      {canUpdate && inv.status === "Matured" ? <PrimaryButton label="Close / Renew" onPress={() => setAction("mature")} style={{ marginBottom: 10 }} /> : null}
-      <SectionTitle flush style={{ marginTop: 8 }}>
-        {isLive ? "Transactions" : "Interest payout schedule"}
-      </SectionTitle>
-    </View>
-  ) : null;
-
-  let body: React.ReactNode = null;
-  if (!visible) body = null;
-  else if (investment.isLoading) body = <Buffering block />;
-  else if (investment.isError || !inv) body = <EmptyText>{loadErrorText(investment.error) ?? "This investment no longer exists."}</EmptyText>;
-  else if (isLive)
-    body = (
-      <ServerFlatList
-        list={transactions}
-        items={transactions.items}
-        inSheet
-        gutter={16}
-        header={header}
-        emptyText="No transactions yet."
-        keyOf={(t) => String(t.id)}
-        renderItem={(t) => (
-          <AccRow
-            id={t.type}
-            idColor={t.type === "Withdrawal" ? C.red : C.green}
-            name={dmy(t.occurredOn)}
-            sub={t.reference || undefined}
-            amount={`${t.type === "Withdrawal" ? "−" : "+"}${inr(t.amount)}`}
-            amountColor={t.type === "Withdrawal" ? C.red : C.green}
-            details={[
-              { k: "Principal", v: inr(t.principalAmount) },
-              { k: "Interest", v: inr(t.interestAmount) },
-              { k: "Principal after", v: inr(t.principalAfter) },
-              { k: "Interest after", v: inr(t.interestAfter) },
-            ]}
-          />
-        )}
-      />
-    );
-  else
-    body = (
-      <ServerFlatList
-        list={schedule}
-        items={schedule.items}
-        inSheet
-        gutter={16}
-        header={header}
-        emptyText="No payouts scheduled."
-        keyOf={(p) => String(p.id)}
-        renderItem={(p) => (
-          <AccRow
-            id={`#${p.sequenceNo}`}
-            name={dmy(p.dueDate)}
-            sub={p.isPrincipalReturn ? "Principal return" : "Interest payout"}
-            amount={inr(p.amount)}
-            status={p.status}
-            details={[
-              { k: "Due date", v: dmy(p.dueDate) },
-              { k: "Paid on", v: p.paidAt ? dmy(p.paidAt) : "—" },
-            ]}
-            actions={canUpdate && p.status === "Pending" ? [{ label: "Mark Paid", primary: true, onPress: () => setPayout(p) }] : undefined}
-          />
-        )}
-      />
-    );
-
-  return (
-    <>
-      <Sheet visible={visible} onClose={onClose} title={title} maxHeightPct={85} scroll={false}>
-        <View style={{ flexShrink: 1 }}>{body}</View>
-      </Sheet>
-      {inv ? (
-        <>
-          <AddCashSheet inv={inv} visible={action === "addCash"} onClose={() => setAction(null)} onDone={invalidate} />
-          <WithdrawSheet inv={inv} visible={action === "withdraw"} onClose={() => setAction(null)} onDone={invalidate} />
-          <CloseRenewSheet inv={inv} visible={action === "mature"} onClose={() => setAction(null)} onDone={invalidate} />
-          <PayInterestSheet inv={inv} visible={action === "payInterest"} onClose={() => setAction(null)} onDone={invalidate} />
-          <MarkPaidSheet inv={inv} payout={payout} onClose={() => setPayout(null)} onDone={invalidate} />
-        </>
-      ) : null}
-    </>
   );
 }
 
@@ -652,16 +515,15 @@ function ModeField({ value, onChange }: ModeFieldProps) {
   );
 }
 
-function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
+// prototype #inv-addcash-modal
+export function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
-  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (visible) {
       setAmount("");
       setReference("");
-      setError(null);
     }
   }, [visible]);
   const m = useMutation({
@@ -670,7 +532,7 @@ function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not add cash — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not add cash — try again.")),
   });
   return (
     <Sheet visible={visible} onClose={onClose} title={`Add Cash — ${inv.investmentNumber}`} maxHeightPct={88}>
@@ -680,40 +542,40 @@ function AddCashSheet({ inv, visible, onClose, onDone }: ActionProps) {
       </Field>
       <SplitPaymentInput total={Number(amount) || 0} onChange={setPay} />
       <Field label="Reference">
-        <Input placeholder="Optional" value={reference} onChangeText={setReference} />
+        <Input maxLength={150} placeholder="Optional (max 150 characters)" value={reference} onChangeText={setReference} />
       </Field>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Add Cash" onPress={() => m.mutate()} loading={m.isPending} disabled={!amount || Number(amount) <= 0 || !pay?.ready} />
     </Sheet>
   );
 }
 
-function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
+// prototype #inv-withdraw-modal
+export function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [from, setFrom] = useState<(typeof WITHDRAW_FROM)[number]>("Interest");
   const [interest, setInterest] = useState("");
   const [principal, setPrincipal] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
   const [reference, setReference] = useState("");
-  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (visible) {
       setFrom("Interest");
       setInterest("");
       setPrincipal("");
       setReference("");
-      setError(null);
     }
   }, [visible]);
   const interestAmount = from === "Principal" ? 0 : Number(interest || 0);
   const principalAmount = from === "Interest" ? 0 : Number(principal || 0);
-  const m = useMutation({
+  const overInterest = interestAmount > (inv.outstandingInterest || 0) + 0.01;
+  const overPrincipal = principalAmount > (inv.outstandingPrincipal || 0) + 0.01;
+  const m =useMutation({
     mutationFn: () =>
       withdrawFromInvestment(inv.id, { interestAmount, principalAmount, reference: reference.trim() || undefined, ...(pay?.split ?? {}), bankId: pay?.bankId } as Parameters<typeof withdrawFromInvestment>[1]),
     onSuccess: () => {
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not withdraw — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not withdraw — try again.")),
   });
   return (
     <Sheet visible={visible} onClose={onClose} title={`Withdraw — ${inv.investmentNumber}`} maxHeightPct={90}>
@@ -721,42 +583,47 @@ function WithdrawSheet({ inv, visible, onClose, onDone }: ActionProps) {
         Outstanding principal: {inr(inv.outstandingPrincipal)} · Outstanding interest: {inr(inv.outstandingInterest)}
       </Txt>
       <Field label="Withdraw from">
-        <ChipToggle options={WITHDRAW_FROM} value={from} onChange={setFrom} />
+        <ThemeDropdown value={from} options={[...WITHDRAW_FROM]} onChange={setFrom} labelOf={(o) => o} />
       </Field>
       {from !== "Principal" ? (
         <Field label="Interest amount">
           <Input keyboardType="decimal-pad" placeholder="₹" value={interest} onChangeText={setInterest} />
+          {overInterest ? <Txt style={{ fontSize: 12, color: C.red, marginTop: 4 }}>Exceeds the outstanding interest ({inr(inv.outstandingInterest)}).</Txt> : null}
         </Field>
       ) : null}
       {from !== "Interest" ? (
         <Field label="Principal amount">
           <Input keyboardType="decimal-pad" placeholder="₹" value={principal} onChangeText={setPrincipal} />
+          {overPrincipal ? <Txt style={{ fontSize: 12, color: C.red, marginTop: 4 }}>Exceeds the outstanding principal ({inr(inv.outstandingPrincipal)}).</Txt> : null}
         </Field>
       ) : null}
       <SplitPaymentInput total={interestAmount + principalAmount} onChange={setPay} />
       <Field label="Reference">
-        <Input placeholder="Optional" value={reference} onChangeText={setReference} />
+        <Input maxLength={150} placeholder="Optional (max 150 characters)" value={reference} onChangeText={setReference} />
       </Field>
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
-      <PrimaryButton label="Confirm Withdrawal" onPress={() => m.mutate()} loading={m.isPending} disabled={interestAmount + principalAmount <= 0 || !pay?.ready} />
+      <PrimaryButton label="Confirm Withdrawal" onPress={() => m.mutate()} loading={m.isPending} disabled={interestAmount + principalAmount <= 0 || overInterest || overPrincipal || !pay?.ready} />
     </Sheet>
   );
 }
 
-function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
+// prototype #inv-closerenew-modal
+export function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
   const [act, setAct] = useState<"Close" | "Renew">("Close");
   const [plan, setPlan] = useState<InvestmentPlan | null>(null);
   const [principal, setPrincipal] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const payable = (inv.outstandingPrincipal || 0) + (inv.outstandingInterest || 0);
-  const needsPayout = inv.engine === "Live" && act === "Close" && payable > 0;
-  const [error, setError] = useState<string | null>(null);
+  // A Live investment pays principal plus interest out on Close.
+  // A scheduled one owes the principal it still holds plus the settlement interest (same as web).
+  const payable =
+    inv.engine === "Live"
+      ? (inv.outstandingPrincipal || 0) + (inv.outstandingInterest || 0)
+      : Math.max(0, inv.principalAmount - (inv.principalReturned || 0)) + (inv.settlementInterest || 0);
+  const needsPayout = act === "Close" && (inv.engine === "Live" || payable > 0);
   useEffect(() => {
     if (visible) {
       setAct("Close");
       setPlan(null);
       setPrincipal(inv.outstandingPrincipal ? String(inv.outstandingPrincipal) : "");
-      setError(null);
     }
   }, [visible]);
   const plans = useQuery({ queryKey: ["investmentPlans", "active"], queryFn: () => listInvestmentPlans(true), enabled: visible && act === "Renew" });
@@ -772,7 +639,7 @@ function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not apply the maturity decision — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not apply the maturity decision — try again.")),
   });
   return (
     <Sheet visible={visible} onClose={onClose} title={`Close / Renew — ${inv.investmentNumber}`} maxHeightPct={90}>
@@ -792,7 +659,6 @@ function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
         <Input keyboardType="decimal-pad" placeholder="₹" value={principal} onChangeText={setPrincipal} editable={act === "Renew"} />
       </Field>
       {needsPayout ? <SplitPaymentInput total={payable} onChange={setPay} bankLabel="Bank (account it is paid from)" /> : null}
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Confirm" onPress={() => m.mutate()} loading={m.isPending} disabled={(act === "Renew" && (!plan || !principal)) || (needsPayout && !pay?.ready)} />
     </Sheet>
   );
@@ -800,25 +666,26 @@ function CloseRenewSheet({ inv, visible, onClose, onDone }: ActionProps) {
 
 type PayInterestSheetProps = { inv: Investment; visible: boolean; onClose: () => void; onDone: () => void };
 
-// Amount applies to the oldest unpaid months in order, each in full — so it must be a whole number of months.
-function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetProps) {
+// Pay several months of a scheduled investment's interest in one go — the amount is applied to the oldest
+// unpaid months in order, each in full, so it has to be a whole number of months (same as web).
+export function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetProps) {
   const [amount, setAmount] = useState("");
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const pending = useQuery({ queryKey: ["investmentPendingInterest", inv.id], queryFn: () => getPendingInterest(inv.id), enabled: visible, staleTime: 0 });
   const months = pending.data ?? [];
   useEffect(() => {
     if (visible) {
-      setError(null);
       setAmount("");
     }
   }, [visible]);
+  // Start from the oldest unpaid month once the list arrives.
   useEffect(() => {
-    if (visible && months.length && !amount) setAmount(String(months[0].amount));
+    if (visible && months.length) setAmount((cur) => cur || String(months[0].amount));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, months.length]);
+  }, [visible, pending.data]);
 
   const amt = Number(amount) || 0;
+  // How many whole months the typed amount covers (a part-month is not allowed).
   let covered = 0;
   let sum = 0;
   for (const mth of months) {
@@ -835,7 +702,7 @@ function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetPro
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not record the interest payment — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not record the interest payment — try again.")),
   });
   return (
     <Sheet visible={visible} onClose={onClose} title={`Pay Interest — ${inv.investmentNumber}`} maxHeightPct={90}>
@@ -860,7 +727,6 @@ function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetPro
           </Txt>
           {amt > 0 && covered > 0 && !exact ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>Not whole months — {inr(sum)} covers {covered}.</Txt> : null}
           <SplitPaymentInput total={amt} onChange={setPay} bankLabel="Bank (account it is paid from)" />
-          {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
           <PrimaryButton label="Pay Interest" onPress={() => m.mutate()} loading={m.isPending} disabled={!exact || !pay?.ready} />
         </>
       )}
@@ -870,12 +736,11 @@ function PayInterestSheet({ inv, visible, onClose, onDone }: PayInterestSheetPro
 
 type MarkPaidSheetProps = { inv: Investment; payout: InvestmentPayout | null; onClose: () => void; onDone: () => void };
 
-function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
+// Mark a scheduled payout paid — picks the payment mode for the full amount.
+export function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
   const [pay, setPay] = useState<SplitPayment | null>(null);
-  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (payout) {
-      setError(null);
     }
   }, [payout]);
   const m = useMutation({
@@ -884,7 +749,7 @@ function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
       onDone();
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not mark the payout paid — try again.")),
+    onError: (err) => toast.error(errMsg(err, "Could not mark the payout paid — try again.")),
   });
   return (
     <Sheet visible={!!payout} onClose={onClose} title={`Mark Payout Paid — #${payout?.sequenceNo ?? ""}`} maxHeightPct={88}>
@@ -899,7 +764,6 @@ function MarkPaidSheet({ inv, payout, onClose, onDone }: MarkPaidSheetProps) {
         </Card>
       ) : null}
       {payout ? <SplitPaymentInput total={payout.amount} onChange={setPay} /> : null}
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton label="Mark Paid" onPress={() => m.mutate()} loading={m.isPending} disabled={!pay?.ready} />
     </Sheet>
   );

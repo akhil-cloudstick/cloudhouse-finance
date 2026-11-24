@@ -32,8 +32,10 @@ services:
   # Build-only job: `npm run build` produces the Next.js static export and
   # copies it into the cloudhousewild_frontend_out volume, then exits 0. Not
   # a long-running server — static export has no server to run (see
-  # frontend/Dockerfile). cloudhousewild_backend waits for this to finish
-  # successfully before it starts.
+  # frontend/Dockerfile). Runs on every `docker compose up --build`;
+  # cloudhousewild_backend waits for it to finish successfully before it
+  # starts. Capped (the Next.js build runs at container start, so
+  # mem_limit/cpus apply) so it can't freeze the other apps on this server.
   cloudhousewild_frontend:
     build:
       context: ./frontend
@@ -46,8 +48,10 @@ services:
         NEXT_PUBLIC_UPDATE_NOTES: ""
         NEXT_PUBLIC_BILLING_PLANS: ""
     container_name: cloudhousewild_frontend
-    profiles: ["manual-build"]
     mem_limit: 2048m
+    cpus: 2
+    environment:
+      NODE_OPTIONS: --max-old-space-size=1536
     volumes:
       - cloudhousewild_frontend_out:/shared-out
     networks:
@@ -59,16 +63,24 @@ services:
       dockerfile: Dockerfile
     container_name: cloudhousewild_backend
     restart: always
+    # Hard memory cap: a runaway request can only restart this container, never
+    # starve the other apps on this shared server. GOMEMLIMIT keeps Go's heap
+    # under the cap; DB_STATEMENT_TIMEOUT stops any query running away.
+    mem_limit: 1g
     environment:
       PORT: "6789"
+      GOMEMLIMIT: 700MiB
+      DB_STATEMENT_TIMEOUT: 60s
       DB_HOST: cloudhousewild_db
       DB_PORT: "5432"
       DB_NAME: cloudhouse_demo_db
       DB_USER: cloudhouse_demo_db
       DB_PASSWORD: cloudhouse_demo_db
       DB_SSLMODE: disable
-      FRONTEND_ORIGIN: "https://superadmin.cloudhousefinance.com,https://*.cloudhousefinance.com,http://wails.localhost,http://wails.localhost:34115"
+      FRONTEND_ORIGIN: "https://superadmin.cloudhousefinance.com,https://*.cloudhousefinance.com,http://wails.localhost,http://wails.localhost:34115,http://localhost:3000"
       BASE_DOMAIN: cloudhousefinance.com
+      # Hosts whose "/" shows the public landing page instead of the login redirect.
+      LANDING_HOSTS: "cloudhousefinance.com,www.cloudhousefinance.com"
       JWT_SECRET: "aFTl+TbrYxhx3bI+BzJdvl4NduwE7q7M9ko4CT5l0yg="
       JWT_EXPIRY: 3d
       SETTINGS_ENCRYPTION_KEY: "6dUfHyEmi0/WvCfRhRUIEq7RZw95MgFNPhTLQDIRKBI="
@@ -91,12 +103,14 @@ services:
     depends_on:
       cloudhousewild_db:
         condition: service_healthy
+      cloudhousewild_frontend:
+        condition: service_completed_successfully
     ports:
       # Loopback-only, same convention as the other apps on this host —
       # but on 6790, not golddemo's 6789, since both run simultaneously.
       - "127.0.0.1:6790:6789"
     volumes:
-      - ./deploy/frontend-out:/app/frontend/out:ro
+      - cloudhousewild_frontend_out:/app/frontend/out:ro
       - cloudhousewild_uploads:/app/uploads
     networks:
       - cloudhousewild_network

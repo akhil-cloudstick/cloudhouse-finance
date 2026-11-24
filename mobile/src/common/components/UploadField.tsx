@@ -1,11 +1,12 @@
 import React, { useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from "react-native";
-import { C, Field, Sheet, SheetListItem, Txt } from "@/common/components/ui";
-import { fromCamera, fromFiles, fromLibrary, PermissionError } from "@/common/components/ui/DocumentField";
+import { Icon } from "@/common/components/ui/Icon";
+import { C, Field, Sheet, SheetListItem, Txt, toast } from "@/common/components/ui";
+import { fromCamera, fromFiles, fromLibrary, fromLibraryMany, PermissionError } from "@/common/components/ui/DocumentField";
 import { uploadFile } from "@/common/services/uploadService";
 import { type PickedFile } from "@/common/types/upload-types";
 import { API_ORIGIN, ApiError } from "@/common/services/httpClient";
-import { useUploadSource } from "./BillSheet";
+import { BillSheet, UploadImage, useUploadSource } from "./BillSheet";
 import { useAuth } from "@/common/providers/AuthProvider";
 
 type UploadFieldProps = {
@@ -14,6 +15,10 @@ type UploadFieldProps = {
   onChange: (url: string) => void;
   allowPdf?: boolean;
   emptyText?: string;
+  /** With `onAddMany`, the gallery lets you pick up to this many photos at once. */
+  maxFiles?: number;
+  /** Receives every uploaded URL from a multi-photo gallery pick (instead of `onChange` one at a time). */
+  onAddMany?: (urls: string[]) => void;
 };
 
 /** Prototype dashed upload tile ("Tap to add a photo" / "Tap to upload").
@@ -24,42 +29,85 @@ export function UploadField({
   onChange,
   allowPdf = true,
   emptyText,
+  maxFiles = 1,
+  onAddMany,
 }: UploadFieldProps) {
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
+  // The just-picked file's own uri: shown at once (no wait for the server image to download) and used as the
+  // thumbnail until the field is cleared.
+  const [localUri, setLocalUri] = useState<{ url: string; uri: string } | null>(null);
+  const [viewing, setViewing] = useState(false);
   // POST /uploads is gated "can create upload" — without it the tile is inert.
   const canUpload = useAuth().can("Upload_Management", "can_create_upload");
 
   async function pick(run: () => Promise<PickedFile | null>) {
     setChoosing(false);
-    setError(null);
     try {
       const file = await run();
       if (!file) return;
       setBusy(true);
+      // Show the picked photo immediately while it uploads.
+      setLocalUri({ url: "", uri: file.uri });
       const url = await uploadFile(file);
       setName(file.name);
+      setLocalUri({ url, uri: file.uri });
       onChange(url);
     } catch (e) {
-      setError(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
+      setLocalUri(null);
+      toast.error(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  const isImage = !!value && !/\.pdf$/i.test(value);
+  // Several photos picked from the gallery in one go: upload them all, then hand back the URLs together.
+  async function pickMany() {
+    setChoosing(false);
+    try {
+      const files = await fromLibraryMany(maxFiles);
+      if (!files.length) return;
+      setBusy(true);
+      const urls: string[] = [];
+      for (const f of files) urls.push(await uploadFile(f));
+      onAddMany?.(urls);
+    } catch (e) {
+      toast.error(e instanceof PermissionError || e instanceof ApiError ? (e as Error).message : "Upload failed. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const isImage = !!value && !/\.(pdf|docx?|xlsx?|txt|csv)(\?|$)/i.test(value);
   // /uploads/* is only served to a signed-in caller — send the session token.
   const thumbSource = useUploadSource(value || "");
+  const localThumb = value && localUri && localUri.url === value ? { uri: localUri.uri } : null;
+  const preview = localThumb ?? thumbSource ?? { uri: value.startsWith("http") ? value : `${API_ORIGIN}${value}` };
   return (
     <Field label={label}>
       <Pressable onPress={() => canUpload && !busy && setChoosing(true)} disabled={!canUpload} style={[s.box, !!value && s.boxDone]}>
         {busy ? (
-          <ActivityIndicator color={C.brandDeep} />
+          <View style={s.done}>
+            {localUri?.uri ? <Image source={{ uri: localUri.uri }} style={[s.thumb, { opacity: 0.6 }]} /> : null}
+            <ActivityIndicator color={C.brandDeep} />
+            <Txt style={s.doneTxt}>Uploading…</Txt>
+          </View>
         ) : value ? (
           <View style={s.done}>
-            {isImage ? <Image source={thumbSource ?? { uri: value.startsWith("http") ? value : `${API_ORIGIN}${value}` }} style={s.thumb} /> : null}
+            {isImage ? (
+              localThumb ? (
+                <Pressable onPress={() => setViewing(true)} hitSlop={6}>
+                  <Image source={preview} style={s.thumb} />
+                </Pressable>
+              ) : (
+                <UploadImage path={value} title={label} style={s.thumb} />
+              )
+            ) : (
+              <Pressable onPress={() => setViewing(true)} hitSlop={6} style={[s.thumb, { alignItems: "center", justifyContent: "center" }]}>
+                <Icon name="doc" size={22} color={C.brandDeep} />
+              </Pressable>
+            )}
             <Txt style={s.doneTxt} numberOfLines={1}>
               {name ?? "Attached"}
               {canUpload ? " · Tap to replace" : ""}
@@ -70,14 +118,29 @@ export function UploadField({
         )}
       </Pressable>
       {value ? (
-        <Pressable onPress={() => onChange("")} hitSlop={6} style={{ alignSelf: "flex-end", marginTop: 6 }}>
-          <Txt style={{ fontSize: 11, fontWeight: "700", color: C.red }}>Remove</Txt>
-        </Pressable>
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 18, marginTop: 6 }}>
+          <Pressable onPress={() => setViewing(true)} hitSlop={6}>
+            <Txt style={{ fontSize: 11, fontWeight: "700", color: C.brandDeep }}>View</Txt>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setLocalUri(null);
+              onChange("");
+            }}
+            hitSlop={6}
+          >
+            <Txt style={{ fontSize: 11, fontWeight: "700", color: C.red }}>Remove</Txt>
+          </Pressable>
+        </View>
       ) : null}
-      {error ? <Txt style={{ fontSize: 11, color: C.red, marginTop: 6 }}>{error}</Txt> : null}
+      <BillSheet path={viewing && value ? value : null} onClose={() => setViewing(false)} title={label} />
       <Sheet visible={choosing} onClose={() => setChoosing(false)} title={label} maxHeightPct={50}>
         <SheetListItem first icon="scan" title="Take a photo" onPress={() => pick(fromCamera)} />
-        <SheetListItem icon="doc" title="Choose from gallery" onPress={() => pick(fromLibrary)} />
+        <SheetListItem
+          icon="doc"
+          title={onAddMany && maxFiles > 1 ? `Choose from gallery (up to ${maxFiles})` : "Choose from gallery"}
+          onPress={() => (onAddMany ? pickMany() : pick(fromLibrary))}
+        />
         {allowPdf ? <SheetListItem icon="note" title="Choose a file" sub="PDF or image" onPress={() => pick(fromFiles)} /> : null}
       </Sheet>
     </Field>
@@ -89,6 +152,6 @@ const s = StyleSheet.create({
   boxDone: { borderColor: C.brandDeep, backgroundColor: C.brandFaint, padding: 10 },
   empty: { color: C.muted, fontSize: 12 },
   done: { flexDirection: "row", alignItems: "center", gap: 10, alignSelf: "stretch" },
-  thumb: { width: 40, height: 40, borderRadius: 8, backgroundColor: C.line },
+  thumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: C.line },
   doneTxt: { flex: 1, fontSize: 12, fontWeight: "700", color: C.brandDeep },
 });

@@ -24,6 +24,9 @@ export type Customer = {
   nomineeRelation: string;
   nomineePhone: string;
 
+  /** Loans (gold) on this customer, from one grouped server query on the list. */
+  loanCount?: number;
+
   kycStatus: string;
   panStatus: string;
   aadhaarStatus: string;

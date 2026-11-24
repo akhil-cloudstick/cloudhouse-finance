@@ -16,8 +16,14 @@ func bankPledge(ctx context.Context, f models.Filter) ([]models.BankPledgeRow, m
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
 		Where("r.pledge_date >= ? AND r.pledge_date < ?", from, to).
 		Order("r.pledge_date desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.BankIDs) > 0 {
+		q = q.Where("r.bank_id IN ?", f.BankIDs)
+	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("r.status IN ?", f.Statuses)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.BankPledgeTotals{}, err
@@ -43,8 +49,14 @@ func loanExtensions(ctx context.Context, f models.Filter) ([]models.LoanExtensio
 		Where("req.type = ?", "Extension").
 		Where("req.requested_at >= ? AND req.requested_at < ?", from, to).
 		Order("req.requested_at desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("req.status IN ?", f.Statuses)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.LoanExtensionTotals{}, err
@@ -65,8 +77,17 @@ func goldRelease(ctx context.Context, f models.Filter) ([]models.GoldReleaseRow,
 		Where("req.type = ?", "Release").
 		Where("req.requested_at >= ? AND req.requested_at < ?", from, to).
 		Order("req.requested_at desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.LoanIDs) > 0 {
+		q = q.Where("l.id IN ?", f.LoanIDs)
+	}
+	if len(f.Statuses) > 0 {
+		q = q.Where("LOWER(TRIM(req.status)) IN ?", lowerTrimmed(f.Statuses))
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.GoldReleaseTotals{}, err
@@ -89,8 +110,17 @@ func auctionsReport(ctx context.Context, f models.Filter) ([]models.AuctionRow, 
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
 		Where("r.auction_eligible_date >= ? AND r.auction_eligible_date < ?", from, to).
 		Order("r.auction_eligible_date desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.LoanIDs) > 0 {
+		q = q.Where("l.id IN ?", f.LoanIDs)
+	}
+	if len(f.Settlements) > 0 {
+		q = q.Where("LOWER(TRIM(r.final_settlement_status)) IN ?", lowerTrimmed(f.Settlements))
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.AuctionTotals{}, err

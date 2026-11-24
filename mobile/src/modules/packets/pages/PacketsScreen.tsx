@@ -12,7 +12,7 @@ import {
   PillTabs,
   PktCard,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   ServerFlatList,
   Txt,
   openPage,
@@ -43,8 +43,9 @@ const TABS = ["packets", "lockers"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = { packets: "Packets", lockers: "Lockers" };
 
-// "Ready For Release" is a legacy stage nothing moves into, so not offered.
-const PKT_STATUSES = ["Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released"] as const;
+// "Ready For Release" is a legacy stage nothing moves into, so not offered. "Auctioned" is the loan's status (matched
+// through the loan by the server), shown on the card the same way.
+const PKT_STATUSES = ["Packet Generated", "Locker Stored", "Bank Pledged", "Returned", "Released", "Auctioned", "Rejected"] as const;
 
 
 const AUCTIONED_LOAN = ["Auctioned", "Auctioned - Balance Due"];
@@ -218,7 +219,7 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
 
   return (
     <>
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(p) => String(p.id)}
@@ -226,16 +227,18 @@ function PacketsTab({ header, lockerIdParam, onOpen }: PacketsTabProps) {
         header={
           <>
             {header}
-            <SearchInput
+            <SearchFilterRow
               value={list.search}
               onChangeText={list.setSearch}
               placeholder="Search by loan ID, packet ID, locker ID, or customer name"
-              style={{ paddingTop: 12, paddingBottom: 8 }}
+              style={{ paddingTop: 12, paddingBottom: lockerId ? 8 : 14 }}
+              filter={<GroupedFilter title="Filters" sections={sections} value={fv} onChange={setFv} />}
             />
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", paddingHorizontal: 18, marginBottom: 14 }}>
-              <GroupedFilter title="Filters" sections={sections} value={fv} onChange={setFv} />
-              {lockerId ? <PillButton label={`Locker ${lockerCode(lockerId) ?? `#${lockerId}`} ✕`} onPress={() => setLockerId(undefined)} /> : null}
-            </View>
+            {lockerId ? (
+              <View style={{ flexDirection: "row", paddingHorizontal: 18, marginBottom: 14 }}>
+                <PillButton label={`Locker ${lockerCode(lockerId) ?? `#${lockerId}`} ✕`} onPress={() => setLockerId(undefined)} />
+              </View>
+            ) : null}
           </>
         }
         renderItem={(p) => {
@@ -303,7 +306,7 @@ function LockersTab({ header, onOpen }: LockersTabProps) {
 
   return (
     <>
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(l) => String(l.id)}
@@ -311,16 +314,26 @@ function LockersTab({ header, onOpen }: LockersTabProps) {
         header={
           <>
             {header}
-            <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by locker ID" style={{ paddingTop: 12, paddingBottom: 8 }} />
-            <View style={{ paddingHorizontal: 18, marginBottom: 14, alignItems: "flex-start" }}>
-              <GroupedFilter title="Filter lockers" sections={sections} value={fv} onChange={setFv} />
-            </View>
+            <SearchFilterRow
+              value={list.search}
+              onChangeText={list.setSearch}
+              placeholder="Search locker, loan, packet or customer"
+              style={{ paddingTop: 12, paddingBottom: 14 }}
+              filter={<GroupedFilter title="Filter lockers" sections={sections} value={fv} onChange={setFv} />}
+            />
           </>
         }
         renderItem={(l) => {
           const st = lockerStatus(l);
           return (
             <AccRow
+              // iPad and bigger: the same columns as the web Lockers table.
+              cells={[
+                { h: "Locker", v: l.code },
+                ...(showBranchFilter ? [{ h: "Branch", v: l.branch?.name || "—" }] : []),
+                { h: "Packets", v: `${l.occupied ?? 0} / ${l.capacity}`, num: true },
+                { h: "Status", v: st, chip: true },
+              ]}
               id={l.code}
               name={`${l.occupied ?? 0} / ${l.capacity} occupied`}
               sub={l.branch?.name}

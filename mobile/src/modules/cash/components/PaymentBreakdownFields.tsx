@@ -9,7 +9,6 @@ import { BankPicker } from "./EntryFormParts";
 export const PAY_MODES = ["Cash", "UPI", "Bank Transfer"] as const;
 export type PayMode = (typeof PAY_MODES)[number];
 
-const MAX_ROWS = 6;
 
 // Short chip labels; the stored mode values stay as PAY_MODES.
 const MODE_LABELS: Partial<Record<PayMode, string>> = { "Bank Transfer": "Bank" };
@@ -111,7 +110,7 @@ export function PaymentBreakdownFields({ total, rows, onChange, bankLabel }: Pay
     const last = left[left.length - 1];
     return left.map((r) => (r.key === last.key && gone ? { ...r, amount: String(round2((Number(r.amount) || 0) + (Number(gone.amount) || 0))), auto: false } : r));
   });
-  const add = () => onChange((cur) => (cur.length >= MAX_ROWS ? cur : [...cur, newPaymentRow({ auto: false, amount: remaining > 0 ? String(remaining) : "" })]));
+  const add = () => onChange((cur) => [...cur, newPaymentRow({ auto: false, amount: remaining > 0 ? String(remaining) : "" })]);
 
   return (
     <View style={{ marginBottom: 6 }}>
@@ -147,19 +146,20 @@ export function PaymentBreakdownFields({ total, rows, onChange, bankLabel }: Pay
           {isBankMode(r.mode) ? <BankPicker label={bankLabel} bank={r.bank} onChange={(b) => patch(r.key, { bank: b })} /> : null}
         </View>
       ))}
-      {rows.length < MAX_ROWS ? (
+      {(
         <Pressable
           onPress={add} accessibilityRole="button" accessibilityLabel="Add payment mode"
           style={{ borderWidth: 1.5, borderStyle: "dashed", borderColor: C.line, borderRadius: 11, paddingVertical: 11, alignItems: "center", marginBottom: 10 }}
         >
           <Txt style={{ fontSize: 13, fontWeight: "700", color: C.brandDeep }}>+ Add payment mode</Txt>
         </Pressable>
-      ) : null}
-      {total > 0 ? (
+      )}
+      {/* said only while the lines do not add up */}
+      {total > 0 && Math.abs(remaining) >= 0.005 ? (
         <ResultBox
-          k={Math.abs(remaining) < 0.005 ? "Fully allocated" : remaining > 0 ? "Still to allocate" : "Exceeds the amount by"}
-          v={inr(Math.abs(remaining) < 0.005 ? total : Math.abs(remaining))}
-          tone={Math.abs(remaining) < 0.005 ? "green" : "red"}
+          k={remaining > 0 ? "Still to allocate" : "Exceeds the amount by"}
+          v={inr(Math.abs(remaining))}
+          tone="red"
           style={{ marginBottom: 0 }}
         />
       ) : null}

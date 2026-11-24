@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 // Staff app palette — the maroon theme from ui-demos/staff-app-prototype.html
 // (its `:root` block). That prototype is the source of truth for the staff UI:
 // do not invent colours in screens/components, import from here instead.
@@ -70,3 +72,9 @@ export function statusColors(tone: StatusTone, c: Colors = colors): { fg: string
       return { fg: c.muted, bg: c.brandFaint };
   }
 }
+
+// Text-selection highlight. Android paints the highlight in exactly this colour behind the text, and the 30% brand
+// red read as dark red there, making selected text hard to read — so it gets a light rose tint that dark text stays
+// legible on. iOS uses this colour as the tint for the caret and handles and fades the highlight itself, so it keeps
+// the brand colour (a pale tint would make the caret all but invisible).
+export const SELECTION_COLOR = Platform.OS === "ios" ? "#8a2035" : "#f2cdd4";

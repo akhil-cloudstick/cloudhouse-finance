@@ -11,10 +11,19 @@ import {
   ConfirmSheet,
   FabMenu,
   type FabMenuAction,
+  DateField,
   FlatHeader,
+  GroupedFilter,
+  emptyGroupedFilter,
+  gfDate,
+  gfValues,
+  type GFSection,
+  type GroupedFilterValue,
+  FilterButton,
+  PIcon,
   PillTabs,
   Screen,
-  SearchInput,
+  SearchFilterRow,
   ServerFlatList,
   Txt,
   toast,
@@ -22,7 +31,7 @@ import {
 import { useServerList } from "@/common/hooks/use-server-list";
 import { canActAtStage, stageByPending, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { approveExpense, getCashSummary, listCashMovementsPage, listExpensesPage, listGoldSalesPage, rejectExpense } from "@/modules/cash/services/cashService";
+import { approveExpense, deleteExpense, getCashSummary, listCashMovementsPage, listExpensesPage, listGoldSalesPage, rejectExpense } from "@/modules/cash/services/cashService";
 import { type CashMovement, type Expense, type GoldSale } from "@/modules/cash/types/cash-types";
 import { AddEntrySheet, EditEntrySheet } from "@/modules/cash/components/EntryForms";
 import { dmy, inr, todayISO } from "@/common/utils/format";
@@ -30,7 +39,7 @@ import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { shareExpensesPdf, shareMovementsPdf } from "@/common/utils/ledgerExport";
 import { billDetail, modeLink, openLedger, useExpenseCategoryIds } from "@/common/components/LedgerList";
 import { LedgerLink } from "@/common/components/LedgerLink";
-import { EMPTY_MOVEMENT_FILTERS, movementFilterCount, movementFilterStyles as fs, balancesFromPages, totalsFromPages, type MovementFilters } from "@/common/components/movementLedger";
+import { EMPTY_MOVEMENT_FILTERS, movementFilterCount,balancesFromPages, totalsFromPages, type MovementFilters } from "@/common/components/movementLedger";
 import { MovementFilterSheet } from "@/common/components/MovementFilterSheet";
 import { MovementRow } from "@/common/components/MovementRow";
 
@@ -110,8 +119,27 @@ export default function CashScreen() {
   });
   const movementBalances = useMemo(() => balancesFromPages(movements.pages), [movements.pages]);
   const categoryIds = useExpenseCategoryIds();
-  const expenses = useServerList<Expense>({ key: ["expenses", "list"], fetchPage: (p) => listExpensesPage(p), enabled: tab === "expenses" });
-  const goldSales = useServerList<GoldSale>({ key: ["gold-sales", "list"], fetchPage: (p) => listGoldSalesPage(p), enabled: tab === "goldSales" });
+  // Expense Register filters — Category / Mode / Status / Date, and Gold Sales' Date (web CashPage's FilterPanels).
+  const [expFv, setExpFv] = usePersistedState<GroupedFilterValue>("cash:expense-filters", emptyGroupedFilter());
+  const [salesFv, setSalesFv] = usePersistedState<GroupedFilterValue>("cash:gold-sale-filters", emptyGroupedFilter());
+  const optionsOf = (vs: string[]) => vs.map((v) => ({ value: v, label: v }));
+  const expenseSections: GFSection[] = [
+    { kind: "static", key: "category", label: "Category", options: optionsOf(Object.keys(categoryIds).sort()) },
+    { kind: "static", key: "mode", label: "Mode", options: optionsOf(["Cash", "UPI", "Bank Transfer"]) },
+    { kind: "static", key: "status", label: "Status", options: optionsOf(["Pending", "Approved", "Rejected"]) },
+    { kind: "date", key: "date", label: "Date" },
+  ];
+  const salesSections: GFSection[] = [{ kind: "date", key: "date", label: "Date" }];
+  const expFilters = {
+    category: gfValues(expFv, "category"),
+    mode: gfValues(expFv, "mode"),
+    status: gfValues(expFv, "status"),
+    from: gfDate(expFv, "date").from,
+    to: gfDate(expFv, "date").to,
+  };
+  const salesFilters = { fromDate: gfDate(salesFv, "date").from, toDate: gfDate(salesFv, "date").to };
+  const expenses = useServerList<Expense, typeof expFilters>({ key: ["expenses", "list"], fetchPage: (p) => listExpensesPage(p), filters: expFilters, enabled: tab === "expenses" });
+  const goldSales = useServerList<GoldSale, typeof salesFilters>({ key: ["gold-sales", "list"], fetchPage: (p) => listGoldSalesPage(p), filters: salesFilters, enabled: tab === "goldSales" });
 
   const approve = useMutation({
     mutationFn: (id: number) => approveExpense(id),
@@ -135,52 +163,85 @@ export default function CashScreen() {
     },
     onError: (err) => setRejectError(errMsg(err, "Could not reject the expense — try again.")),
   });
+  // Delete (web Expense Register's trash button): a pending or approved expense a person keyed in, gated
+  // "can delete ledger entry". Removing an approved one also removes its ledger lines, so everything reloads.
+  const canDeleteLedger = can("Loan_Management", "can_delete_ledger_entry");
+  const [deleting, setDeleting] = useState<Expense | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const remove = useMutation({
+    mutationFn: (id: number) => deleteExpense(id),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      setDeleting(null);
+      toast.success("Expense deleted");
+    },
+    onError: (err) => setDeleteError(errMsg(err, "Could not delete the expense — try again.")),
+  });
 
   const movementTotals = totalsFromPages(movements.pages);
   // Same figures as the web Ledger's KPI row: today's opening / cash in / cash out / expenses and the live
   // balance in hand (GET /cash/summary, scoped to the selected branch by the server — not the list filters).
-  const summary = useQuery({ queryKey: ["cash-summary", "ledger", todayISO()], queryFn: () => getCashSummary(undefined, todayISO()) }).data;
+  // The tiles show one day: today unless another date is picked (web's summary date picker).
+  const realToday = todayISO();
+  const [summaryDate, setSummaryDate] = usePersistedState<string>("cash:summary-date", "");
+  const [summaryOpen, setSummaryOpen] = usePersistedState<boolean>("cash:summary-open", true);
+  const day = summaryDate && summaryDate <= realToday ? summaryDate : realToday;
+  const isToday = day === realToday;
+  const summary = useQuery({ queryKey: ["cash-summary", "ledger", day], queryFn: () => getCashSummary(undefined, day) }).data;
   const header = (
     <View style={{ paddingTop: 14 }}>
       {summary ? (
         <Card style={{ marginBottom: 12 }}>
+          <Pressable onPress={() => setSummaryOpen(!summaryOpen)} accessibilityRole="button" accessibilityLabel={summaryOpen ? "Collapse summary" : "Expand summary"} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: summaryOpen ? 10 : 0 }}>
+            <Txt style={{ fontSize: 13, fontWeight: "700", color: C.ink }}>{summaryOpen ? "Summary" : `Summary · Balance ${inr((summary.cashInHand || 0) + (summary.bankBalance || 0))}`}</Txt>
+            <View style={{ transform: [{ rotate: summaryOpen ? "180deg" : "0deg" }] }}><PIcon name="chevdown" color={C.muted} /></View>
+          </Pressable>
+          {summaryOpen ? (<>
+          <DateField label="Summary date" value={day} onChange={(v) => setSummaryDate(v === realToday ? "" : v)} max={realToday} />
           <FieldGrid
             items={[
-              { k: "OPENING CASH (TODAY)", v: inr(summary.openingCash), color: C.ink },
+              { k: isToday ? "OPENING CASH (TODAY)" : "OPENING CASH", v: inr(summary.openingCash), color: C.ink },
               { k: "BALANCE IN HAND", v: inr((summary.cashInHand || 0) + (summary.bankBalance || 0)), color: C.brandDeep },
-              { k: "CASH IN (TODAY)", v: inr(summary.collections), color: C.green },
-              { k: "CASH OUT (TODAY)", v: inr(summary.disbursements), color: C.red },
-              { k: "EXPENSES (TODAY)", v: inr(summary.expensesToday || 0), color: C.red },
+              { k: isToday ? "CASH IN (TODAY)" : "CASH IN", v: inr(summary.collections), color: C.green },
+              { k: isToday ? "CASH OUT (TODAY)" : "CASH OUT", v: inr(summary.disbursements), color: C.red },
+              { k: isToday ? "EXPENSES (TODAY)" : "EXPENSES", v: inr(summary.expensesToday || 0), color: C.red },
               { k: "CASH IN HAND", v: inr(summary.cashInHand || 0), color: C.ink },
               { k: "BANK BALANCE", v: inr(summary.bankBalance || 0), color: C.ink },
             ]}
           />
+          </>) : null}
         </Card>
       ) : null}
       <PillTabs tabs={TABS} value={tab} onChange={setTab} labels={{ movements: "Movements", expenses: "Expenses", goldSales: "Gold Sales" }} />
       <View style={{ paddingTop: 12 }}>
         {tab === "movements" ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 18, paddingBottom: 8 }}>
-            <View style={{ flex: 1 }}>
-              <SearchInput value={movements.search} onChangeText={movements.setSearch} placeholder="Search by purpose or source" style={{ paddingHorizontal: 0, paddingBottom: 0 }} />
-            </View>
-            <Pressable onPress={() => setMovementFilterSheetOpen(true)} style={fs.filterBtn}>
-              <Txt style={fs.filterBtnTxt}>Filters</Txt>
-              {filterCount > 0 ? (
-                <View style={fs.filterBadge}>
-                  <Txt style={fs.filterBadgeTxt}>{filterCount}</Txt>
-                </View>
-              ) : null}
-            </Pressable>
-          </View>
+          <SearchFilterRow
+            value={movements.search}
+            onChangeText={movements.setSearch}
+            placeholder="Search by purpose or source"
+            style={{ paddingBottom: 8 }}
+            filter={<FilterButton count={filterCount} onPress={() => setMovementFilterSheetOpen(true)} />}
+          />
         ) : tab === "expenses" ? (
-          <SearchInput value={expenses.search} onChangeText={expenses.setSearch} placeholder="Search by category" style={{ paddingBottom: 8 }} />
+          <SearchFilterRow
+            value={expenses.search}
+            onChangeText={expenses.setSearch}
+            placeholder="Search by category"
+            style={{ paddingBottom: 8 }}
+            filter={<GroupedFilter title="Filter expenses" sections={expenseSections} value={expFv} onChange={setExpFv} />}
+          />
         ) : (
-          <SearchInput value={goldSales.search} onChangeText={goldSales.setSearch} placeholder="Search by ornament type or remarks" style={{ paddingBottom: 8 }} />
+          <SearchFilterRow
+            value={goldSales.search}
+            onChangeText={goldSales.setSearch}
+            placeholder="Search by ornament type or remarks"
+            style={{ paddingBottom: 8 }}
+            filter={<GroupedFilter title="Filter gold sales" sections={salesSections} value={salesFv} onChange={setSalesFv} />}
+          />
         )}
       </View>
       {tab === "expenses" && expenses.pages?.[0]?.totalAmount != null ? (
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12, marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
           <Txt style={{ fontSize: 12.5, color: C.muted }}>Total expenses</Txt>
           <Txt style={{ fontSize: 12.5, fontWeight: "700", color: C.red }}>{inr(expenses.pages[0].totalAmount ?? 0)}</Txt>
         </View>
@@ -200,12 +261,14 @@ export default function CashScreen() {
       ) : null}
       {tab === "movements" && movementTotals ? (
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginHorizontal: 18, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>
-            Total Debit <Txt style={{ fontWeight: "700", color: C.red }}>{inr(movementTotals.debit)}</Txt>
-          </Txt>
-          <Txt style={{ fontSize: 12.5, color: C.muted }}>
-            Total Credit <Txt style={{ fontWeight: "700", color: C.green }}>{inr(movementTotals.credit)}</Txt>
-          </Txt>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Txt style={{ fontSize: 12.5, color: C.muted }}>Total Debit</Txt>
+            <Txt style={{ fontSize: 14, fontWeight: "700", color: C.red }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(movementTotals.debit)}</Txt>
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Txt style={{ fontSize: 12.5, color: C.muted }}>Total Credit</Txt>
+            <Txt style={{ fontSize: 14, fontWeight: "700", color: C.green }} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>{inr(movementTotals.credit)}</Txt>
+          </View>
         </View>
       ) : null}
     </View>
@@ -293,7 +356,10 @@ export default function CashScreen() {
                       },
                     ]
                   : []),
-                ...(e.editable ? [{ label: "Edit", onPress: () => setEditingExpenseId(e.id) }] : []),
+                ...(e.editable && canCreateCash ? [{ label: "Edit", onPress: () => setEditingExpenseId(e.id) }] : []),
+                ...(e.editable && canDeleteLedger && (e.status === "Pending" || e.status === "Approved")
+                  ? [{ label: "Delete", danger: true, onPress: () => { setDeleteError(null); setDeleting(e); } }]
+                  : []),
               ]}
             />
           )}
@@ -342,6 +408,17 @@ export default function CashScreen() {
         loading={reject.isPending}
         error={rejectError}
         onConfirm={(reason) => rejecting && reject.mutate({ id: rejecting.id, reason })}
+      />
+      <ConfirmSheet
+        visible={!!deleting}
+        onClose={() => setDeleting(null)}
+        title="Delete Expense"
+        danger
+        message={deleting ? `Delete the ${inr(deleting.amount)} ${deleting.category} expense? ${deleting.status === "Approved" ? "Its ledger lines are removed and the balances update." : "It is removed from the register."}` : ""}
+        confirmLabel="Delete"
+        loading={remove.isPending}
+        error={deleteError}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
       />
       <MovementFilterSheet
         visible={movementFilterSheetOpen}

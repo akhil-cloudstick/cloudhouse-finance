@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	ErrAuctionNotFound = common.NewNotFound("this loan has no auction case yet — mark it auction-eligible first")
+	ErrAuctionNotFound = common.NewNotFound("no auction case — mark it eligible first")
 )
 
 const (
@@ -33,7 +33,7 @@ const (
 
 var openServicingStatuses = []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue}
 
-var notDefaultableStatuses = []string{models.StatusClosed, models.StatusRejected, models.StatusAuctioned}
+var notDefaultableStatuses = []string{models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusPendingApproval}
 
 type PacketCreator interface {
 	CreatePacketForLoan(ctx context.Context, loanID uint, lockerID *uint) error
@@ -60,7 +60,7 @@ type CashRecorder interface {
 	RecordLoanTopUpCashOut(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, customerID uint, bankID *uint) (movementID uint, groupID string, err error)
 	RecordServiceChargeCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount, chequeAmount float64, branchID uint, occurredOn time.Time, bankID *uint) (movementID uint, err error)
 	RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string, amount, cashAmount, upiAmount, bankTransferAmount float64, bankID *uint, branchID uint, occurredOn time.Time, fee, penal, interest, principal float64, customerID uint) (movementID uint, groupID string, err error)
-	RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint) (movementID uint, err error)
+	RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint, remarks string) (movementID uint, err error)
 	DeleteAllLoanCashEntries(ctx context.Context, loanNumber string, movementIDs, expenseIDs []uint) error
 }
 
@@ -87,8 +87,27 @@ type CreateInput struct {
 type UpdateLoanInput struct {
 	SchemeID        *uint
 	PrincipalAmount *float64
+	// The loan's opening date; nil leaves it. The due date and the interest follow it.
+	OpenedDate *time.Time
+	// How the service charge is taken; nil keeps the loan's mode (a new scheme brings its own unless this is set).
+	ServiceChargeMode *string
+	// How the payout of a loan already paid out was made; nil leaves the saved breakdown as it is.
+	CashAmount         *float64
+	UpiAmount          *float64
+	BankTransferAmount *float64
+	BankID             *uint
+	// The loan's branch and the locker its gold is kept in; only for a role that may see every branch.
+	BranchID *uint
+	LockerID *uint
+	// The amounts chosen for later payments that no longer fit once the loan is recalculated.
+	AdjustFollowing []LoanFollowingAdjust
+	// what a release did that the edit undoes: the gold packet, a partial release
+	ReversePacket  bool
+	RestorePartial bool
 	// nil leaves the overall photo alone; "" clears it.
 	OverallPhotoURL *string
+	// nil leaves the additional information alone; "" clears it.
+	AdditionalInfo  *string
 	ActorEmployeeID uint
 	ActorRole       string
 }
@@ -110,6 +129,7 @@ type ChecklistInput struct {
 	CustomerConfirmed  *bool
 	VerificationNotes  *string
 	Charges            *float64
+	RequestedAt        *time.Time // the release date, changed while the request is still pending
 	ActorRoleID        uint
 }
 
@@ -133,6 +153,8 @@ type LoanFilter struct {
 	CustomerIDs        []uint
 	ServicingIn        []string
 	SchemeID           uint
+	SchemeIDs          []uint
+	AuctionStages      []string
 	LoanIDs            []uint
 	Query              string
 	BranchScope        *uint
@@ -140,6 +162,10 @@ type LoanFilter struct {
 	OpenedTo           *time.Time
 	ExcludeBankPledged bool
 	BankPledgeStatus   string
+	// Set instead of BankPledgeStatus when more than one pledge status is picked.
+	BankPledgeStatuses []string
+	// Names of the banks an active pledge must be with (any of them) — the Bank Pledge page's bank filter.
+	PledgeBanks []string
 	DueToday           bool
 	OnlyDefaulted      bool
 	Servicing          string
@@ -186,6 +212,16 @@ func computeServiceChargeAmount(chargeType string, chargeValue, principalAmount 
 	default:
 		return 0
 	}
+}
+
+// chargeOnLoanPrincipal is the service charge of a loan whose principal is already known. A percentage charge added
+// to the principal was worked out on the amount the customer asked for, so it is taken back out of the principal
+// (principal = amount + amount*pct/100); otherwise it is worked out on the principal itself.
+func chargeOnLoanPrincipal(mode, chargeType string, chargeValue, principal float64) float64 {
+	if mode == commonModels.ServiceChargeModeAddedToPrincipal && chargeType == commonModels.ServiceChargeTypePercent {
+		return principal * chargeValue / (100 + chargeValue)
+	}
+	return computeServiceChargeAmount(chargeType, chargeValue, principal)
 }
 
 func customerInScope(c echo.Context, ctx context.Context, customerID uint) bool {
@@ -294,6 +330,7 @@ func recalculateTotals(l *models.Loan, ornaments []models.Ornament) {
 	}
 	l.TotalNetWeight = totalNet
 	l.TotalGoldValue = totalValue
+	// A scheme that is not based on gold LTV has no eligible amount; the gold value is still kept for releases.
 	l.EligibleLoanAmount = totalValue * (l.SchemeLTVPercent / 100)
 }
 
@@ -310,15 +347,24 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	if in.OpenedDate.Format("2006-01-02") > time.Now().Format("2006-01-02") {
 		return nil, common.NewBadRequest("loan date cannot be in the future")
 	}
+	cust, err := common.FindCustomerByID(ctx, in.CustomerID)
+	if err != nil {
+		return nil, common.NewBadRequest("customer does not exist")
+	}
+	// A customer borrows from their own branch, so the loan is always opened there,
+	// whatever branch the request names.
+	if cust.BranchID != 0 {
+		in.BranchID = cust.BranchID
+	}
+	if len([]rune(strings.TrimSpace(in.AdditionalInfo))) > 150 {
+		return nil, common.NewBadRequest("additional information cannot be longer than 150 characters")
+	}
 	branchOK, err := common.BranchExists(ctx, in.BranchID)
 	if err != nil {
 		return nil, err
 	}
 	if !branchOK {
 		return nil, common.NewBadRequest("branch does not exist")
-	}
-	if _, err := common.FindCustomerByID(ctx, in.CustomerID); err != nil {
-		return nil, common.NewBadRequest("customer does not exist")
 	}
 	sch, err := common.FindSchemeByID(ctx, in.SchemeID)
 	if err != nil {
@@ -330,7 +376,7 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	}
 	now := time.Now()
 	if rate.Date.Year() != now.Year() || rate.Date.YearDay() != now.YearDay() {
-		return nil, common.NewBadRequest("today's gold rate has not been set yet — please publish it before creating a loan")
+		return nil, common.NewBadRequest("publish today's gold rate first")
 	}
 	ornaments := make([]models.Ornament, 0, len(in.Ornaments))
 	for _, oi := range in.Ornaments {
@@ -384,11 +430,12 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 	}
 	recalculateTotals(rec, ornaments)
 	rec.ServiceChargeAmount = computeServiceChargeAmount(rec.ServiceChargeType, rec.ServiceChargeValue, in.PrincipalAmount)
-	finalPrincipal := in.PrincipalAmount
+	finalPrincipal := common.RoundMoney(in.PrincipalAmount)
 	if rec.ServiceChargeMode == commonModels.ServiceChargeModeAddedToPrincipal && rec.ServiceChargeAmount > 0 {
 		finalPrincipal = common.RoundMoney(in.PrincipalAmount + rec.ServiceChargeAmount)
 	}
-	if common.RoundMoney(in.PrincipalAmount) > common.RoundMoney(rec.EligibleLoanAmount) {
+	// a paisa of slack: the screen rounds the eligible amount to 2 decimals from its own float sum
+	if rec.SchemeLTVPercent > 0 && common.RoundMoney(in.PrincipalAmount) > common.RoundMoney(rec.EligibleLoanAmount)+0.01 {
 		return nil, common.NewBadRequest("principal amount cannot exceed the eligible loan amount")
 	}
 	rec.EligibleLoanAmount = common.RoundMoney(rec.EligibleLoanAmount)
@@ -399,6 +446,10 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 		return nil, err
 	}
 	rec.LoanNumber = fmt.Sprintf("LN-%05d", maxSuffix+1)
+	// a loan queued on a PC keeps the id that PC gave it
+	if entry, queued := config.SyncEntryFromContext(ctx); queued {
+		rec.UUID = entry.ClientUUID
+	}
 	if err := insertLoan(ctx, rec); err != nil {
 		return nil, err
 	}
@@ -433,6 +484,33 @@ func SaveLoan(ctx context.Context, in CreateInput) (*models.Loan, error) {
 
 func listLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) {
 	limit, offset := f.Limit, f.Offset
+	// The Active and Closure Requested tabs go by the status a loan actually reads as, not the saved one (which can
+	// lag: a cleared loan still saved Active, a past-term loan in arrears still saved Active). The open book is
+	// loaded and judged after the read-time flags are set.
+	var wantStatus map[string]bool
+	if !f.OnlyDefaulted && !f.AllAuctionCases && f.Servicing == "" && len(f.ServicingIn) == 0 {
+		want := append([]string{}, f.StatusIn...)
+		if f.Status != "" {
+			want = append(want, f.Status)
+		}
+		for _, s := range want {
+			if s == models.StatusActive || s == models.StatusClosureRequested {
+				wantStatus = map[string]bool{}
+				for _, w := range want {
+					wantStatus[w] = true
+				}
+				f.Status = ""
+				f.StatusIn = []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue, models.StatusClosureRequested}
+				for _, w := range want {
+					if w != models.StatusActive && w != models.StatusClosureRequested {
+						f.StatusIn = append(f.StatusIn, w)
+					}
+				}
+				f.Limit, f.Offset = 0, 0
+				break
+			}
+		}
+	}
 	if f.OnlyDefaulted || f.AllAuctionCases || f.Servicing != "" || len(f.ServicingIn) > 0 {
 		f.Limit, f.Offset = 0, 0
 	}
@@ -443,8 +521,10 @@ func listLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) 
 	for i := range loans {
 		enrichLoan(ctx, &loans[i])
 	}
-	if f.OnlyDefaulted {
-		loans, total = pageKept(loans, limit, offset, func(l *models.Loan) bool { return l.IsDefaulted })
+	if wantStatus != nil {
+		loans, total = pageKept(loans, limit, offset, func(l *models.Loan) bool { return wantStatus[effectiveStatus(l)] })
+	} else if f.OnlyDefaulted {
+		loans, total = pageKept(loans, limit, offset, func(l *models.Loan) bool { return l.IsDefaulted && AvailableForAuction(l) })
 	} else if f.AllAuctionCases {
 		loans, total = pageKept(loans, limit, offset, isAuctionCase)
 	} else if len(f.ServicingIn) > 0 {
@@ -514,7 +594,7 @@ func checkLoanBranch(ctx context.Context, loanID uint, branchID *uint) error {
 	if err != nil {
 		return common.NewNotFound("loan not found")
 	}
-	if branchID != nil && l.BranchID != *branchID {
+	if !branchAllows(l.BranchID, branchID) {
 		return common.NewNotFound("loan not found")
 	}
 	return nil
@@ -540,33 +620,122 @@ func accrueAndEnrich(ctx context.Context, rec *models.Loan) (*models.Loan, error
 	return rec, nil
 }
 
+// updateLoan applies an edit. The branch / locker change is checked first and saved last, so a change that cannot
+// be made stops the whole edit before anything is saved.
 func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.Loan, error) {
+	current, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return nil, common.NewNotFound("loan not found")
+	}
+	if err := validateLoanMove(ctx, current, in); err != nil {
+		return nil, err
+	}
+	var info *string
+	if in.AdditionalInfo != nil {
+		v := strings.TrimSpace(*in.AdditionalInfo)
+		if len([]rune(v)) > 150 {
+			return nil, common.NewBadRequest("additional information cannot be longer than 150 characters")
+		}
+		info = &v
+	}
+	rec, err := updateLoanFields(ctx, loanID, in)
+	if err != nil {
+		return nil, err
+	}
+	if info != nil && rec.AdditionalInfo != *info {
+		if err := config.DB.WithContext(ctx).Model(&models.Loan{}).Where("id = ?", loanID).Update("additional_info", *info).Error; err != nil {
+			return nil, err
+		}
+		rec.AdditionalInfo = *info
+	}
+	if in.BranchID == nil && in.LockerID == nil {
+		return rec, nil
+	}
+	if err := applyLoanMove(ctx, loanID, in); err != nil {
+		return nil, err
+	}
+	return GetLoan(ctx, loanID, nil)
+}
+
+// requestedChargeMode is the service charge mode an edit asks for ("" when it asks for none), refusing an unknown one.
+func requestedChargeMode(in UpdateLoanInput) (string, error) {
+	if in.ServiceChargeMode == nil {
+		return "", nil
+	}
+	switch m := *in.ServiceChargeMode; m {
+	case commonModels.ServiceChargeModeWithheldFromPayout, commonModels.ServiceChargeModeAddedToPrincipal:
+		return m, nil
+	case "":
+		return "", nil
+	}
+	return "", common.NewBadRequest("service charge mode must be WithheldFromPayout or AddedToPrincipal")
+}
+
+// chargeModeChanged says whether the edit asks for a mode different from the one the loan has now.
+func chargeModeChanged(l *models.Loan, in UpdateLoanInput) bool {
+	m, err := requestedChargeMode(in)
+	if err != nil || m == "" {
+		return false
+	}
+	cur := l.ServiceChargeMode
+	if cur == "" {
+		cur = commonModels.ServiceChargeModeWithheldFromPayout
+	}
+	return m != cur
+}
+
+func updateLoanFields(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.Loan, error) {
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")
 	}
+	chargeMode, err := requestedChargeMode(in)
+	if err != nil {
+		return nil, err
+	}
 	switch l.Status {
 	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusAuctionedBalanceDue:
-		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+		return nil, common.NewBadRequest("loan is closed — nothing to extend")
 	}
 	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
-		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount))
+		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount)) ||
+		chargeModeChanged(l, in)
 	wasDisbursed := l.DisbursementDate != nil
+	dateChanged := in.OpenedDate != nil && dayOf(*in.OpenedDate) != dayOf(l.OpenedDate)
+	if dateChanged && dayOf(*in.OpenedDate) > dayOf(time.Now()) {
+		return nil, common.NewBadRequest("opening date cannot be in the future")
+	}
+	payoutGiven := in.CashAmount != nil || in.UpiAmount != nil || in.BankTransferAmount != nil || in.BankID != nil
+	if wasDisbursed && (materialChange || payoutGiven || dateChanged) {
+		return updateDisbursedLoanInPlace(ctx, l, in)
+	}
 	priorDisbursed := l.DisbursedAmount
+	if dateChanged {
+		// not paid out yet, so nothing has accrued: the term simply starts on the new date
+		l.OpenedDate = *in.OpenedDate
+		l.LastAccrualDate = l.OpenedDate
+		l.DueDate = addMonths(l.OpenedDate, l.SchemeDurationMonths)
+	}
 	if in.SchemeID != nil {
 		sch, err := common.FindSchemeByID(ctx, *in.SchemeID)
 		if err != nil {
 			return nil, common.NewBadRequest("scheme does not exist")
 		}
 		l.SchemeID = *in.SchemeID
+		// the loan was loaded with its old scheme attached; saving it would write that scheme's id back over the new one
+		l.Scheme = *sch
 		applySchemeSnapshot(l, sch)
+	}
+	if chargeMode != "" {
+		l.ServiceChargeMode = chargeMode
 	}
 	if in.PrincipalAmount != nil {
 		if *in.PrincipalAmount <= 0 {
 			return nil, common.NewBadRequest("principal amount must be greater than zero")
 		}
-		delta := *in.PrincipalAmount - l.PrincipalAmount
-		l.PrincipalAmount = *in.PrincipalAmount
+		newPrincipal := common.RoundMoney(*in.PrincipalAmount)
+		delta := newPrincipal - l.PrincipalAmount
+		l.PrincipalAmount = newPrincipal
 		l.OutstandingAmount = common.RoundMoney(l.OutstandingAmount + delta)
 		if l.OutstandingAmount < 0 {
 			l.OutstandingAmount = 0
@@ -579,6 +748,7 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 	if err != nil {
 		return nil, err
 	}
+	refreshSchemeLTV(ctx, l)
 	recalculateTotals(l, ornaments)
 	capped := l.PrincipalAmount
 	if l.ServiceChargeMode == commonModels.ServiceChargeModeAddedToPrincipal && l.ServiceChargeValue > 0 {
@@ -589,11 +759,11 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 			capped = l.PrincipalAmount / (1 + l.ServiceChargeValue/100)
 		}
 	}
-	if common.RoundMoney(capped) > common.RoundMoney(l.EligibleLoanAmount) {
+	if l.SchemeLTVPercent > 0 && common.RoundMoney(capped) > common.RoundMoney(l.EligibleLoanAmount)+0.01 {
 		return nil, common.NewBadRequest(fmt.Sprintf("principal amount ₹%.2f cannot exceed the eligible loan amount ₹%.2f (based on scheme LTV)", capped, l.EligibleLoanAmount))
 	}
-	if in.SchemeID != nil || in.PrincipalAmount != nil {
-		l.ServiceChargeAmount = computeServiceChargeAmount(l.ServiceChargeType, l.ServiceChargeValue, l.PrincipalAmount)
+	if in.SchemeID != nil || in.PrincipalAmount != nil || chargeMode != "" {
+		l.ServiceChargeAmount = chargeOnLoanPrincipal(l.ServiceChargeMode, l.ServiceChargeType, l.ServiceChargeValue, l.PrincipalAmount)
 	}
 	firstStage := "LoanOperator"
 	if materialChange {
@@ -628,6 +798,128 @@ func updateLoan(ctx context.Context, loanID uint, in UpdateLoanInput) (*models.L
 		}
 	}
 	return GetLoan(ctx, l.ID, nil)
+}
+
+// updateDisbursedLoanInPlace changes the scheme and/or the amount of a loan that has already been paid out. The loan
+// is edited where it is: its sanction entry is corrected, the interest is worked out again from its first day under the
+// new terms, and the cash lines are rewritten. Nothing is reversed and nothing goes back for approval. What the
+// customer was charged as a service fee stays as it was; only the interest terms follow the new scheme.
+func updateDisbursedLoanInPlace(ctx context.Context, l *models.Loan, in UpdateLoanInput) (*models.Loan, error) {
+	edit, err := disbursedLoanEdit(ctx, l, in)
+	if err != nil {
+		return nil, err
+	}
+	if _, _, err := editLoanDisbursement(ctx, l.ID, edit, "Loan edited", false, loanEditChoices(in)); err != nil {
+		return nil, err
+	}
+	audit := &models.LoanApproval{
+		LoanID:          l.ID,
+		Stage:           l.ApprovalStage,
+		Action:          "Edited",
+		ActorEmployeeID: in.ActorEmployeeID,
+		ActorRole:       in.ActorRole,
+		Remarks:         "Loan edited in place",
+	}
+	if err := insertApproval(ctx, audit); err != nil {
+		log.Printf("edit audit row failed for loan %d: %v", l.ID, err)
+	}
+	return GetLoan(ctx, l.ID, nil)
+}
+
+func loanEditChoices(in UpdateLoanInput) packetChoices {
+	return packetChoices{ReversePacket: in.ReversePacket, RestorePartial: in.RestorePartial, ActorEmployee: in.ActorEmployeeID, Adjust: in.AdjustFollowing}
+}
+
+// PreviewLoanEdit says what editing a loan that has been paid out would do — before and after, and the later payments
+// that would no longer fit — without saving anything. A loan edit that does not recalculate has nothing to preview.
+func PreviewLoanEdit(ctx context.Context, loanID uint, in UpdateLoanInput) (*EditPaymentResult, error) {
+	l, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return nil, common.NewNotFound("loan not found")
+	}
+	materialChange := (in.SchemeID != nil && *in.SchemeID != l.SchemeID) ||
+		(in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount)) ||
+		chargeModeChanged(l, in)
+	if l.DisbursementDate == nil || !materialChange {
+		return &EditPaymentResult{DryRun: true}, nil
+	}
+	edit, err := disbursedLoanEdit(ctx, l, in)
+	if err != nil {
+		return nil, err
+	}
+	res, _, err := editLoanDisbursement(ctx, l.ID, edit, "Loan edited", true, loanEditChoices(in))
+	return res, err
+}
+
+// disbursedLoanEdit turns an Edit Loan request for a loan already paid out into the sanction edit that carries it out.
+func disbursedLoanEdit(ctx context.Context, l *models.Loan, in UpdateLoanInput) (*EditDisbursementInput, error) {
+	var newScheme *commonModels.Scheme
+	if in.SchemeID != nil && *in.SchemeID != l.SchemeID {
+		sch, err := common.FindSchemeByID(ctx, *in.SchemeID)
+		if err != nil {
+			return nil, common.NewBadRequest("scheme does not exist")
+		}
+		newScheme = sch
+	}
+		ups, err := activeTopUpsInOrder(ctx, config.DB.WithContext(ctx), l.ID)
+		if err != nil {
+			return nil, err
+		}
+		var topUpSum float64
+		for _, t := range ups {
+			topUpSum = common.RoundMoney(topUpSum + t.Amount)
+		}
+	edit := &EditDisbursementInput{CashAmount: in.CashAmount, UpiAmount: in.UpiAmount, BankTransferAmount: in.BankTransferAmount, BankID: in.BankID}
+	// the opening date of a paid-out loan is its disbursement date: moving it shifts the due date and redoes the interest
+	if in.OpenedDate != nil && dayOf(*in.OpenedDate) != dayOf(l.OpenedDate) {
+		edit.DisbursedOn = in.OpenedDate
+	}
+	if in.PrincipalAmount != nil && common.RoundMoney(*in.PrincipalAmount) != common.RoundMoney(l.PrincipalAmount) {
+		if *in.PrincipalAmount <= 0 {
+			return nil, common.NewBadRequest("principal amount must be greater than zero")
+		}
+		sanctioned := common.RoundMoney(*in.PrincipalAmount - topUpSum)
+		edit.SanctionedAmount = &sanctioned
+	}
+	// a scheme or amount change recalculates the loan; a change of the payout's mode alone does not
+	chargeMode, err := requestedChargeMode(in)
+	if err != nil {
+		return nil, err
+	}
+	if newScheme != nil || edit.SanctionedAmount != nil || chargeModeChanged(l, in) {
+		edit.Prepare = func(loan *models.Loan) error {
+			if in.OverallPhotoURL != nil {
+				loan.OverallPhotoURL = strings.TrimSpace(*in.OverallPhotoURL)
+			}
+			if newScheme == nil {
+				if chargeMode != "" {
+					loan.ServiceChargeMode = chargeMode
+				}
+				return nil
+			}
+			loan.SchemeID = newScheme.ID
+			// the loan was loaded with its old scheme attached; saving it would write that scheme's id back over the new one
+			loan.Scheme = *newScheme
+			applySchemeSnapshot(loan, newScheme)
+			if chargeMode != "" {
+				loan.ServiceChargeMode = chargeMode
+			}
+			// the service charge follows the new scheme, worked out on the amount the loan will start with
+			sanctioned := common.RoundMoney(loan.PrincipalAmount - topUpSum)
+			if edit.SanctionedAmount != nil {
+				sanctioned = common.RoundMoney(*edit.SanctionedAmount)
+			}
+			loan.ServiceChargeAmount = common.RoundMoney(chargeOnLoanPrincipal(loan.ServiceChargeMode, loan.ServiceChargeType, loan.ServiceChargeValue, sanctioned))
+			loan.DueDate = addMonths(loan.OpenedDate, newScheme.DurationMonths)
+			ornaments, err := FindByLoanID(ctx, loan.ID)
+			if err != nil {
+				return err
+			}
+			recalculateTotals(loan, ornaments)
+			return nil
+		}
+	}
+	return edit, nil
 }
 
 func scaleSplit(cash, upi, bank, cheque, total, newTotal float64) (float64, float64, float64, float64) {
@@ -758,6 +1050,7 @@ func recalculateAndSave(ctx context.Context, l *models.Loan) (*models.Loan, erro
 	if err != nil {
 		return nil, err
 	}
+	refreshSchemeLTV(ctx, l)
 	recalculateTotals(l, ornaments)
 	if err := persistLoan(ctx, l); err != nil {
 		return nil, err
@@ -826,7 +1119,7 @@ func requireNoPendingDecision(ctx context.Context, recID uint) error {
 		return err
 	}
 	if pending {
-		return common.NewConflict("a repayment decision is pending on this auction — it must be resolved before the auction can proceed")
+		return common.NewConflict("resolve the repayment decision first")
 	}
 	return nil
 }
@@ -849,17 +1142,49 @@ func derefUint(p *uint) uint {
 }
 
 func normalStatusFor(l *models.Loan, asOf time.Time) string {
-	if asOf.After(l.DueDate) {
+	if daysPastDue(l.DueDate, asOf) > 0 {
 		return models.StatusOverdue
 	}
-	if int(l.DueDate.Sub(asOf).Hours()/24) <= dueSoonWindowDays {
+	if -daysPastDue(l.DueDate, asOf) <= dueSoonWindowDays {
 		return models.StatusDueSoon
 	}
 	return models.StatusActive
 }
 
+// loanClosedOn is the date a closed loan was settled: the recorded closing time,
+// else (for loans closed before that was recorded) its last payment, else now.
+func loanClosedOn(ctx context.Context, l *models.Loan) time.Time {
+	if l.ClosedAt != nil {
+		return *l.ClosedAt
+	}
+	var last models.LoanPayment
+	if err := config.DB.WithContext(ctx).Where("loan_id = ?", l.ID).Order("paid_on desc, id desc").First(&last).Error; err == nil {
+		return last.PaidOn
+	}
+	return time.Now()
+}
+
+// isGoldSold is true once the loan's gold has been auctioned off, so there is
+// nothing left to extend or release.
+func isGoldSold(status string) bool {
+	return status == models.StatusAuctioned || status == models.StatusAuctionedBalanceDue
+}
+
 func isLoanTerminal(status string) bool {
-	return status == models.StatusClosed || status == models.StatusRejected || status == models.StatusAuctioned || status == "Defaulted"
+	return status == models.StatusClosed || status == models.StatusRejected || isGoldSold(status) || status == "Defaulted"
+}
+
+// ensureGoldNotSold stops a request that is already in flight (raised before the auction) from being carried
+// through for a loan whose gold has since been auctioned.
+func ensureGoldNotSold(ctx context.Context, loanID uint) error {
+	l, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return common.NewNotFound("loan not found")
+	}
+	if isGoldSold(l.Status) {
+		return common.NewBadRequest("this loan's gold has been auctioned — extension or release is no longer possible")
+	}
+	return nil
 }
 
 func getCustomer360(ctx context.Context, customerID uint, from, to *time.Time) (*Customer360, error) {
@@ -903,9 +1228,14 @@ func listLoansForCustomer(ctx context.Context, customerID uint, from, to *time.T
 
 func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 	now := time.Now()
-	age := 0
-	if !l.Customer.DOB.IsZero() {
-		age = int(now.Sub(l.Customer.DOB).Hours() / 24 / 365.25)
+	// The agreement is dated the day the loan was opened, not the day it is printed.
+	agreementOn := l.OpenedDate
+	if agreementOn.IsZero() {
+		agreementOn = now
+	}
+	age := common.AgeFromDOB(l.Customer.DOB, now)
+	if age == 0 && l.Customer.Age != nil && *l.Customer.Age > 0 {
+		age = *l.Customer.Age // no date of birth on file: the entered age stands in
 	}
 	ornaments := make([]BondOrnament, 0, len(l.Ornaments))
 	for _, o := range l.Ornaments {
@@ -949,9 +1279,9 @@ func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 		PrincipalAmount: l.PrincipalAmount,
 		InterestRate:    l.SchemeInterestRate,
 		Ornaments:       ornaments,
-		Day:             now.Day(),
-		Month:           now.Month().String(),
-		Year:            now.Year(),
+		Day:             agreementOn.Day(),
+		Month:           agreementOn.Month().String(),
+		Year:            agreementOn.Year(),
 		BusinessName:    businessName(ctx),
 		LegalName:       legalName,
 		AddressLine:     addressLine,
@@ -1021,6 +1351,7 @@ func findLoanByID(ctx context.Context, id uint) (*models.Loan, error) {
 		WithContext(ctx)).First(&l, id).Error; err != nil {
 		return nil, err
 	}
+	nameLoanApprovals(ctx, l.Approvals)
 	return &l, nil
 }
 
@@ -1030,6 +1361,7 @@ func findByLoanNumber(ctx context.Context, loanNumber string) (*models.Loan, err
 		WithContext(ctx)).Where("loan_number = ?", loanNumber).First(&l).Error; err != nil {
 		return nil, err
 	}
+	nameLoanApprovals(ctx, l.Approvals)
 	return &l, nil
 }
 
@@ -1039,6 +1371,38 @@ func startOfDay(t time.Time) time.Time {
 
 func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if len(f.ServicingIn) > 0 {
+		// Several tabs at once: keep only rows that can match any of them (the
+		// listed statuses, or each servicing class's SQL candidates) so the
+		// read-time servicing check in listLoans sees the open book, never the
+		// whole loan history.
+		now := time.Now()
+		var clauses []string
+		var args []any
+		if len(f.StatusIn) > 0 {
+			clauses = append(clauses, "loans.status IN ?")
+			args = append(args, f.StatusIn)
+		}
+		for _, sv := range f.ServicingIn {
+			notIn, dueBefore, dueFrom := servicingCandidates(sv, now)
+			parts := []string{}
+			if len(notIn) > 0 {
+				parts = append(parts, "loans.status NOT IN ?")
+				args = append(args, notIn)
+			}
+			if dueFrom != nil {
+				parts = append(parts, "loans.due_date >= ?")
+				args = append(args, *dueFrom)
+			}
+			if dueBefore != nil {
+				parts = append(parts, "loans.due_date < ?")
+				args = append(args, *dueBefore)
+			}
+			if len(parts) == 0 {
+				parts = append(parts, "TRUE")
+			}
+			clauses = append(clauses, "("+strings.Join(parts, " AND ")+")")
+		}
+		q = q.Where("("+strings.Join(clauses, " OR ")+")", args...)
 	} else if len(f.StatusIn) > 0 {
 		q = q.Where("loans.status IN ?", f.StatusIn)
 	} else if f.Status != "" {
@@ -1059,29 +1423,84 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	if f.SchemeID != 0 {
 		q = q.Where("loans.scheme_id = ?", f.SchemeID)
 	}
+	if len(f.SchemeIDs) > 0 {
+		q = q.Where("loans.scheme_id IN ?", f.SchemeIDs)
+	}
+	if len(f.AuctionStages) > 0 {
+		// the loan's latest auction record is at one of these stages
+		// A case still before the sale (eligible / notice / scheduled) is not live once the loan is cleared or closed,
+		// so a loan paid off or released with a stale record left at one of those stages is not counted.
+		q = q.Where("EXISTS (SELECT 1 FROM auction_records ar WHERE ar.loan_id = loans.id AND ar.stage IN ? AND ar.id = (SELECT MAX(id) FROM auction_records WHERE loan_id = loans.id)"+
+			" AND (ar.stage NOT IN ? OR loans.status NOT IN ?))", f.AuctionStages,
+			[]string{models.AuctionStageEligible, models.AuctionStageNotice, models.AuctionStageScheduled},
+			[]string{models.StatusClosed, models.StatusRejected, models.StatusClosureRequested})
+	}
 	if len(f.LoanIDs) > 0 {
 		q = q.Where("loans.id IN ?", f.LoanIDs)
 	}
 	if f.Query != "" {
 		like := "%" + f.Query + "%"
-		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
-			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
+		q = q.Joins("JOIN customers ON customers.id = loans.customer_id")
+		switch {
+		case common.IsDigitQuery(f.Query) && f.ExcludeBankPledged:
+			// a number finds a loan by the start of its loan number (or packet number), not by digits inside a customer's code
+			q = q.Where("("+common.NumericPrefixSQL("loans.loan_number")+" OR EXISTS (SELECT 1 FROM packets pk WHERE pk.loan_id = loans.id AND "+common.NumericPrefixSQL("pk.code")+"))", common.NumericPrefixArg(f.Query), common.NumericPrefixArg(f.Query))
+		case common.IsDigitQuery(f.Query) && f.BankPledgeStatus == models.BankPledgeStatusPledged:
+			// Bank Re-pledge Active tab: a number may also be a customer code or part of a bank name (as on History)
+			q = q.Where("("+common.NumericPrefixSQL("loans.loan_number")+" OR customers.code ILIKE ? OR EXISTS (SELECT 1 FROM bank_pledge_records bpq WHERE bpq.loan_id = loans.id AND bpq.status = ? AND bpq.bank_name ILIKE ?))", common.NumericPrefixArg(f.Query), like, models.BankPledgeStatusRecordActive, like)
+		case common.IsDigitQuery(f.Query):
+			q = q.Where("("+common.NumericPrefixSQL("loans.loan_number")+")", common.NumericPrefixArg(f.Query))
+		case f.ExcludeBankPledged:
+			// the bank re-pledge picker also finds a loan by its packet number
+			q = q.Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR EXISTS (SELECT 1 FROM packets pk WHERE pk.loan_id = loans.id AND pk.code ILIKE ?)", like, like, like, like)
+		case f.BankPledgeStatus == models.BankPledgeStatusPledged:
+			// the Bank Re-pledge Active tab also finds a loan by the bank holding its gold
+			q = q.Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR EXISTS (SELECT 1 FROM bank_pledge_records bpq WHERE bpq.loan_id = loans.id AND bpq.status = ? AND bpq.bank_name ILIKE ?)", like, like, like, models.BankPledgeStatusRecordActive, like)
+		default:
+			q = q.Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ?", like, like, like)
+		}
 	}
 	if f.BranchScope != nil {
 		q = q.Where("loans.branch_id = ?", *f.BranchScope)
 	}
+	// On the Bank Re-pledge Active tab the date range bounds the active pledge's
+	// date, not the loan's opening date.
+	rangeCol, rangeFrom := "loans.opened_date", ""
+	if f.BankPledgeStatus == models.BankPledgeStatusPledged {
+		rangeCol, rangeFrom = "bp_range.pledge_date", "bp_range"
+	}
+	scoped := func(q *gorm.DB, cond string, arg time.Time) *gorm.DB {
+		if rangeFrom == "" {
+			return q.Where(cond, arg)
+		}
+		return q.Where("EXISTS (SELECT 1 FROM bank_pledge_records bp_range WHERE bp_range.loan_id = loans.id AND bp_range.status = ? AND "+cond+")",
+			models.BankPledgeStatusRecordActive, arg)
+	}
 	if f.OpenedFrom != nil {
-		q = q.Where("loans.opened_date >= ?", startOfDay(*f.OpenedFrom))
+		q = scoped(q, rangeCol+" >= ?", startOfDay(*f.OpenedFrom))
 	}
 	if f.OpenedTo != nil {
-		q = q.Where("loans.opened_date < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
+		q = scoped(q, rangeCol+" < ?", startOfDay(*f.OpenedTo).AddDate(0, 0, 1))
 	}
 	if f.ExcludeBankPledged {
-		q = q.Where("loans.bank_pledge_status <> ?", models.BankPledgeStatusPledged)
+		// a loan with only some ornaments pledged can still take another pledge; only a whole-loan pledge excludes it
+		// A pledge that lists every ornament id explicitly covers the whole loan too, so a loan stays
+		// eligible only while it has an unreleased ornament that no active pledge covers.
+		q = q.Where("(loans.bank_pledge_status <> ? OR (NOT EXISTS (SELECT 1 FROM bank_pledge_records bp WHERE bp.loan_id = loans.id AND bp.status = ? AND bp.ornament_ids = 'null') AND EXISTS (SELECT 1 FROM ornaments o WHERE o.loan_id = loans.id AND o.released_at IS NULL AND NOT EXISTS (SELECT 1 FROM bank_pledge_records bp2 WHERE bp2.loan_id = loans.id AND bp2.status = ? AND bp2.ornament_ids::jsonb @> to_jsonb(o.id)))))", models.BankPledgeStatusPledged, models.BankPledgeStatusRecordActive, models.BankPledgeStatusRecordActive)
 		q = q.Where("loans.status NOT IN ?", models.BankPledgeIneligibleStatuses)
 	}
-	if f.BankPledgeStatus != "" {
+	if len(f.PledgeBanks) > 0 {
+		q = q.Where("EXISTS (SELECT 1 FROM bank_pledge_records bp_bank WHERE bp_bank.loan_id = loans.id AND bp_bank.status = ? AND bp_bank.bank_name IN ?)", models.BankPledgeStatusRecordActive, f.PledgeBanks)
+	}
+	if f.BankPledgeStatus == models.BankPledgeStatusPledged {
+		// "Pledged" means the loan has an active pledge record — the loan's own status column can lag behind the
+		// records, which made this list and the dashboard's Bank-Pledged card disagree.
+		q = q.Where("EXISTS (SELECT 1 FROM bank_pledge_records bp_act WHERE bp_act.loan_id = loans.id AND bp_act.status = ?)", models.BankPledgeStatusRecordActive)
+	} else if f.BankPledgeStatus != "" {
 		q = q.Where("loans.bank_pledge_status = ?", f.BankPledgeStatus)
+	}
+	if len(f.BankPledgeStatuses) > 0 {
+		q = q.Where("loans.bank_pledge_status IN ?", f.BankPledgeStatuses)
 	}
 	if f.DueToday {
 		today := startOfDay(time.Now())
@@ -1090,7 +1509,7 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 	}
 	if f.OnlyDefaulted {
 		q = q.Where("loans.status NOT IN ?", notDefaultableStatuses).
-			Where("loans.due_date < ?", time.Now().AddDate(0, 0, -defaultedAfterDays))
+			Where("loans.due_date < ?", startOfDay(time.Now()).AddDate(0, 0, -defaultedAfterDays))
 	}
 	if f.Servicing != "" {
 		notIn, dueBefore, dueFrom := servicingCandidates(f.Servicing, time.Now())
@@ -1105,9 +1524,11 @@ func applyFilters(q *gorm.DB, f LoanFilter) *gorm.DB {
 		}
 	}
 	if f.AllAuctionCases {
-		q = q.Where("(loans.status IN ?) OR (loans.status NOT IN ? AND loans.due_date < ?)",
+		// An Auctioned loan stays a case while its sale is not concluded (a surplus still to be settled).
+		q = q.Where("(loans.status IN ?) OR (loans.status NOT IN ? AND loans.due_date < ?) OR (loans.status = ? AND EXISTS (SELECT 1 FROM auction_records ar WHERE ar.loan_id = loans.id AND ar.stage NOT IN ?))",
 			[]string{models.StatusAuctionEligible, models.StatusAuctionedBalanceDue},
-			notDefaultableStatuses, time.Now().AddDate(0, 0, -defaultedAfterDays))
+			notDefaultableStatuses, startOfDay(time.Now()).AddDate(0, 0, -defaultedAfterDays),
+			models.StatusAuctioned, []string{models.AuctionStageSettled, models.AuctionStageWithdrawn})
 	}
 	return q
 }
@@ -1116,9 +1537,9 @@ func FindLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) 
 	base := preloadAll(config.DB.
 		WithContext(ctx)).Model(&models.Loan{})
 	if f.BankPledgeStatus == models.BankPledgeStatusPledged {
-		base = base.
-			Joins("JOIN bank_pledge_records ON bank_pledge_records.loan_id = loans.id AND bank_pledge_records.status = ?", models.BankPledgeStatusRecordActive).
-			Order("bank_pledge_records.pledge_date desc, bank_pledge_records.id desc")
+		// One row per loan — a join on the pledge records would repeat a loan with two active pledges and make the
+		// rows disagree with the page count and the dashboard card.
+		base = base.Order(clause.Expr{SQL: "(SELECT MAX(bpo.pledge_date) FROM bank_pledge_records bpo WHERE bpo.loan_id = loans.id AND bpo.status = ?) desc, loans.id desc", Vars: []interface{}{models.BankPledgeStatusRecordActive}})
 	} else {
 		base = base.Order("loans.opened_date desc, loans.id desc")
 	}
@@ -1137,6 +1558,11 @@ func FindLoans(ctx context.Context, f LoanFilter) ([]models.Loan, int64, error) 
 	var loans []models.Loan
 	err := q.Find(&loans).Error
 	return loans, total, err
+}
+
+// CountLoans counts the loans matching f in SQL, without loading them.
+func CountLoans(ctx context.Context, f LoanFilter) (int64, error) {
+	return countFiltered(ctx, f)
 }
 
 func countFiltered(ctx context.Context, f LoanFilter) (int64, error) {
@@ -1162,6 +1588,34 @@ func maxLoanNumberSuffix(ctx context.Context) (int, error) {
 	return maxSuffix, err
 }
 
+// findOpenForNotifications loads every open loan with all of its own columns
+// (accrual and the notified-at stamps need them) and the customer's phone.
+// FindOpenForCalendar's narrow column list is not enough for that job: a
+// partly-loaded loan never sees its notified-at stamps, so it re-notified every
+// hour, and saving it back would write zeros over the columns it never read.
+func findOpenForNotifications(ctx context.Context) ([]models.Loan, error) {
+	var loans []models.Loan
+	err := config.DB.
+		WithContext(ctx).
+		Preload("Customer", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id", "name", "code", "phone")
+		}).
+		Where("status IN ?", []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue}).
+		Find(&loans).Error
+	return loans, err
+}
+
+// persistNotificationStamps saves only the three notified-at columns.
+func persistNotificationStamps(ctx context.Context, l *models.Loan) error {
+	return config.DB.
+		WithContext(ctx).Model(&models.Loan{}).Where("id = ?", l.ID).
+		Updates(map[string]any{
+			"due_soon_notified_at": l.DueSoonNotifiedAt,
+			"overdue_notified_at":  l.OverdueNotifiedAt,
+			"interest_reminded_at": l.InterestRemindedAt,
+		}).Error
+}
+
 func FindOpenForCalendar(ctx context.Context) ([]models.Loan, error) {
 	var loans []models.Loan
 	err := config.DB.
@@ -1170,7 +1624,7 @@ func FindOpenForCalendar(ctx context.Context) ([]models.Loan, error) {
 		Preload("Customer", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id", "name", "code")
 		}).
-		Where("status IN ?", []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue}).
+		Where("status IN ?", []string{models.StatusActive, models.StatusDueSoon, models.StatusOverdue, models.StatusClosureRequested, models.StatusAuctionEligible}).
 		Find(&loans).Error
 	return loans, err
 }
@@ -1184,6 +1638,10 @@ func CreateLoan(c echo.Context) error {
 	input, err := req.toInput()
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	// Staff can only open loans for customers they can see (their own branch).
+	if !customerInScope(c, ctx, input.CustomerID) {
+		return nil
 	}
 	input.BranchID = auth.EnforceBranchOnWrite(c, input.BranchID)
 	if actorID, _, _ := auth.ActorFromContext(c); actorID != 0 {
@@ -1231,7 +1689,11 @@ func ListLoans(c echo.Context) error {
 		}
 	}
 	f.ExcludeBankPledged = c.QueryParam("exclude_bank_pledged") == "true"
-	f.BankPledgeStatus = c.QueryParam("bank_pledge_status")
+	if pledge := splitCSV(c.QueryParam("bank_pledge_status")); len(pledge) > 1 {
+		f.BankPledgeStatuses = pledge
+	} else {
+		f.BankPledgeStatus = c.QueryParam("bank_pledge_status")
+	}
 	if ids := parseUintCSV(c.QueryParam("branch_id")); len(ids) == 1 {
 		f.BranchID = ids[0]
 	} else {
@@ -1242,10 +1704,12 @@ func ListLoans(c echo.Context) error {
 	} else {
 		f.CustomerIDs = ids
 	}
-	if v := c.QueryParam("scheme_id"); v != "" {
-		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
-			f.SchemeID = uint(id)
-		}
+	f.PledgeBanks = splitCSV(c.QueryParam("bank"))
+	f.AuctionStages = splitCSV(c.QueryParam("auction_stage"))
+	if ids := parseUintCSV(c.QueryParam("scheme_id")); len(ids) == 1 {
+		f.SchemeID = ids[0]
+	} else {
+		f.SchemeIDs = ids
 	}
 	from, to, ok := parseOpenedRange(c)
 	if !ok {
@@ -1261,12 +1725,17 @@ func ListLoans(c echo.Context) error {
 		}
 		return common.SuccessPage(c, page, limit, total, rec)
 	}
+	// Unpaged: callers ask for a narrowed set (e.g. the open loan book); the
+	// cap stops an unfiltered request from loading a whole long history.
+	f.Limit = unpagedLoanCap
 	rec, _, err := listLoans(ctx, f)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessAll(c, rec)
 }
+
+const unpagedLoanCap = 5000
 
 func GetLoanById(c echo.Context) error {
 	ctx := auth.RequestContext(c)
@@ -1299,11 +1768,40 @@ func UpdateLoan(c echo.Context) error {
 	if err := common.BindJSON(c, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
+	if dry, _ := strconv.ParseBool(c.QueryParam("dry_run")); dry {
+		res, err := PreviewLoanEdit(auth.RequestContext(c), loanID, UpdateLoanInput{
+			SchemeID: req.SchemeID, PrincipalAmount: req.PrincipalAmount, ServiceChargeMode: req.ServiceChargeMode,
+			CashAmount: req.CashAmount, UpiAmount: req.UpiAmount, BankTransferAmount: req.BankTransferAmount, BankID: req.BankID,
+			AdjustFollowing: req.AdjustFollowing,
+			ReversePacket:   req.ReversePacket, RestorePartial: req.RestorePartial,
+		})
+		if err != nil {
+			return common.FailErr(c, err)
+		}
+		return common.Success(c, http.StatusOK, res)
+	}
+	if (req.BranchID != nil || req.LockerID != nil) && !auth.IsCrossBranchRole(c) {
+		return common.FailErr(c, common.NewForbidden("changing a loan's branch or locker needs the permission to view all branches"))
+	}
+	var openedOn *time.Time
+	if req.OpenedDate != nil && strings.TrimSpace(*req.OpenedDate) != "" {
+		d, err := parsePaidOn(strings.TrimSpace(*req.OpenedDate))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid opened_date: expected YYYY-MM-DD"})
+		}
+		openedOn = &d
+	}
 	actorEmployeeID, actorRole, _ := auth.ActorFromContext(c)
 	rec, err := updateLoan(auth.RequestContext(c), loanID, UpdateLoanInput{
 		SchemeID:        req.SchemeID,
 		PrincipalAmount: req.PrincipalAmount,
+		ServiceChargeMode: req.ServiceChargeMode,
+		OpenedDate:      openedOn,
 		OverallPhotoURL: req.OverallPhotoURL,
+		AdditionalInfo:  req.AdditionalInfo,
+		CashAmount:      req.CashAmount, UpiAmount: req.UpiAmount, BankTransferAmount: req.BankTransferAmount, BankID: req.BankID,
+		BranchID: req.BranchID, LockerID: req.LockerID, AdjustFollowing: req.AdjustFollowing,
+		ReversePacket: req.ReversePacket, RestorePartial: req.RestorePartial,
 		ActorEmployeeID: actorEmployeeID,
 		ActorRole:       actorRole,
 	})

@@ -2,8 +2,10 @@ package demo
 
 import (
 	"cloudhouse/backend/auth"
+	common "cloudhouse/backend/common/controllers"
 	"cloudhouse/backend/config"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,6 +25,10 @@ const adminUsername = "admin"
 var running atomic.Bool
 
 var wipeOrder = []string{
+	"loan_request_ornaments",
+	"loan_top_ups",
+	"personal_loan_history",
+	"investment_transactions",
 	"ornament_purity_tests",
 	"ornament_images",
 	"packet_movements",
@@ -36,6 +42,7 @@ var wipeOrder = []string{
 	"investment_payouts",
 	"loan_draft_ornaments",
 	"loan_approvals",
+	"loan_accruals",
 	"loan_payments",
 	"auction_records",
 	"loan_requests",
@@ -43,24 +50,30 @@ var wipeOrder = []string{
 	"packets",
 	"ornaments",
 	"reminders",
+	"day_book_entries",
 	"notifications",
 	"investments",
 	"personal_loans",
 	"loan_drafts",
 	"loans",
 	"gold_sales",
+	"loan_cash_sources",
 	"cash_movements",
 	"customer_otp",
 	"customer_device_tokens",
+	"investors",
 	"customers",
 	"investment_plans",
 	"schemes",
 	"lockers",
+	"expenses",
+	"opening_cash_balances",
+	"categories",
+	"cash_sources",
+	"expense_categories",
 	"banks",
 	"ornament_types",
 	"gold_rates",
-	"expenses",
-	"opening_cash_balances",
 	"approval_limits",
 	"approval_actions",
 	"communication_logs",
@@ -68,13 +81,11 @@ var wipeOrder = []string{
 	"purity_standards",
 }
 
-var untenantedTables = map[string]bool{
-	"investments":        true,
-	"investment_plans":   true,
-	"investment_payouts": true,
-}
-
 var childOf = map[string]struct{ fk, parent string }{
+	"loan_request_ornaments":     {"request_id", "loan_requests"},
+	"loan_top_ups":               {"loan_id", "loans"},
+	"personal_loan_history":      {"personal_loan_id", "personal_loans"},
+	"investment_transactions":    {"investment_id", "investments"},
 	"ornament_purity_tests":      {"ornament_id", "ornaments"},
 	"ornament_images":            {"ornament_id", "ornaments"},
 	"packet_movements":           {"packet_id", "packets"},
@@ -87,6 +98,7 @@ var childOf = map[string]struct{ fk, parent string }{
 	"investment_payouts":         {"investment_id", "investments"},
 	"loan_draft_ornaments":       {"draft_id", "loan_drafts"},
 	"loan_approvals":             {"loan_id", "loans"},
+	"loan_accruals":              {"loan_id", "loans"},
 	"loan_payments":              {"loan_id", "loans"},
 	"loan_requests":              {"loan_id", "loans"},
 	"bank_pledge_records":        {"loan_id", "loans"},
@@ -95,7 +107,7 @@ var childOf = map[string]struct{ fk, parent string }{
 	"reminders":                  {"customer_id", "customers"},
 	"personal_loans":             {"customer_id", "customers"},
 	"loan_drafts":                {"customer_id", "customers"},
-	"investments":                {"customer_id", "customers"},
+	"investments":                {"customer_id", "investors"},
 	"loans":                      {"customer_id", "customers"},
 	"cash_movements":             {"party_customer_id", "customers"},
 }
@@ -117,6 +129,7 @@ type state struct {
 	branchIDs   []uint
 	employeeIDs []uint
 	customerIDs []uint
+	investorIDs []uint
 	schemeIDs   []uint
 	lockerIDs   []uint
 	bankIDs     []uint
@@ -154,6 +167,7 @@ type preserved struct {
 type Report struct {
 	Deleted       map[string]int64 `json:"deleted"`
 	Created       map[string]int   `json:"created"`
+	Skipped       map[string]int64 `json:"skipped,omitempty"`
 	FilesRemoved  int              `json:"files_removed"`
 	AdminUsername string           `json:"admin_username"`
 	DurationMS    int64            `json:"duration_ms"`
@@ -185,7 +199,7 @@ func ResetWithOptions(ctx context.Context, opts Options, onProgress ProgressFunc
 	}
 	st.keep = keep
 	// Files come out after the delete transaction has committed, so a rolled-back wipe never loses them.
-	files, err := removeUploadFiles(ctx, keep.uploadKeys)
+	files, err := removeUploadFiles(ctx, tenantID, keep.uploadKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -227,6 +241,7 @@ func steps() []step {
 		{"gold loans", seedLoans},
 		{"appraisals", seedAppraisals},
 		{"payments", seedPayments},
+		{"top-ups", seedTopUps},
 		{"loan drafts", seedDrafts},
 		{"packets and pledges", seedPacketsAndPledges},
 		{"loan requests", seedLoanRequests},
@@ -235,18 +250,14 @@ func steps() []step {
 		{"investments", seedInvestments},
 		{"cash and expenses", seedCashAndExpenses},
 		{"reminders", seedReminders},
+		{"day book", seedDayBook},
 		{"messages and audit", seedCommsAndAudit},
 		{"dashboard snapshots", seedSnapshots},
-		{"code sequences", seedSequences},
 	}
 }
 
 func tenantPredicate(table string, tenantID uint) string {
 	clause := fmt.Sprintf("%s.tenant_id = %d", table, tenantID)
-	if untenantedTables[table] {
-		clause = fmt.Sprintf("(%s OR %s.tenant_id = 0 OR %s.tenant_id IS NULL)",
-			clause, table, table)
-	}
 	c, ok := childOf[table]
 	if !ok {
 		return clause
@@ -261,7 +272,13 @@ func wipe(ctx context.Context, tenantID uint, rep *Report, keepEmployeeID uint) 
 	if err != nil {
 		return nil, err
 	}
+	// REPEATABLE READ so the before/after counts of the other businesses come from one snapshot:
+	// their own concurrent writes can't trip the check, only this wipe could.
 	err = config.BaseDB.WithContext(crossCtx).Transaction(func(tx *gorm.DB) error {
+		before, err := otherTenantCounts(tx, tenantID)
+		if err != nil {
+			return err
+		}
 		for _, table := range wipeOrder {
 			n, err := deleteFrom(tx, table, tenantID)
 			if err != nil {
@@ -270,13 +287,60 @@ func wipe(ctx context.Context, tenantID uint, rep *Report, keepEmployeeID uint) 
 			if n > 0 {
 				rep.Deleted[table] = n
 			}
+			var left int64
+			if err := tx.Raw("SELECT count(*) FROM " + table + " WHERE " + tenantPredicate(table, tenantID)).Scan(&left).Error; err != nil {
+				return fmt.Errorf("count kept rows in %s: %w", table, err)
+			}
+			if left > 0 {
+				rep.Skipped[table] = left
+			}
 		}
-		return wipeIdentityTables(tx, tenantID, keep, rep)
-	})
+		if err := wipeIdentityTables(tx, tenantID, keep, rep); err != nil {
+			return err
+		}
+		after, err := otherTenantCounts(tx, tenantID)
+		if err != nil {
+			return err
+		}
+		for k, n := range before {
+			if after[k] != n {
+				return fmt.Errorf("refusing to reset: %s would change from %d to %d rows for another business", k, n, after[k])
+			}
+		}
+		return nil
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return nil, err
 	}
 	return keep, nil
+}
+
+// otherTenantCounts counts every tenant table's rows per business, except the one being reset.
+func otherTenantCounts(tx *gorm.DB, tenantID uint) (map[string]int64, error) {
+	var tables []string
+	if err := tx.Raw(`SELECT c.table_name FROM information_schema.columns c
+		JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+		WHERE c.table_schema = 'public' AND c.column_name = 'tenant_id' AND t.table_type = 'BASE TABLE'
+		ORDER BY 1`).Scan(&tables).Error; err != nil {
+		return nil, fmt.Errorf("list tenant tables: %w", err)
+	}
+	parts := make([]string, 0, len(tables))
+	for _, t := range tables {
+		parts = append(parts, fmt.Sprintf("SELECT '%s' AS t, COALESCE(tenant_id, 0) AS tenant_id, count(*) AS n FROM %q WHERE tenant_id IS DISTINCT FROM %d GROUP BY tenant_id", t, t, tenantID))
+	}
+	var rows []struct {
+		T        string
+		TenantID uint
+		N        int64
+	}
+	if err := tx.Raw(strings.Join(parts, " UNION ALL ")).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("count other businesses' rows: %w", err)
+	}
+	out := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		out[fmt.Sprintf("%s (business %d)", r.T, r.TenantID)] = r.N
+	}
+	return out, nil
 }
 
 func findPreserved(ctx context.Context, db *gorm.DB, tenantID, keepEmployeeID uint) (*preserved, error) {
@@ -296,7 +360,7 @@ func findPreserved(ctx context.Context, db *gorm.DB, tenantID, keepEmployeeID ui
 		return nil, fmt.Errorf("locate admin login: %w", err)
 	}
 	if row.ID == 0 {
-		return nil, fmt.Errorf("refusing to reset: the signed-in administrator was not found in business %d", tenantID)
+		return nil, fmt.Errorf("administrator was not found in business %d", tenantID)
 	}
 	var logoKeys []string
 	if err := db.WithContext(ctx).
@@ -328,8 +392,36 @@ func findPreserved(ctx context.Context, db *gorm.DB, tenantID, keepEmployeeID ui
 }
 
 func deleteFrom(tx *gorm.DB, table string, tenantID uint) (int64, error) {
-	res := tx.Exec("DELETE FROM " + table + " WHERE " + tenantPredicate(table, tenantID))
+	guard, err := stillReferenced(tx, table)
+	if err != nil {
+		return 0, err
+	}
+	res := tx.Exec("DELETE FROM " + table + " WHERE " + tenantPredicate(table, tenantID) + guard)
 	return res.RowsAffected, res.Error
+}
+
+// stillReferenced keeps rows another table still points at (e.g. another client's cash movement
+// referencing one of this tenant's banks), so the wipe skips them instead of failing on the FK
+// and never has to touch data outside the tenant being reset.
+func stillReferenced(tx *gorm.DB, table string) (string, error) {
+	var fks []struct {
+		Child, ChildCol, ParentCol string
+	}
+	err := tx.Raw(`SELECT c.conrelid::regclass::text AS child, ca.attname AS child_col, pa.attname AS parent_col
+		FROM pg_constraint c
+		JOIN pg_attribute ca ON ca.attrelid = c.conrelid AND ca.attnum = c.conkey[1]
+		JOIN pg_attribute pa ON pa.attrelid = c.confrelid AND pa.attnum = c.confkey[1]
+		WHERE c.contype = 'f' AND c.confrelid = ?::regclass AND c.confdeltype IN ('a', 'r')
+			AND c.conrelid <> c.confrelid AND array_length(c.conkey, 1) = 1`, table).Scan(&fks).Error
+	if err != nil {
+		return "", fmt.Errorf("read foreign keys of %s: %w", table, err)
+	}
+	var b strings.Builder
+	for _, fk := range fks {
+		fmt.Fprintf(&b, " AND NOT EXISTS (SELECT 1 FROM %s r WHERE r.%s = %s.%s)",
+			fk.Child, fk.ChildCol, table, fk.ParentCol)
+	}
+	return b.String(), nil
 }
 
 func wipeIdentityTables(tx *gorm.DB, tenantID uint, keep *preserved, rep *Report) error {
@@ -362,7 +454,7 @@ func wipeIdentityTables(tx *gorm.DB, tenantID uint, keep *preserved, rep *Report
 	if res = tx.Exec("DELETE FROM usage_counters WHERE tenant_id = ?", tenantID); res.Error != nil {
 		return fmt.Errorf("wipe usage_counters: %w", res.Error)
 	}
-	res = tx.Exec("DELETE FROM dashboard_snapshots")
+	res = tx.Exec("DELETE FROM dashboard_snapshots WHERE tenant_id = ?", tenantID)
 	if res.Error != nil {
 		return fmt.Errorf("wipe dashboard_snapshots: %w", res.Error)
 	}
@@ -372,14 +464,15 @@ func wipeIdentityTables(tx *gorm.DB, tenantID uint, keep *preserved, rep *Report
 	return nil
 }
 
-func removeUploadFiles(ctx context.Context, keys []string) (int, error) {
-	dir, err := filepath.Abs(config.Env.UploadsDir)
+func removeUploadFiles(ctx context.Context, tenantID uint, keys []string) (int, error) {
+	root, err := filepath.Abs(config.Env.UploadsDir)
 	if err != nil {
 		return 0, fmt.Errorf("resolve uploads dir: %w", err)
 	}
-	if dir == "" || dir == filepath.VolumeName(dir)+string(filepath.Separator) {
-		return 0, fmt.Errorf("refusing to sweep uploads dir %q", dir)
+	if root == "" || root == filepath.VolumeName(root)+string(filepath.Separator) {
+		return 0, fmt.Errorf("refusing to sweep uploads dir %q", root)
 	}
+	dir := common.TenantDir(root, tenantID)
 	removed := 0
 	for _, key := range keys {
 		// The column is data, so treat it as untrusted: a key containing "../" must not escape the uploads directory.
@@ -394,17 +487,20 @@ func removeUploadFiles(ctx context.Context, keys []string) (int, error) {
 			removed++
 		}
 	}
-	n, err := sweepOrphanUploads(ctx, dir)
+	n, err := sweepOrphanUploads(ctx, tenantID, dir)
 	if err != nil {
 		return removed, err
 	}
 	return removed + n, nil
 }
 
-func sweepOrphanUploads(ctx context.Context, dir string) (int, error) {
+// sweepOrphanUploads removes files in this business's own upload folder that no upload row of
+// this business claims any more. Other businesses' folders are never read.
+func sweepOrphanUploads(ctx context.Context, tenantID uint, dir string) (int, error) {
 	var keys []string
 	if err := config.BaseDB.WithContext(config.AllowCrossTenant(ctx)).
 		Table("uploaded_files").
+		Where("tenant_id = ?", tenantID).
 		Pluck("storage_key", &keys).Error; err != nil {
 		return 0, fmt.Errorf("list surviving upload keys: %w", err)
 	}
@@ -438,6 +534,7 @@ func sweepOrphanUploads(ctx context.Context, dir string) (int, error) {
 func newReport() *Report {
 	return &Report{
 		Deleted: map[string]int64{},
+		Skipped: map[string]int64{},
 		Created: map[string]int{},
 	}
 }

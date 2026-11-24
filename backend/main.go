@@ -1,11 +1,13 @@
 package main
 
 import (
+	"os"
+
+	"github.com/labstack/echo/v4"
+
 	"cloudhouse/backend/common/routers"
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/scheduler"
-	"github.com/labstack/echo/v4"
-	"os"
 )
 
 func main() {
@@ -15,7 +17,7 @@ func main() {
 	routers.InitRoutes(e)
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8090"
 	}
 	e.Logger.Fatal(e.Start(":" + port))
 }

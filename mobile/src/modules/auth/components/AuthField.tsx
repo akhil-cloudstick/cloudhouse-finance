@@ -1,5 +1,6 @@
+import { SELECTION_COLOR } from "@/common/theme/colors";
 import React, { useState } from "react";
-import { View, TextInput, TextInputProps } from "react-native";
+import { View, TextInput, type TextInputInstance, type TextInputProps } from "react-native";
 import { typeScale } from "@/common/theme/typography";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { ThemedText } from "@/common/components/ui/ThemedText";
@@ -10,7 +11,7 @@ import { styles } from "./authKitStyles";
 // Inputs
 
 type FieldProps = TextInputProps & {
-  ref?: React.Ref<TextInput>;
+  ref?: React.Ref<TextInputInstance>;
   label: string;
   icon: string;
   right?: React.ReactNode;
@@ -41,7 +42,7 @@ export function AuthField({ label, icon, right, onFocus, onBlur, ...rest }: Fiel
           placeholderTextColor={colors.muted}
           importantForAutofill="no"
           autoComplete="off"
-          selectionColor={colors.brand}
+          selectionColor={SELECTION_COLOR}
           cursorColor={colors.brand}
           onFocus={(e) => {
             setFocused(true);

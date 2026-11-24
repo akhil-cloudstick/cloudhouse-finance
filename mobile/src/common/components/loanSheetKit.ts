@@ -19,6 +19,13 @@ export function invalidateLoan(qc: QueryClient, loanId: number | string) {
   qc.invalidateQueries({ queryKey: ["loanPacket", id] });
   qc.invalidateQueries({ queryKey: ["loanTopUps", id] });
   qc.invalidateQueries({ queryKey: ["loans"] });
+  // Money moved: the loan ledger's charge rows / totals, the cash & bank ledgers, and the home / packet views.
+  qc.invalidateQueries({ queryKey: ["loanLedgerCharges"] });
+  qc.invalidateQueries({ queryKey: ["ledger"] });
+  qc.invalidateQueries({ queryKey: ["cash-summary"] });
+  qc.invalidateQueries({ queryKey: ["cash-movements"] });
+  qc.invalidateQueries({ queryKey: ["dashboard"] });
+  qc.invalidateQueries({ queryKey: ["packets"] });
 }
 
 // Auction Sale/Write-Off are system-generated only, never staff-entered here; same order/wording as web's list.

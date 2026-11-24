@@ -44,7 +44,7 @@ export function fontFor(weight?: TextStyle["fontWeight"]): string {
 // Resolves a text style: optional size scaling plus the Plex family for the
 // weight. An explicit fontFamily is respected untouched.
 export function textStyle(style: StyleProp<TextStyle>, scale = true): TextStyle {
-  const flat: TextStyle = { ...(StyleSheet.flatten(style) || {}) };
+  const flat: { -readonly [K in keyof TextStyle]: TextStyle[K] } = { ...(StyleSheet.flatten(style) || {}) };
   if (scale) {
     if (typeof flat.fontSize === "number") flat.fontSize = scaled(flat.fontSize);
     if (typeof flat.lineHeight === "number") flat.lineHeight = scaled(flat.lineHeight);

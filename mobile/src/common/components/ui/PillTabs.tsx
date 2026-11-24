@@ -62,7 +62,7 @@ function SegmentTabs<T extends string>({
   useEffect(() => {
     Animated.timing(x, { toValue: idx, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, [idx, x]);
-  const seg = w > 0 ? (w - 6) / tabs.length : 0;
+  const seg = w > 0 ? (w - 8) / tabs.length : 0;
   return (
     <View style={[inSheet ? s.pillTabsSheet : s.pillTabs, style]}>
       <View style={[s.segTrack, inSheet && { marginHorizontal: 0 }]} onLayout={(e) => setW(e.nativeEvent.layout.width)}>

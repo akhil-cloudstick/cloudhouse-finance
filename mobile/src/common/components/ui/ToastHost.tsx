@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
+import { looksTechnical } from "@/common/services/apiErrors";
 
 // In-app toast replacing native Alert.alert(); one at a time, mounted after SheetHost so it sits above every sheet.
 
@@ -26,7 +27,9 @@ const store = {
 
 export const toast = {
   show(title: string, opts: { message?: string; tone?: ToastTone } = {}) {
-    current = { id: ++seq, title, message: opts.message, tone: opts.tone ?? "success" };
+    // Safety net: a raw system / server error (stack text, native exceptions, SQL) is never shown to the user.
+    const message = opts.message && looksTechnical(opts.message) ? "Please try again." : opts.message;
+    current = { id: ++seq, title, message, tone: opts.tone ?? "success" };
     emit();
   },
   success: (title: string, message?: string) => toast.show(title, { message, tone: "success" }),

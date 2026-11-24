@@ -1,34 +1,59 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, BackHandler, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { onWindowSizeChange, useColumnWidth } from "@/common/theme/layout";
+import { Animated, BackHandler, Easing, Keyboard, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type HostInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextSheetId, sheetStore } from "./SheetHost";
+import { sheetLift } from "./sheetLift";
 import { C } from "./base";
 
-// Published into SheetHost so no card, sheet or scroll view can clip it or grow when it opens.
+// Dropdown menu layer — the standard mobile dropdown: the field stays where
+// it is, the list opens directly under it (or above it when there isn't
+// room below), a transparent backdrop covers the rest of the screen, and a
+// tap anywhere outside / hardware back / picking an item closes it. The
+// menu is published into SheetHost so no card, sheet or scroll view can
+// clip it or grow when it opens.
 
 export type Anchor = { x: number; y: number; w: number; h: number };
 
 const GAP = 4;
 const EDGE = 8;
-// Overlay origin/height barely change, so the last measurement is reused to avoid a fresh native measure.
+// The overlay layer's window origin and height barely ever change, so the
+// last measurement is reused on the next open — the list can then show on
+// its first frame instead of waiting for a fresh native measure.
 let lastOrigin: { x: number; y: number } | null = null;
 let lastLayerH = 0;
+// A cached position from the other orientation would show the list in the wrong place for a frame.
+onWindowSizeChange(() => {
+  lastOrigin = null;
+  lastLayerH = 0;
+});
 
-// Scrollers/sheets call this when the form under the fixed-position list moves, so it can re-measure.
+// The list sits on its own layer at a fixed screen position, so it has to
+// be told when the form under it moves — a sheet/page scrolling (by hand, or
+// Android scrolling the focused field into view) or a sheet resizing for
+// the keyboard. Scrollers and sheets call this; an open list re-measures
+// its field on the next frame and follows it.
 const shiftListeners = new Set<() => void>();
 export function notifyLayoutShift() {
   shiftListeners.forEach((l) => l());
 }
 
-// A scroll the user starts closes any open list, like a native dropdown.
+// A scroll the user starts (dragging the sheet/page behind the list) closes
+// any open list, like a native dropdown.
 const dragListeners = new Set<() => void>();
 export function notifyUserScroll() {
   dragListeners.forEach((l) => l());
 }
 
+/** When the open list was last dragged (ms). A row checks it so a finger that went down on the
+ * row and then scrolled the list isn't taken as a tap on that row: on iOS (gesture-handler 3 at
+ * the app root) the row's press is no longer cancelled when the list starts scrolling, so the
+ * lift-off picked the row and closed the list instead of just scrolling it. */
+export const ListDragContext = createContext<{ lastDrag: () => number } | null>(null);
+
 /** Measures `ref` in window coordinates. */
 export function useAnchor() {
-  const ref = useRef<View>(null);
+  const ref = useRef<HostInstance>(null);
   const measure = useCallback((cb: (a: Anchor) => void) => {
     const node = ref.current;
     if (!node) return;
@@ -45,6 +70,7 @@ type LayerProps = {
   minWidth: number;
   header?: React.ReactNode;
   awaitKeyboard?: boolean;
+  openUp?: boolean;
   children: React.ReactNode;
 };
 
@@ -56,19 +82,30 @@ function Layer({
   minWidth,
   header,
   awaitKeyboard,
+  openUp,
   children,
 }: LayerProps) {
   const insets = useSafeAreaInsets();
   const win = useWindowDimensions();
-  const [kbTop, setKbTop] = useState<number | null>(null);
+  const colW = useColumnWidth();
+  // Where the keyboard's top edge is, or null when it's down. Read from the keyboard as it is now:
+  // on iOS its "will show" event fires before this list exists (it opens with or after the
+  // keyboard), so starting from null let the list run down behind the keyboard.
+  const [kbTop, setKbTop] = useState<number | null>(() => (Keyboard.isVisible() ? (Keyboard.metrics()?.screenY ?? null) : null));
+  // Natural (unclipped) size of the list: fixed header + scroll content.
   const [headH, setHeadH] = useState(0);
   const [contentH, setContentH] = useState(0);
   const h = contentH ? headH + contentH + 10 : 0;
-  // Measuring the layer with measureInWindow too (like the field) keeps both in one coordinate
-  // space — on Android (edge-to-edge, keyboard up) they don't always share an origin otherwise.
-  const rootRef = useRef<View>(null);
+  // Where this layer itself sits in window coordinates. The field is
+  // measured with measureInWindow, which on Android (edge-to-edge, keyboard
+  // up) doesn't always share the overlay's origin — the list then landed
+  // over the field. Measuring the layer the same way and subtracting keeps
+  // both in one coordinate space.
+  const rootRef = useRef<HostInstance>(null);
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(lastOrigin);
   const [layerH, setLayerH] = useState(lastLayerH);
+  // Android, sheet lifted for the keyboard: how much of that lift the measured field position is missing (null: not known yet).
+  const [liftFix, setLiftFix] = useState<number | null>(Platform.OS === "android" && sheetLift.value > 0 ? null : 0);
   const measureOrigin = useCallback(() => {
     rootRef.current?.measureInWindow((x, y, _w, lh) => {
       lastOrigin = { x, y };
@@ -77,13 +114,27 @@ function Layer({
         setLayerH((v) => (v === lh ? v : lh));
       }
       setOrigin((o) => (o && o.x === x && o.y === y ? o : { x, y }));
+      if (Platform.OS === "android" && sheetLift.value > 0 && sheetLift.probe) sheetLift.probe(setLiftFix);
+      else setLiftFix(0);
     });
   }, []);
   useEffect(measureOrigin, [anchor, measureOrigin]);
+  const dragAt = useRef(0);
+  const dragCtx = useMemo(() => ({ lastDrag: () => dragAt.current }), []);
+  // A finger on the list (and for a moment after it lifts). While it's there, a "the form behind
+  // started scrolling" signal is that same finger — on iOS a drag on the list can also start the
+  // sheet's scroll view under it — so it must not close the list.
+  const touching = useRef(false);
+  const touchEndAt = useRef(0);
   const cbRef = useRef({ onClose, onRemeasure });
   useEffect(() => {
     cbRef.current = { onClose, onRemeasure };
   });
+  // Rotating / resizing while a list is open: re-measure the layer and the field it hangs from.
+  useEffect(() => {
+    measureOrigin();
+    cbRef.current.onRemeasure?.();
+  }, [win.width, win.height, measureOrigin]);
 
   useEffect(() => {
     let frame: number | null = null;
@@ -95,7 +146,11 @@ function Layer({
       });
     };
     shiftListeners.add(onShift);
-    const onDrag = () => cbRef.current.onClose();
+    const onDrag = () => {
+      const now = Date.now();
+      if (touching.current || now - touchEndAt.current < 300 || now - dragAt.current < 300) return;
+      cbRef.current.onClose();
+    };
     dragListeners.add(onDrag);
     return () => {
       shiftListeners.delete(onShift);
@@ -104,14 +159,17 @@ function Layer({
     };
   }, []);
 
-  // Held until the keyboard is up and settled, else a typeable dropdown jumps as the sheet resizes.
+  // Typeable dropdowns open together with the keyboard, which takes a
+  // moment to come up and then shrinks/scrolls the sheet — showing the list
+  // straight away made it jump (often flipping above the field). Hold it
+  // until the keyboard is up and the field has stopped moving.
   const [kbWait, setKbWait] = useState(() => !!awaitKeyboard && !Keyboard.isVisible());
   const kbShown = useRef(false);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!kbWait) return;
     const done = () => setKbWait(false);
-    // Fallback in case no keyboard comes (hardware keyboard, focus lost).
+    // No keyboard came (hardware keyboard, focus lost) — show anyway.
     const fallback = setTimeout(done, 1200);
     const sub = Keyboard.addListener("keyboardDidShow", () => {
       kbShown.current = true;
@@ -126,13 +184,15 @@ function Layer({
     };
   }, [kbWait]);
   useEffect(() => {
+    // Each re-measure after the keyboard is up restarts a short settle.
     if (!kbWait || !kbShown.current) return;
     if (settle.current) clearTimeout(settle.current);
     settle.current = setTimeout(() => setKbWait(false), 90);
   }, [anchor, kbWait]);
 
   useEffect(() => {
-    // Re-measure twice: right away and after the sheet's own resize animation finishes.
+    // The keyboard can shift the form under the field — re-measure once it
+    // has settled (twice: right away and after the sheet's own animation).
     const timers: ReturnType<typeof setTimeout>[] = [];
     const settle = () => {
       timers.push(setTimeout(() => cbRef.current.onRemeasure?.(), 60));
@@ -146,6 +206,17 @@ function Layer({
       setKbTop(null);
       settle();
     });
+    // iOS: also take the "did" events — they still arrive when the list opened after the "will"
+    // event had already fired (keyboard opening with a typeable field, or closing as a plain
+    // dropdown dismisses it), so the list always learns where the keyboard ended up.
+    const didShow = Platform.OS === "ios" ? Keyboard.addListener("keyboardDidShow", (e) => setKbTop(e.endCoordinates.screenY)) : null;
+    const didHide =
+      Platform.OS === "ios"
+        ? Keyboard.addListener("keyboardDidHide", () => {
+            setKbTop(null);
+            settle();
+          })
+        : null;
     const back = BackHandler.addEventListener("hardwareBackPress", () => {
       cbRef.current.onClose();
       return true;
@@ -154,28 +225,40 @@ function Layer({
       timers.forEach(clearTimeout);
       show.remove();
       hide.remove();
+      didShow?.remove();
+      didHide?.remove();
       back.remove();
     };
   }, []);
 
   const oy = origin?.y ?? 0;
   const ox = origin?.x ?? 0;
-  const fy = anchor.y - oy;
+  // Field and keyboard edge, relative to this layer.
+  const fy = anchor.y - oy - (liftFix ?? 0);
   const fx = anchor.x - ox;
   const topLimit = insets.top + EDGE;
-  const bottomLimit = (kbTop != null ? Math.min(kbTop, win.height) : win.height - insets.bottom) - EDGE;
-  const width = Math.min(Math.max(anchor.w, minWidth), win.width - EDGE * 2);
-  const left = Math.min(Math.max(fx, EDGE), win.width - width - EDGE);
+  // The layer covers the window, so its measured height is the real one (the reported window height can lag a rotation).
+  const winH = layerH > 0 ? layerH : win.height;
+  const bottomLimit = (kbTop != null ? Math.min(kbTop, winH) : winH - insets.bottom) - EDGE;
+  const width = Math.min(Math.max(anchor.w, minWidth), colW - EDGE * 2);
+  const left = Math.min(Math.max(fx, EDGE), colW - width - EDGE);
 
   const below = bottomLimit - (fy + anchor.h + GAP);
   const above = fy - GAP - topLimit;
-  const fitsBelow = below >= maxHeight;
-  const up = !fitsBelow && h > 0 && Math.min(h, maxHeight) > below && above > below;
+  // When even a full-height list fits below the field, it opens below
+  // right away. Only near the bottom of the screen does it wait one layout
+  // pass for its real height to decide between below and above.
+  // openUp: a field low on a bottom sheet opens its list above itself (when there's room there), so the list
+  // never runs out of room below and the sheet never has to grow to make space.
+  const fitsBelow = !openUp && below >= maxHeight;
+  const up = openUp ? above > 120 || above > below : !fitsBelow && h > 0 && Math.min(h, maxHeight) > below && above > below;
   const room = Math.max(0, up ? above : below);
   const cap = Math.min(maxHeight, room);
-  const ready = !kbWait && !!origin && (fitsBelow || h > 0) && (!up || layerH > 0);
+  const ready = !kbWait && !!origin && liftFix !== null && (fitsBelow || h > 0) && (!up || layerH > 0);
+  // Above the field it's pinned by its bottom edge, so it needs no height.
   const place = up ? { bottom: layerH - (fy - GAP) } : { top: fy + anchor.h + GAP };
 
+  // Short fade + settle once it can be placed.
   const [fade] = useState(() => new Animated.Value(0));
   useEffect(() => {
     if (!ready) return;
@@ -184,9 +267,28 @@ function Layer({
 
   return (
     <View ref={rootRef} collapsable={false} onLayout={measureOrigin} style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Closes on touch-down so scrolling the form behind also closes the list. */}
-      <Pressable style={StyleSheet.absoluteFill} onPressIn={onClose} accessibilityLabel="Close list" />
+      {/* Closes on touch-down, so starting to scroll the form behind also
+          closes the list instead of the list staying put while it moves. */}
+      {/* Closes on a TAP outside the list. It used to close on touch-down, so a scroll that
+          started even slightly outside a short list closed it at once. The form behind can't
+          be scrolled while the list is open anyway: this layer covers it. */}
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onClose}
+        accessibilityLabel="Close list"
+      />
       <Animated.View
+        onTouchStart={() => {
+          touching.current = true;
+        }}
+        onTouchEnd={() => {
+          touching.current = false;
+          touchEndAt.current = Date.now();
+        }}
+        onTouchCancel={() => {
+          touching.current = false;
+          touchEndAt.current = Date.now();
+        }}
         style={[
           s.panel,
           place,
@@ -202,12 +304,19 @@ function Layer({
         {header ? <View onLayout={(e) => setHeadH(e.nativeEvent.layout.height)}>{header}</View> : null}
         <ScrollView
           style={{ flexShrink: 1 }}
-          keyboardShouldPersistTaps="handled"
+          // "always": touching or scrolling the list never takes focus from the field it belongs
+          // to. With "handled", on iOS a second drag on the list (one that didn't register as a
+          // scroll yet) blurred a search dropdown's text box on lift-off — and the dropdown closes
+          // on blur. A pick still closes the list and keyboard itself (AsyncSelect / ComboInput close()).
+          keyboardShouldPersistTaps="always"
           nestedScrollEnabled
           showsVerticalScrollIndicator={contentH + headH + 10 > cap}
           onContentSizeChange={(_, ch) => setContentH(Math.max(1, ch))}
+          onScrollBeginDrag={() => {
+            dragAt.current = Date.now();
+          }}
         >
-          {children}
+          <ListDragContext.Provider value={dragCtx}>{children}</ListDragContext.Provider>
         </ScrollView>
       </Animated.View>
     </View>
@@ -224,6 +333,8 @@ type PopoverProps = {
   header?: React.ReactNode;
   /** The field opens the keyboard (typeable dropdown): wait for it. */
   awaitKeyboard?: boolean;
+  /** Open above the field whenever there is room there (a field low on a bottom sheet), instead of below it. */
+  openUp?: boolean;
   children: React.ReactNode;
 };
 
@@ -237,11 +348,13 @@ export function Popover({
   minWidth = 140,
   header,
   awaitKeyboard,
+  openUp,
   children,
 }: PopoverProps) {
   const [id] = useState(nextSheetId);
 
-  // Re-published on every render while open, so the menu always shows the owner's latest state.
+  // Re-published on every render while open, so the menu always shows the
+  // owner's latest options/selection (SheetHost re-renders alone).
   useEffect(() => {
     if (!anchor) {
       sheetStore.remove(id);
@@ -249,7 +362,7 @@ export function Popover({
     }
     sheetStore.set(
       id,
-      <Layer anchor={anchor} onClose={onClose} onRemeasure={onRemeasure} maxHeight={maxHeight} minWidth={minWidth} header={header} awaitKeyboard={awaitKeyboard}>
+      <Layer anchor={anchor} onClose={onClose} onRemeasure={onRemeasure} maxHeight={maxHeight} minWidth={minWidth} header={header} awaitKeyboard={awaitKeyboard} openUp={openUp}>
         {children}
       </Layer>
     );

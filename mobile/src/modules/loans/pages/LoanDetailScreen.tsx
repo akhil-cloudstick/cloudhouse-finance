@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Image, View } from "react-native";
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -23,20 +23,22 @@ import {
   Stepper,
   Txt,
   WarningBanner,
+  toast,
   type SplitAmounts,
 } from "@/common/components/ui";
 import { useRefetchOnFocus, useResetOnBlur } from "@/common/hooks/use-refetch-on-focus";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { approveLoan, getLoan, hardDeleteLoan, listLoanRequests, listTopUps, normalizeSanctionStage } from "@/modules/loans/services/loanService";
+import { approveLoan, loanDisplayStatus, getLoan, hardDeleteLoan, listLoanRequests, listTopUps, normalizeSanctionStage } from "@/modules/loans/services/loanService";
 import { type SanctionStage } from "@/modules/loans/types/loan-types";
-import { isFinalStage, stageByKey, stageByPending, stageIndex, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
+import { isFinalStage, stageByKey, stageByPending, stageIndex, stageTag, canActAtStage, stepperSteps, useApprovalWorkflow } from "@/common/services/approvalWorkflowService";
 import { listPackets } from "@/modules/packets/services/packetService";
 import { getCashSummary } from "@/modules/cash/services/cashService";
 import { getAuction } from "@/modules/auctions/services/auctionService";
 import { dmy, inr } from "@/common/utils/format";
 import { apiErr, invalidateLoan } from "@/common/components/loanSheetKit";
 import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
-import { useUploadSource } from "@/common/components/BillSheet";
+import { UploadImage } from "@/common/components/BillSheet";
+import { PhotoGallery } from "@/common/components/PhotoGallery";
 import { ExtendSheet } from "@/modules/loans/components/ExtendSheet";
 import { ReleaseSheet } from "@/modules/loans/components/ReleaseSheet";
 import { EditLoanSheet } from "@/modules/loans/components/EditLoanSheet";
@@ -60,6 +62,7 @@ import { TopUpReviewPanel } from "@/modules/loans/components/TopUpReviewPanel";
 
 type SheetKey =
   | "actions"
+  | "info"
   | "documents"
   | "collect"
   | "extend"
@@ -77,10 +80,8 @@ type SheetKey =
 type UploadPhotoProps = { path: string; height?: number };
 
 /** An /uploads photo drawn with the Bearer token (uploads are authenticated). */
-function UploadPhoto({ path, height = 160 }: UploadPhotoProps) {
-  const source = useUploadSource(path);
-  if (!source) return null;
-  return <Image source={source} resizeMode="cover" style={{ width: "100%", height, borderRadius: 10, backgroundColor: C.card, marginTop: 8 }} />;
+function UploadPhoto({ path, height = 160, title }: UploadPhotoProps & { title?: string }) {
+  return <UploadImage path={path} title={title} style={{ width: "100%", height, borderRadius: 10, marginTop: 8 }} />;
 }
 
 const RECORD_TABS =["overview", "ledger", "ornaments", "history"] as const;
@@ -105,6 +106,8 @@ export default function LoanDetailScreen() {
   const canEditLoan = can("Loan_Management", "can_update_loan");
   const canTopUp = can("Loan_Management", "can_top_up_loan");
   const canHardDeleteLoan = can("Loan_Management", "can_hard_delete_loan");
+  // The edit form picks a scheme and a purity standard, so it needs both modules viewable (web LoanDetailPage).
+  const editLoanBlocked = !can("Scheme_Management", "can_view_scheme_module") ? "Scheme module is disabled" : !can("Purity_Standard_Management", "can_view_purity_standard_module") ? "Purity standard module is disabled" : "";
 
   const loan = useQuery({ queryKey: ["loan", id], queryFn: () => getLoan(loanId), enabled: !!id });
   // The branch's Balance in Hand — the final sanction stage pays the principal
@@ -132,36 +135,58 @@ export default function LoanDetailScreen() {
   useRefetchOnFocus(loan.refetch, auction.refetch, requests.refetch, packetQuery.refetch, topUps.refetch);
 
   const [open, setOpen] = useState<SheetKey>(null);
-  const [error, setError] = useState<string | null>(null);
   const [recordTab, setRecordTab] = useState<RecordTab>("overview");
   // Which pending top-up the review sheet is showing.
   const [reviewId, setReviewId] = useState<number | null>(null);
   useResetOnBlur(() => setOpen(null));
 
   // ?action=collect|bank|extend|release → open that sheet once the loan has loaded, then
-  // clear the param so a refetch / refocus doesn't reopen it.
-  const handledAction = useRef(false);
-  useEffect(() => {
-    if (action !== "collect" && action !== "bank" && action !== "extend" && action !== "release") {
-      handledAction.current = false;
-      return;
+  // clear the param so a refetch / refocus doesn't reopen it. The sheet is opened during render
+  // (React's "adjust state when a value changes" pattern), not in an effect, so it shows in the
+  // same paint instead of a cascading second render; only clearing the URL param is an effect.
+  const linkAction = action === "collect" || action === "bank" || action === "extend" || action === "release" ? action : null;
+  const [handledAction, setHandledAction] = useState(false);
+  if (!linkAction && handledAction) setHandledAction(false);
+  if (linkAction && loan.data && !handledAction) {
+    setHandledAction(true);
+    const st = loan.data.status;
+    const finished = st === "Closed" || st === "Rejected";
+    const goldSold = st === "Auctioned" || st === "Auctioned - Balance Due";
+    const pending = st === "Pending Approval";
+    if (linkAction === "bank") setOpen("bank");
+    else if (!finished) {
+      // Same gates as the web loan page: no payment on an unapproved loan,
+      // no extension/release on an unapproved or auctioned one.
+      if (linkAction === "collect" && !pending) setOpen("collect");
+      else if ((linkAction === "extend" || linkAction === "release") && !pending && !goldSold) setOpen(linkAction);
     }
-    if (!loan.data || handledAction.current) return;
-    handledAction.current = true;
-    const finished = loan.data.status === "Closed" || loan.data.status === "Rejected";
-    if (action === "bank") setOpen("bank");
-    else if (!finished) setOpen(action === "extend" ? "extend" : action === "release" ? "release" : "collect");
-    router.setParams({ action: undefined } as never);
-  }, [action, loan.data, router]);
+  }
+  useEffect(() => {
+    if (linkAction && handledAction) router.setParams({ action: undefined } as never);
+  }, [linkAction, handledAction, router]);
 
+  // Synchronous double-tap guard (isPending only flips after a render), released in finally so a failed or
+  // timed-out request can never leave the button stuck dimmed.
+  const approveBusy = useRef(false);
   const doApprove = useMutation({
-    mutationFn: (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts> & { bankId?: number }) => approveLoan(loanId, vars),
+    mutationFn: async (vars: { stage: SanctionStage; action: "Approved" | "Rejected" | "Verified"; remarks?: string } & Partial<SplitAmounts> & { bankId?: number }) => {
+      if (approveBusy.current) throw new Error("Already submitting — please wait.");
+      approveBusy.current = true;
+      try {
+        return await approveLoan(loanId, vars);
+      } finally {
+        approveBusy.current = false;
+      }
+    },
     onSuccess: () => {
-      setError(null);
       setOpen(null);
       invalidateLoan(qc, loanId);
     },
-    onError: (e) => setError(apiErr(e)),
+    onError: (e) => {
+      toast.error(apiErr(e));
+      // A timed-out request may still have been applied server-side — refresh so the screen shows the truth.
+      qc.invalidateQueries({ queryKey: ["loan", String(loanId)] });
+    },
   });
 
   const doHardDelete = useMutation({
@@ -170,7 +195,7 @@ export default function LoanDetailScreen() {
       qc.invalidateQueries({ queryKey: ["loans"] });
       router.back();
     },
-    onError: (e) => setError(apiErr(e)),
+    onError: (e) => toast.error(apiErr(e)),
   });
 
   const header = (
@@ -200,10 +225,11 @@ export default function LoanDetailScreen() {
   // Closed (gold released) and Rejected (never disbursed) are finished —
   // nothing left to pay, extend, release or edit.
   const isFinished = l.status === "Closed" || l.status === "Rejected";
+  const goldSold = l.status === "Auctioned" || l.status === "Auctioned - Balance Due";
   const canEditThis = canEditLoan && !isFinished && l.status !== "Auctioned";
   const allRequests = requests.data ?? [];
   const pendingExtension = allRequests.find((r) => r.type === "Extension" && r.status === "Pending");
-  const pendingRelease = allRequests.find((r) => r.type === "Release" && r.status === "Pending");
+  const pendingRelease = l.status === "Closed" ? undefined : allRequests.find((r) => r.type === "Release" && r.status === "Pending");
   const pendingTopUps = (topUps.data ?? []).filter((t) => t.status === "Pending");
   const reviewTopUp = pendingTopUps.find((t) => t.id === reviewId);
 
@@ -237,7 +263,6 @@ export default function LoanDetailScreen() {
   const tenure = monthsBetween(l.openedDate, l.dueDate);
 
   function go(k: SheetKey) {
-    setError(null);
     setOpen(k);
   }
 
@@ -251,14 +276,12 @@ export default function LoanDetailScreen() {
   }
 
   function afterReview() {
-    setError(null);
     setOpen(null);
     invalidateLoan(qc, loanId);
   }
 
   function approveCurrent() {
     if (!pendingStage) return;
-    setError(null);
     if (isFinalSanction) return setOpen("disburse");
     doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved" });
   }
@@ -272,10 +295,14 @@ export default function LoanDetailScreen() {
     go("delete");
   }
 
+  // A loan still awaiting approval has no Actions button: its documents stay one tap away instead.
+  const pendingApproval = l.status === "Pending Approval";
   const bar =
     pendingStage && canActOnStage
       ? [
-          { label: "Actions", icon: "bolt", onPress: () => go("actions") },
+          pendingApproval
+            ? { label: "Documents", icon: "doc", onPress: () => go("documents") }
+            : { label: "Actions", icon: "bolt", onPress: () => go("actions") },
           { label: "Reject", tone: "danger" as const, onPress: rejectCurrent, disabled: doApprove.isPending },
           {
             label: approveLabel,
@@ -285,10 +312,12 @@ export default function LoanDetailScreen() {
             disabled: doApprove.isPending,
           },
         ]
-      : [
-          { label: "Documents", icon: "doc", onPress: () => go("documents") },
-          { label: "Actions", icon: "bolt", primary: true, onPress: () => go("actions") },
-        ];
+      : pendingApproval
+        ? [{ label: "Documents", icon: "doc", primary: true, onPress: () => go("documents") }]
+        : [
+            { label: "Documents", icon: "doc", onPress: () => go("documents") },
+            { label: "Actions", icon: "bolt", primary: true, onPress: () => go("actions") },
+          ];
 
   // Overview tab, in the web page's column order: Loan Details, Settlement
   // Preview, Financial Summary.
@@ -300,6 +329,10 @@ export default function LoanDetailScreen() {
     { k: "Due date", v: dmy(l.dueDate), color: l.isOverdue ? C.red : undefined },
     { k: "Tenure", v: tenure ? `${tenure} month${tenure === 1 ? "" : "s"}` : "—" },
   ];
+  for (const a of l.approvals ?? []) {
+    if (!a.actorName || (a.action !== "Approved" && a.action !== "Verified")) continue;
+    detailItems.push({ k: `${a.action === "Verified" ? "Verified by" : "Approved by"} · ${stageTag(wf, "loan_sanction", a.stage) ?? a.stage}`, v: a.actorName });
+  }
   if (l.disbursementDate) detailItems.push({ k: "Disbursed on", v: dmy(l.disbursementDate) });
   if (l.bankPledgeStatus) detailItems.push({ k: "Gold location", v: l.bankPledgeStatus });
   if (packet) detailItems.push({ k: "Packet", v: `${packet.code} · ${packet.status}` });
@@ -359,7 +392,7 @@ export default function LoanDetailScreen() {
           sub={`${l.loanNumber}${l.scheme?.name ? ` · ${l.scheme.name} scheme` : ""}`}
           status={
             <View style={{ alignItems: "flex-end", gap: 6 }}>
-              <StatusChip label={l.isOverdue && l.status === "Active" ? "Overdue" : l.status} />
+              <StatusChip label={loanDisplayStatus(l)} />
               {l.bankPledgeStatus === "Bank Pledged" ? <StatusChip label="Bank Pledged" /> : null}
             </View>
           }
@@ -374,12 +407,6 @@ export default function LoanDetailScreen() {
             { k: "Paid to date", v: inr(l.totalPaid ?? 0), color: C.green },
           ]}
         />
-
-        {error && open === null ? (
-          <View style={{ marginHorizontal: 18 }}>
-            <WarningBanner>{error}</WarningBanner>
-          </View>
-        ) : null}
 
         {l.status === "Rejected" ? (
           <View style={{ marginHorizontal: 18 }}>
@@ -460,10 +487,16 @@ export default function LoanDetailScreen() {
             <SectionTitle>Loan details</SectionTitle>
             <Card>
               <FieldGrid items={detailItems} />
+              {l.additionalInfo ? (
+                <>
+                  <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 10 }}>Additional information</Txt>
+                  <Txt style={{ fontSize: 13, color: C.ink, marginTop: 2 }}>{l.additionalInfo}</Txt>
+                </>
+              ) : null}
               {l.overallPhotoUrl ? (
                 <>
                   <Txt style={{ fontSize: 11.5, color: C.muted, fontWeight: "600", marginTop: 10 }}>Loan photo</Txt>
-                  <UploadPhoto path={l.overallPhotoUrl} height={200} />
+                  <UploadPhoto path={l.overallPhotoUrl} height={200} title="Loan photo" />
                 </>
               ) : null}
             </Card>
@@ -504,12 +537,10 @@ export default function LoanDetailScreen() {
                     { k: "Net", v: `${o.netWeight.toFixed(3)} g` },
                     { k: "Qty", v: String(o.quantity) },
                     { k: "Gold value", v: inr(o.goldValue) },
-                    { k: "Status", v: o.releasedAt ? `Released ${dmy(o.releasedAt)}` : "Held", color: o.releasedAt ? C.green : undefined },
+                    { k: "Status", v: o.releasedAt ? `Released ${dmy(o.releasedAt)}` : (l.bankPledges ?? []).some((p) => p.status === "Active" && (!p.ornamentIds || p.ornamentIds.length === 0 || p.ornamentIds.includes(o.id))) ? "Pledged to Bank" : "Held", color: o.releasedAt ? C.green : undefined },
                   ]}
                 />
-                {(o.images ?? []).map((im) => (
-                  <UploadPhoto key={im.id} path={im.imageUrl} />
-                ))}
+                <PhotoGallery paths={(o.images ?? []).map((im) => im.imageUrl)} title={`${o.name} photos`} />
               </Card>
             ))
           )
@@ -528,14 +559,14 @@ export default function LoanDetailScreen() {
           // Collect / request / complete all POST behind "can update loan";
           // a pending request can still be opened read-only to review it.
           if (!isFinished) {
-            if (canEditLoan) add("collect", { icon: "card", title: "Collect Payment", sub: "Record an EMI or part payment", onPress: () => go("collect") });
-            if (canEditLoan || pendingExtension) add("extend", {
+            if (canEditLoan && l.status !== "Pending Approval") add("collect", { icon: "card", title: "Collect Payment", sub: "Record an EMI or part payment", onPress: () => go("collect") });
+            if (l.status !== "Pending Approval" && !goldSold && (canEditLoan || pendingExtension)) add("extend", {
               icon: "calendar",
               title: pendingExtension ? "Review Extension" : "Extend Loan Tenure",
               sub: pendingExtension ? "Extension request awaiting approval" : "Push out the due date",
               onPress: () => go("extend"),
             });
-            if (canEditLoan || (pendingRelease && l.status !== "Closure Requested")) add("release", {
+            if (l.status !== "Pending Approval" && !goldSold && (canEditLoan || (pendingRelease && l.status !== "Closure Requested"))) add("release", {
               icon: "coin",
               title: l.status === "Closure Requested" ? "Complete Release" : pendingRelease ? "Review Release" : "Gold Release",
               sub:
@@ -550,9 +581,9 @@ export default function LoanDetailScreen() {
           if (canTopUp && TOP_UP_STATUSES.includes(l.status)) {
             add("topup", { icon: "plus", title: "Top Up Loan", sub: "Disburse more against the pledged gold", onPress: () => go("topup") });
           }
-          if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: "Scheme, principal, and ornament details", onPress: () => go("edit") });
+          if (canEditThis) add("edit", { icon: "edit", title: "Edit Loan Details", sub: editLoanBlocked || "Scheme, principal, and ornament details", onPress: () => { if (!editLoanBlocked) go("edit"); } });
           if (pendingStage && canActOnStage) add("docs", { icon: "doc", title: "Loan Documents", sub: "Statement, bond & eSign", onPress: () => go("documents") });
-          if (can("Bank_Pledge_Management", "can_view_bank_pledge_module")) add("bank", {
+          if (l.status !== "Rejected" && can("Bank_Pledge_Management", "can_view_bank_pledge_module")) add("bank", {
             icon: "shield",
             title: "Bank Pledge",
             sub: l.bankPledges?.some((p) => p.status === "Active") ? "Pledged to a bank — release, delete or view history" : "Repledge to a bank · view history",
@@ -571,9 +602,9 @@ export default function LoanDetailScreen() {
         loan={l}
         visible={open === "topup"}
         onClose={() => setOpen(null)}
-        onAddOrnaments={canEditThis ? () => go("edit") : undefined}
+        onAddOrnaments={canEditThis && !editLoanBlocked ? () => go("edit") : undefined}
         // Recording a payment is a loan update — top-up alone doesn't grant it.
-        onRecordPayment={canEditLoan ? () => go("collect") : undefined}
+        onRecordPayment={canEditLoan && l.status !== "Pending Approval" ? () => go("collect") : undefined}
       />
       {pendingStage ? (
         <ConfirmSheet
@@ -585,7 +616,6 @@ export default function LoanDetailScreen() {
           remarks={{ label: "Reason (optional)", placeholder: "Why is this loan being rejected?" }}
           confirmLabel="Reject Loan"
           loading={doApprove.isPending}
-          error={open === "reject" ? error : null}
           onConfirm={(remarks) => doApprove.mutate({ stage: pendingStage, action: "Rejected", remarks: remarks || undefined })}
         />
       ) : null}
@@ -597,7 +627,6 @@ export default function LoanDetailScreen() {
         message={`This permanently deletes loan ${l.loanNumber} and every record tied to it — payments, ornaments, approvals, requests, auctions, bank pledges, packets and reminders. This cannot be undone.`}
         confirmLabel="Delete Permanently"
         loading={doHardDelete.isPending}
-        error={open === "delete" ? error : null}
         onConfirm={() => doHardDelete.mutate()}
       />
       <ExtendSheet loan={l} pending={pendingExtension} visible={open === "extend"} onClose={() => setOpen(null)} />
@@ -612,14 +641,12 @@ export default function LoanDetailScreen() {
           visible={open === "disburse"}
           onClose={() => setOpen(null)}
           loading={doApprove.isPending}
-          error={open === "disburse" ? error : null}
           verb={isVerifyStage ? "Verify" : "Approve"}
           onConfirm={(payment) => doApprove.mutate({ stage: pendingStage, action: isVerifyStage ? "Verified" : "Approved", ...payment })}
         />
       ) : null}
       <Sheet visible={open === "topupReview" && !!reviewTopUp} onClose={() => setOpen(null)} title={`Review Top-up — ${l.loanNumber}`} maxHeightPct={85}>
-        {error && open === "topupReview" ? <WarningBanner>{error}</WarningBanner> : null}
-        {reviewTopUp ? <TopUpReviewPanel loan={l} topUp={reviewTopUp} onSaved={afterReview} onError={setError} /> : null}
+        {reviewTopUp ? <TopUpReviewPanel loan={l} topUp={reviewTopUp} onSaved={afterReview} onError={(m) => toast.error(m)} /> : null}
       </Sheet>
     </Screen>
   );

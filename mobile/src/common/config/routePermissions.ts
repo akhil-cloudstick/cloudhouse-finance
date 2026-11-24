@@ -19,6 +19,7 @@ export type PermissionRef =readonly [moduleKey: string, permissionKey: string];
 
 export const ROUTE_PERMISSIONS: Record<string, readonly PermissionRef[]> = {
   dashboard: [],
+  support: [],
   customers: [["Customer_Management", "can_view_customer_module"]],
   loans: [["Loan_Management", "can_view_loan_module"]],
   schemes: [["Scheme_Management", "can_view_scheme_module"]],
@@ -28,6 +29,7 @@ export const ROUTE_PERMISSIONS: Record<string, readonly PermissionRef[]> = {
     ["Locker_Management", "can_view_locker_module"],
   ],
   banks: [["Bank_Pledge_Management", "can_view_bank_pledge_module"]],
+  "bank-management": [["Bank_Management", "can_view_bank_module"]],
   requests: [["Loan_Management", "can_view_loan_module"]],
   // Also covers every /cash/<kind> drill-down ledger (bank, customer, mode,
   // category) — all of them read cash movements.
@@ -38,10 +40,10 @@ export const ROUTE_PERMISSIONS: Record<string, readonly PermissionRef[]> = {
   reminders: [["Reminder_Management", "can_view_reminder_module"]],
   reports: [["Report_Management", "can_view_report_module"]],
   "loan-risk": [["Loan_Management", "can_view_loan_module"]],
+  "gold-rates": [["Gold_Rate_Management", "can_view_gold_rate_module"]],
   employees: [["Employee_Management", "can_view_employee_module"]],
   branches: [["Branch_Management", "can_view_branch_module"]],
   roles: [["Role_Management", "can_view_role_and_permission_module"]],
-  settings: [["Settings_Management", "can_view_setting_module"]],
   billing: [["Billing", "can_manage_billing"]],
 };
 

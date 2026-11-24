@@ -89,7 +89,7 @@ func writeInvestmentTransactions(pdf *gofpdf.Fpdf, txs []models.InvestmentTransa
 		return
 	}
 	headers := []string{"Date", "Type", "Amount", "Principal", "Interest", "Principal After", "Interest After"}
-	widths := []float64{22, 24, 22, 22, 22, 30, 28}
+	widths := fullWidths(pdf, []float64{22, 24, 22, 22, 22, 30, 28})
 	pdf.SetFont("Arial", "B", 8)
 	pdf.SetFillColor(248, 245, 235)
 	for i, h := range headers {
@@ -124,7 +124,7 @@ func writeInvestmentPayouts(pdf *gofpdf.Fpdf, payouts []models.InvestmentPayout)
 		return
 	}
 	headers := []string{"Due Date", "Amount", "Status", "Paid On"}
-	widths := []float64{30, 30, 30, 30}
+	widths := fullWidths(pdf, []float64{30, 30, 30, 30})
 	pdf.SetFont("Arial", "B", 9)
 	pdf.SetFillColor(248, 245, 235)
 	for i, h := range headers {
@@ -224,4 +224,20 @@ func writeStatementFooter(pdf *gofpdf.Fpdf) {
 			"For any discrepancy, please contact your branch.",
 		"", "L", false)
 	pdf.SetTextColor(0, 0, 0)
+}
+
+// fullWidths scales a table's relative column widths so the table always spans the whole printable width.
+func fullWidths(pdf *gofpdf.Fpdf, rel []float64) []float64 {
+	pw, _ := pdf.GetPageSize()
+	l, _, r, _ := pdf.GetMargins()
+	usable := pw - l - r
+	var sum float64
+	for _, w := range rel {
+		sum += w
+	}
+	out := make([]float64, len(rel))
+	for i, w := range rel {
+		out[i] = w / sum * usable
+	}
+	return out
 }

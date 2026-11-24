@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type Styl
 import { C } from "./base";
 import { Txt } from "./Txt";
 import { PIcon } from "./PIcon";
-import { Sheet } from "./Sheet";
+import { PICKER_MAX_PCT, Sheet } from "./Sheet";
 import { SheetFooter } from "./SheetFooter";
 import { PrimaryButton } from "./PrimaryButton";
 import { SheetScrollView } from "./SheetScrollView";
@@ -109,8 +109,11 @@ function StaticPicker({ section, selected, onPick }: StaticPickerProps) {
   );
 }
 
-// Cap on how far the filter sheet rises, as a % of screen height.
-const SHEET_MAX_PCT = 65;
+// Cap on how far the filter sheet rises, as a % of screen height — the shared picker cap.
+const SHEET_MAX_PCT = PICKER_MAX_PCT;
+const MAX_VISIBLE_TABS = 3;
+// Height of the options area, as a share of the window — the same for every filter.
+const FILTER_BODY_PCT = 0.4;
 
 type GroupedFilterProps = {
   title?: string;
@@ -131,9 +134,13 @@ export function GroupedFilter({
 }: GroupedFilterProps) {
   const [open, setOpen] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const { height: winH } = useWindowDimensions();
   const count = groupedFilterCount(value);
   const active = sections.find((s) => s.key === activeKey) ?? sections[0];
+  // At most 3 group tabs show at once (each a third of the row); any more scroll sideways.
+  const [tabsW, setTabsW] = useState(0);
+  const winH = useWindowDimensions().height;
+  const bodyH = Math.max(280, Math.round(winH * FILTER_BODY_PCT));
+  const tabW = sections.length > MAX_VISIBLE_TABS && tabsW ? Math.floor((tabsW - 32 - 8 * (MAX_VISIBLE_TABS - 1)) / MAX_VISIBLE_TABS) : 0;
 
   // Hardware back, drag down, outside tap and the footer button all just close the sheet.
   const close = () => setOpen(false);
@@ -145,12 +152,13 @@ export function GroupedFilter({
 
   return (
     <>
-      <Pressable disabled={disabled} onPress={() => setOpen(true)} style={[st.pill, disabled && { opacity: 0.5 }, style]}>
-        <Txt style={st.pillTxt}>Filters</Txt>
-        <View style={st.count}>
-          <Txt style={st.countTxt}>{count}</Txt>
-        </View>
-        <PIcon name="chevdown" color={C.brandDeep} />
+      <Pressable disabled={disabled} onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel={title} style={[st.pill, disabled && { opacity: 0.5 }, style]}>
+        <PIcon name="filter" color={C.ink} size={17} />
+        {count > 0 ? (
+          <View style={st.count}>
+            <Txt style={st.countTxt}>{count}</Txt>
+          </View>
+        ) : null}
       </Pressable>
       <Sheet
         visible={open}
@@ -175,12 +183,19 @@ export function GroupedFilter({
         maxHeightPct={SHEET_MAX_PCT}
         scroll={false}
       >
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={st.tabsScroll} contentContainerStyle={st.tabs}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={st.tabsScroll}
+          contentContainerStyle={st.tabs}
+          onLayout={(e) => setTabsW(e.nativeEvent.layout.width)}
+        >
           {sections.map((s) => {
             const on = s.key === active?.key;
             const n = tabCount(s);
             return (
-              <Pressable key={s.key} onPress={() => setActiveKey(s.key)} style={[st.tab, on && st.tabOn]}>
+              <Pressable key={s.key} onPress={() => setActiveKey(s.key)} style={[st.tab, tabW ? { width: tabW, justifyContent: "center" } : null, on && st.tabOn]}>
                 <Txt style={[st.tabTxt, on && st.tabTxtOn]} numberOfLines={1}>{s.label}</Txt>
                 {n > 0 ? (
                   <View style={[st.tabCount, on && st.tabCountOn]}>
@@ -191,7 +206,9 @@ export function GroupedFilter({
             );
           })}
         </ScrollView>
-        <View style={[st.body, { minHeight: Math.round((winH * SHEET_MAX_PCT * 0.46) / 100) }]}>
+        {/* One standard height for every filter section (it only gives way when the keyboard
+            leaves less room); whatever is longer scrolls inside it. */}
+        <View style={[st.body, { height: bodyH }]}>
           {!active ? null : active.kind === "date" ? (
             <View style={st.dateWrap}>
               <FieldRow>
@@ -214,8 +231,8 @@ export function GroupedFilter({
 }
 
 const st = StyleSheet.create({
-  pill: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: C.brandFaint, paddingVertical: 8, paddingHorizontal: 13, borderRadius: 999, alignSelf: "flex-start" },
-  pillTxt: { fontSize: 12.5, fontWeight: "700", color: C.brandDeep },
+  pill: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: C.card, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 11, borderWidth: 1, borderColor: C.line },
+  pillTxt: { fontSize: 13, fontWeight: "700", color: C.ink },
   count: { backgroundColor: C.brandDeep, minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 3, alignItems: "center", justifyContent: "center" },
   countTxt: { color: "#fff", fontSize: 10, fontWeight: "800" },
   headRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
@@ -223,7 +240,7 @@ const st = StyleSheet.create({
   headTitle: { fontWeight: "700", fontSize: 15, flexShrink: 1 },
   reset: { fontSize: 13, fontWeight: "700", color: C.brand },
   tabsScroll: { flexGrow: 0, flexShrink: 0 },
-  tabs: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12, gap: 8 },
+  tabs: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, gap: 8 },
   tab: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999, backgroundColor: "#fff", borderWidth: 1, borderColor: C.line },
   tabOn: { backgroundColor: C.brandDeep, borderColor: C.brandDeep },
   tabTxt: { fontSize: 12.5, fontWeight: "700", color: C.muted },

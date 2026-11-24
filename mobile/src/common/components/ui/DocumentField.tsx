@@ -11,6 +11,7 @@ import { API_ORIGIN, ApiError } from "@/common/services/httpClient";
 import { uploadFile } from "@/common/services/uploadService";
 import { PickedFile } from "@/common/types/upload-types";
 import { useUploadSource } from "@/common/components/BillSheet";
+import { ensureCameraPermission } from "./CameraPermission";
 
 // Uploaded as soon as it's picked; the field holds the resulting "/uploads/..." URL, so the form
 // submits as a plain JSON POST with no multipart work left to do.
@@ -21,8 +22,9 @@ type Source = { key: string; label: string; icon: string; run: () => Promise<Pic
 export class PermissionError extends Error {}
 
 export async function fromCamera(): Promise<PickedFile | null> {
-  const perm = await ImagePicker.requestCameraPermissionsAsync();
-  if (!perm.granted) throw new PermissionError("Camera permission is needed to take a photo.");
+  // Our own "allow camera" card first (CameraPermission.tsx); the OS dialog only opens from its
+  // button. Backing out of it is a choice, not an error — nothing is attached.
+  if (!(await ensureCameraPermission())) return null;
   // Low quality keeps full-resolution camera shots small enough to upload quickly.
   const res = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.35, exif: false });
   if (res.canceled || !res.assets?.length) return null;
@@ -35,6 +37,19 @@ export async function fromLibrary(): Promise<PickedFile | null> {
   if (res.canceled || !res.assets?.length) return null;
   const a = res.assets[0];
   return { uri: a.uri, name: a.fileName || "image.jpg", mimeType: a.mimeType || "image/jpeg" };
+}
+
+/** Gallery pick of up to `limit` photos in one go. */
+export async function fromLibraryMany(limit: number): Promise<PickedFile[]> {
+  const res = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: "images",
+    quality: 0.35,
+    exif: false,
+    allowsMultipleSelection: limit > 1,
+    selectionLimit: Math.max(1, limit),
+  });
+  if (res.canceled || !res.assets?.length) return [];
+  return res.assets.slice(0, Math.max(1, limit)).map((a) => ({ uri: a.uri, name: a.fileName || "image.jpg", mimeType: a.mimeType || "image/jpeg" }));
 }
 
 export async function fromFiles(): Promise<PickedFile | null> {

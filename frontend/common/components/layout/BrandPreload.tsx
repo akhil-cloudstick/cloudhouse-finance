@@ -1,10 +1,10 @@
 import {
-  BRAND_COLOR_KEY_PREFIX,
-  BRAND_FAVICON_KEY_PREFIX,
-  BRAND_LOGO_KEY_PREFIX,
-  BRAND_TITLE_KEY_PREFIX,
-  BRAND_VARS_KEY_PREFIX,
-  DEFAULT_BRAND_COLOR,
+	BRAND_COLOR_KEY_PREFIX,
+	BRAND_FAVICON_KEY_PREFIX,
+	BRAND_LOGO_KEY_PREFIX,
+	BRAND_TITLE_KEY_PREFIX,
+	BRAND_VARS_KEY_PREFIX,
+	DEFAULT_BRAND_COLOR,
 } from "@/common/config/theme";
 
 /* A blocking inline script that paints the signed-in business's brand colour
@@ -40,22 +40,28 @@ const script = `
     // loading state, then the real branding a moment later), never another
     // business's brand: an unknown slug simply has nothing cached under it.
     var p = location.pathname.split("/").filter(Boolean);
-    var reserved = /^(login|reset|app|api|uploads|assets|static|_next|index|superadmin|forgot-password|reset-password|digilocker-callback|esign-callback|dashboard|customers?|loans?|newloan|schemes|goldrates|requests|loanrisk|personalloans?|investments?|cash|auctions|packets?|bankpledge|reports|employees|calendar|branches|roles-permissions|billing|settings)$/;
+    var reserved = /^(login|reset|app|api|uploads|assets|static|_next|index|superadmin|forgot-password|reset-password|digilocker-callback|esign-callback|customer-app|staff-app|privacy-policy|account-deletion|terms-and-conditions|disclaimer|refund-policy|data-safety|contact|dashboard|customers?|loans?|newloan|editloan|schemes|goldrates|requests|loanrisk|personalloans?|investments?|cash|auctions|packets?|bankpledge|reports|employees|calendar|branches|roles-permissions|billing|settings)$/;
     var first = p.length ? p[0].toLowerCase() : "";
     // The desktop shell has no tenant subdomain of its own (always
     // wails.localhost) — mirrors tenantSession.ts's desktopSlugFromApiBase,
     // reading the one baked into this build instead. Avoids this earliest,
     // pre-React guess ever landing on "default" (and fetching a stale/wrong
     // cached logo through it) for a desktop build that already names its tenant.
-    var desktopSlug = "";
-    try {
+    var desktopSlug = ${JSON.stringify((process.env.NEXT_PUBLIC_DESKTOP_TENANT || "").trim().toLowerCase())};
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(desktopSlug)) desktopSlug = "";
+    if (!desktopSlug) try {
       var apiBaseHost = new URL(${JSON.stringify(process.env.NEXT_PUBLIC_API_BASE || "")}).hostname.toLowerCase();
       var hl = apiBaseHost.split(".");
-      if (hl.length >= 3 && /^[a-z0-9][a-z0-9-]*$/.test(hl[0])) desktopSlug = hl[0];
+      // a tunnel address (ngrok) names no business: its first label is a random name
+      if (hl.length >= 3 && /^[a-z0-9][a-z0-9-]*$/.test(hl[0]) && !/[.]ngrok(-free)?[.](dev|app|io)$/.test(apiBaseHost)) desktopSlug = hl[0];
     } catch (e) { /* no NEXT_PUBLIC_API_BASE, or it's relative — not a desktop tenant build */ }
+    // An explicit ?b=<slug> (forgot/reset-password links) outranks the
+    // remembered business — mirrors activeBusinessSlug in tenantSession.ts.
+    var linked = (new URLSearchParams(location.search).get("b") || "").trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(linked)) linked = "";
     var slug = (first && /^[a-z0-9][a-z0-9-]*$/.test(first) && !reserved.test(first))
       ? first
-      : ((location.hostname === "wails.localhost" && desktopSlug) || localStorage.getItem("cloudhouse_active_business") || "default");
+      : (linked || (location.hostname === "wails.localhost" && desktopSlug) || localStorage.getItem("cloudhouse_active_business") || "default");
     var hex = localStorage.getItem(${JSON.stringify(BRAND_COLOR_KEY_PREFIX)} + slug) || ${JSON.stringify(DEFAULT_BRAND_COLOR)};
     var m = /^#?([0-9a-f]{6})$/i.exec(hex);
     // Not a bare return: the tab icon below must still be installed.
@@ -124,10 +130,10 @@ const script = `
 `;
 
 export function BrandPreload() {
-  // suppressHydrationWarning: in the desktop dev shell, DESKTOP_RUNTIME_LOADER
-  // (the sibling script right after this one — see app/(product)/layout.tsx)
-  // rewrites the page via document.write() before React hydrates, which
-  // shifts this node too; same reasoning as that script's own suppression.
-  // eslint-disable-next-line @next/next/no-sync-scripts
-  return <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: script }} />;
+	// suppressHydrationWarning: in the desktop dev shell, DESKTOP_RUNTIME_LOADER
+	// (the sibling script right after this one — see app/(product)/layout.tsx)
+	// rewrites the page via document.write() before React hydrates, which
+	// shifts this node too; same reasoning as that script's own suppression.
+	// eslint-disable-next-line @next/next/no-sync-scripts
+	return <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: script }} />;
 }

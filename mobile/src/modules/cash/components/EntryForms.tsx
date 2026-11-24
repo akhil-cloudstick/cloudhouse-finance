@@ -13,9 +13,11 @@ import {
   Sheet,
   SheetFooter,
   Txt,
+  toast,
 } from "@/common/components/ui";
+import { FieldErr } from "@/common/components/ErrorText";
 import { UploadField } from "@/common/components/UploadField";
-import { EXPENSE_CATEGORY_IDS_KEY } from "@/common/components/LedgerList";
+import { EXPENSE_CATEGORY_IDS_KEY } from "@/common/components/BillLink";
 import { inr, todayISO } from "@/common/utils/format";
 import type { Bank } from "@/modules/banks/types/bank-types";
 import {
@@ -77,21 +79,21 @@ const rowsOf = (edit: EntryInfo): PaymentRow[] =>
 
 const branchOf = (edit?: EntryInfo) => (edit?.branchId ? { id: edit.branchId, name: edit.branchName } : null);
 
-const ENTRY_TYPES = ["credit", "debit", "self"] as const;
+const ENTRY_TYPES = ["debit", "credit", "self"] as const;
 type EntryType = (typeof ENTRY_TYPES)[number];
-const ENTRY_LABELS = { credit: "Credit (Cash In)", debit: "Debit (Expense)", self: "Self Transfer" } as const;
+const ENTRY_LABELS = { debit: "Debit (Expense)", credit: "Credit (Cash In)", self: "Self Transfer" } as const;
 
 type AddEntrySheetProps = { visible: boolean; onClose: () => void };
 
 // The Ledger's single "Add Entry" sheet — a Credit / Debit / Self Transfer
 // switch on top, each tab one form (mirrors web's AddEntryModal).
 export function AddEntrySheet({ visible, onClose }: AddEntrySheetProps) {
-  const [type, setType] = useState<EntryType>("credit");
+  const [type, setType] = useState<EntryType>("debit");
   // Bumped per open so each tab starts from a clean form.
   const [session, setSession] = useState(0);
   useEffect(() => {
     if (visible) {
-      setType("credit");
+      setType("debit");
       setSession((n) => n + 1);
     }
   }, [visible]);
@@ -143,9 +145,8 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
   const [bank, setBank] = useState<Bank | null>(goldEdit?.lines[0]?.bankId ? ({ id: goldEdit.lines[0].bankId, name: goldEdit.lines[0].bankName ?? "", createdAt: "", updatedAt: "" } as Bank) : null);
   const [branch, setBranch] = useOwnBranch(branchOf(edit));
   // Uploaded "/uploads/..." URL of the bill, "" when none.
-  const [receiptImage, setReceiptImage] = useState("");
+  const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
-  const [error, setError] = useState<string | null>(null);
   const bankRequired = mode === "UPI" || mode === "Bank Transfer";
 
   const isLoan = !!source && isLoanSource(source.name);
@@ -153,6 +154,13 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
   // A loan is entered like any other cash-in — no loan number or principal is asked for.
   const [ornamentType, setOrnamentType] = useState(edit?.ornamentType ?? "");
   const [cost, setCost] = useState(edit?.costAmount ? String(edit.costAmount) : "");
+  // How the cost to acquire was paid — recorded in the ledger only; it never leaves a balance (web "Cost Paid By").
+  const [costMode, setCostMode] = useState<(typeof GOLD_SALE_MODES)[number]>((edit?.costMode as (typeof GOLD_SALE_MODES)[number]) || "Cash");
+  const [costBank, setCostBank] = useState<Bank | null>(edit?.costBankId ? ({ id: edit.costBankId, name: edit.costBank ?? "", createdAt: "", updatedAt: "" } as Bank) : null);
+  const costBankRequired = costMode === "UPI" || costMode === "Bank Transfer";
+  // Per-field messages, each shown under the field it is about (set on Save, cleared as the field is fixed).
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const feTxt = (k: string) => (fe[k] ? <Txt style={{ fontSize: 12, color: C.red, marginTop: 4 }}>{fe[k]}</Txt> : null);
   const profit = (Number(amount) || 0) - (Number(cost) || 0);
   const branchId = branch?.id;
 
@@ -163,12 +171,14 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
           await updateMovementEntry(edit.movementId, {
             category: GOLD_SALE, ornamentType: ornamentType.trim(), costAmount: Number(cost || 0), amount: Number(amount), occurredOn: date,
             remarks: remarks.trim(), branchId, mode, bankId: bankRequired ? bank?.id : undefined, receiptImage: receiptImage || undefined,
+            ...(Number(cost) > 0 ? { costMode, costBankId: costBankRequired ? costBank?.id : undefined } : {}),
           });
           return;
         }
         await createGoldSale({
           ornamentType: ornamentType.trim(), soldAmount: Number(amount), costAmount: Number(cost || 0), branchId: branchId!,
           mode, bankId: bankRequired ? bank?.id : undefined,
+          ...(Number(cost) > 0 ? { costMode, costBankId: costBankRequired ? costBank?.id : undefined } : {}),
           soldOn: date, receiptImage: receiptImage || undefined,
           remarks: remarks.trim() || undefined,
         });
@@ -200,7 +210,7 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
       if (isLoan) qc.invalidateQueries({ queryKey: EXPENSE_CATEGORY_IDS_KEY });
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not save.")),
+    onError: (err) => toast.error(errMsg(err, "Could not save.")),
   });
 
   const bankValid = !bankRequired || !!bank;
@@ -214,9 +224,22 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
   const loanWarning = loanExceeded ? `Loan principal amount exceeded — only ${inr(Math.max(loanLimit, 0))} is left to draw on ${source?.name}.` : "";
   // An edited gold sale stays a gold sale, and any other cash-in can't become one.
   const editBlocked = !!edit && (edit.kind === "gold_sale" ? !isGoldSale : isGoldSale);
-  const canSubmit = !loanExceeded && !editBlocked && (isGoldSale
-    ? !!ornamentType.trim() && Number(amount) > 0 && !!date && !!branchId && bankValid
-    : !!source && Number(amount) > 0 && !!date && !!branchId && payValid);
+  const canSubmit = !loanExceeded && !editBlocked;
+  // Every problem is shown at once, each under its own field, instead of a silently disabled button.
+  function submit() {
+    const errors: Record<string, string> = {};
+    if (!source) errors.source = "Please select a category.";
+    if (isGoldSale && !ornamentType.trim()) errors.ornament = "Please enter the ornament type.";
+    if (!(Number(amount) > 0)) errors.amount = isGoldSale ? "Please enter the sold amount." : "Please enter an amount greater than zero.";
+    if (!date) errors.date = "Please select the date.";
+    if (!branchId) errors.branch = "Please select a branch.";
+    if (isGoldSale && !bankValid) errors.bank = "Please select the bank the sale was received in.";
+    if (isGoldSale && Number(cost) > 0 && costBankRequired && !costBank) errors.costBank = "Please select the bank the cost was paid from.";
+    if (!isGoldSale && Number(amount) > 0 && !payValid) errors.payments = paymentRowsError(payRows, Number(amount) || 0);
+    setFe(errors);
+    if (Object.keys(errors).length) return;
+    m.mutate();
+  }
 
   return (
     <>
@@ -235,12 +258,13 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
         renderItem={(s) => ({ title: s.name })}
         onCreateNew={createCashSource}
       />
-
+      {feTxt("source")}
 
       {isGoldSale ? (
         <FieldRow>
           <Field label="Ornament type">
             <Input placeholder="e.g. Gold Chain" value={ornamentType} onChangeText={setOrnamentType} />
+            {feTxt("ornament")}
           </Field>
           <Field label="Cost amount">
             <Input keyboardType="decimal-pad" placeholder="₹" value={cost} onChangeText={setCost} />
@@ -260,32 +284,51 @@ function CreditForm({ onClose, edit }: CreditFormProps) {
             />
           </Field>
           {bankRequired ? <BankPicker label="Bank (your account)" bank={bank} onChange={setBank} /> : null}
+          {feTxt("bank")}
           <Field label="Sold amount">
             <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+            {feTxt("amount")}
           </Field>
+          {Number(cost) > 0 ? (
+            <>
+              <Field label="Cost paid by *">
+                <ChipToggle
+                  options={GOLD_SALE_MODES}
+                  value={costMode}
+                  onChange={(v) => { setCostMode(v); if (v !== "UPI" && v !== "Bank Transfer") setCostBank(null); }}
+                  wrap
+                />
+              </Field>
+              {costBankRequired ? <BankPicker label="Cost bank (your account)" bank={costBank} onChange={setCostBank} /> : null}
+              {feTxt("costBank")}
+            </>
+          ) : null}
           <BranchField branch={branch} onChange={setBranch} />
+          {feTxt("branch")}
         </>
       ) : (
         <>
           <Field label="Amount">
             <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
+            {feTxt("amount")}
           </Field>
           <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
           <PaymentBreakdownFields total={Number(amount) || 0} rows={payRows} onChange={setPayRows} bankLabel="Bank (your account)" />
+          {feTxt("payments")}
           <BranchField branch={branch} onChange={setBranch} />
+          {feTxt("branch")}
         </>
       )}
       <UploadField label="Bill" value={receiptImage} onChange={setReceiptImage} allowPdf={false} />
       {isGoldSale ? <ResultBox k="Profit / Loss" v={`${profit >= 0 ? "+" : "−"}${inr(Math.abs(profit))}`} tone={profit >= 0 ? "green" : "red"} /> : null}
       <Field label="Remarks">
-        <Input placeholder="Optional notes" value={remarks} onChangeText={setRemarks} />
+        <Input maxLength={150} placeholder="Optional notes (max 150 characters)" value={remarks} onChangeText={setRemarks} />
       </Field>
 
       <LoanWarning text={loanWarning} />
       {editBlocked ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>A gold sale can&apos;t be turned into another category, or the other way round.</Txt> : null}
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <SheetFooter>
-        <PrimaryButton label={edit ? "Save Changes" : isGoldSale ? "Record Gold Sale" : "Add Cash"} onPress={() => m.mutate()} loading={m.isPending} disabled={!canSubmit} />
+        <PrimaryButton label={edit ? "Save Changes" : isGoldSale ? "Record Gold Sale" : "Add Cash"} onPress={submit} loading={m.isPending} disabled={!canSubmit} />
       </SheetFooter>
     </>
   );
@@ -307,14 +350,23 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
   const [payRows, setPayRows] = useState<PaymentRow[]>(() => (edit ? rowsOf(edit) : [newPaymentRow()]));
   const [branch, setBranch] = useOwnBranch(branchOf(edit));
   // Uploaded "/uploads/..." URL of the receipt/bill photo, "" when none.
-  const [receiptImage, setReceiptImage] = useState("");
+  const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const branchId = branch?.id;
-  const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) : 0;
+  // Editing the same loan repayment: its own amount is already counted as repaid, so it is added back.
+  const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit && category?.name === edit.category ? edit.amount : 0) : 0;
   const debitExceeded = !!loanBal && (Number(amount) || 0) > owed + 0.005;
   const debitWarning = debitExceeded ? `Repayment exceeds what has been paid on ${category?.name} — only ${inr(owed)} is outstanding.` : "";
   const payValid = paymentRowsError(payRows, Number(amount) || 0) === "";
+  const errs: Record<string, string> = {};
+  if (!category) errs.category = "Select a category.";
+  if (!(Number(amount) > 0)) errs.amount = "Enter an amount greater than zero.";
+  if (!date) errs.date = "Select the date.";
+  if (Number(amount) > 0 && !payValid) errs.pay = paymentRowsError(payRows, Number(amount) || 0);
+  if (!branchId) errs.branch = "Select a branch.";
+  if (debitExceeded) errs.amount = debitWarning;
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   const m = useMutation({
     mutationFn: async () => {
@@ -339,7 +391,7 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
       qc.invalidateQueries({ queryKey: EXPENSE_CATEGORY_IDS_KEY });
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not save.")),
+    onError: (err) => toast.error(errMsg(err, "Could not save.")),
   });
   // A newly created category needs its ledger link resolvable right away.
   const createCat = async (name: string) => {
@@ -353,7 +405,7 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
         label="Category"
         placeholder="Search or add a category"
         queryKey={["expense-categories", "picker"]}
-        fetcher={async (q) => (await listExpenseCategoriesPage(q, 0, PICKER_PAGE_SIZE)).items ?? []}
+        fetcher={async (q) => (await listExpenseCategoriesPage(q, 0, PICKER_PAGE_SIZE, true)).items ?? []}
         selectedLabel={category?.name}
         onSelect={(c) => {
           setCategory(c);
@@ -364,24 +416,27 @@ function DebitForm({ onClose, edit }: DebitFormProps) {
         renderItem={(c) => ({ title: c.name })}
         onCreateNew={createCat}
       />
+      <FieldErr m={fe("category")} />
       <Field label="Amount">
         <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
       </Field>
+      <FieldErr m={fe("amount")} />
       <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
+      <FieldErr m={fe("date")} />
       <PaymentBreakdownFields total={Number(amount) || 0} rows={payRows} onChange={setPayRows} bankLabel="From Bank" />
+      <FieldErr m={fe("pay")} />
       <BranchField branch={branch} onChange={setBranch} />
+      <FieldErr m={fe("branch")} />
       <UploadField label="Bill" value={receiptImage} onChange={setReceiptImage} allowPdf={false} />
       <Field label="Remarks">
-        <Input placeholder="Optional notes" value={remarks} onChangeText={setRemarks} />
+        <Input maxLength={150} placeholder="Optional notes (max 150 characters)" value={remarks} onChangeText={setRemarks} />
       </Field>
       <LoanWarning text={debitWarning} />
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <SheetFooter>
         <PrimaryButton
           label={edit ? "Save Changes" : "Record Expense"}
-          onPress={() => m.mutate()}
+          onPress={() => (Object.keys(errs).length ? setTried(true) : m.mutate())}
           loading={m.isPending}
-          disabled={!category || !(Number(amount) > 0) || !date || !branchId || !payValid || debitExceeded}
         />
       </SheetFooter>
     </>
@@ -414,9 +469,9 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
   const [fromBank, setFromBank] = useState<Bank | null>(edit?.fromBankId ? ({ id: edit.fromBankId, name: edit.fromBank ?? "", createdAt: "", updatedAt: "" } as Bank) : null);
   const [toBank, setToBank] = useState<Bank | null>(edit?.toBankId ? ({ id: edit.toBankId, name: edit.toBank ?? "", createdAt: "", updatedAt: "" } as Bank) : null);
   const [branch, setBranch] = useOwnBranch(branchOf(edit));
-  const [receiptImage, setReceiptImage] = useState("");
+  const [receiptImage, setReceiptImage] = useState(edit?.receiptImage ?? "");
   const [remarks, setRemarks] = useState(edit?.remarks ?? "");
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
   const branchId = branch?.id;
 
   const loan = category && isLoanSource(category.name) ? category : null;
@@ -426,7 +481,8 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
   const owed = loanBal ? Math.max(loanBal.drawn - loanBal.repaid, 0) + (edit ? edit.amount : 0) : 0;
   const loanExceeded = !!loanBal && (Number(amount) || 0) > owed + 0.005;
   const loanWarning = loanExceeded ? `Repayment exceeds what has been paid on ${category?.name} — only ${inr(owed)} is outstanding.` : "";
-  const loanReady = !!loan;
+  // A new transfer needs a real loan category row (with its details); an edit keeps working while its row is looked up.
+  const loanReady = !!loan && (loan.id > 0 || !!edit);
 
   const m = useMutation({
     mutationFn: async () => {
@@ -448,19 +504,23 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
       refreshCashQueries(qc);
       onClose();
     },
-    onError: (err) => setError(errMsg(err, "Could not save.")),
+    onError: (err) => toast.error(errMsg(err, "Could not save.")),
   });
 
+  const errs: Record<string, string> = {};
+  if (!category) errs.category = "Select a category.";
+  if (!date) errs.date = "Select the date.";
+  if (!fromBank) errs.fromBank = "Select the From Bank.";
+  if (!loan && !toBank) errs.toBank = "Select the To Bank.";
+  else if (!loan && toBank && fromBank && toBank.id === fromBank.id) errs.toBank = "From Bank and To Bank must be different.";
+  if (!(Number(amount) > 0)) errs.amount = "Enter an amount greater than zero.";
+  else if (loanExceeded) errs.amount = loanWarning;
+  if (!branchId) errs.branch = "Select a branch.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
+
   function submit() {
-    if (loan && !loanReady) {
-      setError("This loan has no details recorded yet — add cash from it first.");
-      return;
-    }
-    if (!loan && toBank && fromBank && toBank.id === fromBank.id) {
-      setError("From Bank and To Bank must be different.");
-      return;
-    }
-    setError(null);
+    if (Object.keys(errs).length) return setTried(true);
+    if (loan && !loanReady) return toast.error("This loan has no details recorded yet — add cash from it first.");
     m.mutate();
   }
 
@@ -481,28 +541,32 @@ function SelfTransferForm({ onClose, edit }: SelfTransferFormProps) {
         renderItem={(c) => ({ title: c.name })}
         onCreateNew={(name) => createCategory("self_transfer", name)}
       />
+      <FieldErr m={fe("category")} />
       <DateField label="Date" value={date} onChange={setDate} max={todayISO()} />
+      <FieldErr m={fe("date")} />
       <Field label="Mode">
         <ChipToggle options={SELF_MODES} value={mode} onChange={setMode} />
       </Field>
       <BankPicker label="From Bank" bank={fromBank} onChange={setFromBank} />
+      <FieldErr m={fe("fromBank")} />
       {loan ? null : <BankPicker label="To Bank" bank={toBank} onChange={setToBank} />}
+      <FieldErr m={fe("toBank")} />
       <Field label="Amount">
         <Input keyboardType="decimal-pad" placeholder="₹" value={amount} onChangeText={setAmount} />
       </Field>
+      <FieldErr m={fe("amount")} />
       <BranchField branch={branch} onChange={setBranch} />
+      <FieldErr m={fe("branch")} />
       <UploadField label="Bill" value={receiptImage} onChange={setReceiptImage} allowPdf={false} />
       <Field label="Remarks">
-        <Input placeholder="Optional notes" value={remarks} onChangeText={setRemarks} />
+        <Input maxLength={150} placeholder="Optional notes (max 150 characters)" value={remarks} onChangeText={setRemarks} />
       </Field>
       <LoanWarning text={loanWarning} />
-      {error ? <Txt style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Txt> : null}
       <SheetFooter>
         <PrimaryButton
           label={edit ? "Save Changes" : "Record Transfer"}
           onPress={submit}
           loading={m.isPending}
-          disabled={!category || !(Number(amount) > 0) || !date || !fromBank || (!loan && !toBank) || !branchId || loanExceeded}
         />
       </SheetFooter>
     </>

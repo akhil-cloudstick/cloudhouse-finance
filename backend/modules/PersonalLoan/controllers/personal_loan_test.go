@@ -16,7 +16,7 @@ func TestComputeInterest(t *testing.T) {
 	}{
 		{"flat", 5000, "Flat", 100, 100},
 		{"percentage", 5000, models.InterestTypePercentage, 2, 100},
-		{"percentage rounds", 4999, models.InterestTypePercentage, 2.5, 124.98},
+		{"percentage rounds", 4999, models.InterestTypePercentage, 2.5, 125},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -33,7 +33,7 @@ func TestGenerateSchedule_LastInstallmentAbsorbsRounding(t *testing.T) {
 		PrincipalAmount:   5000,
 		Frequency:         models.FrequencyDaily,
 		TenureCount:       3,
-		InstallmentAmount: 1666.67,
+		InstallmentAmount: 1667,
 		OpenedDate:        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 	installments := generateSchedule(loan)
@@ -47,12 +47,12 @@ func TestGenerateSchedule_LastInstallmentAbsorbsRounding(t *testing.T) {
 	if diff := sum - loan.PrincipalAmount; diff > 0.01 || diff < -0.01 {
 		t.Errorf("schedule sums to %v, want %v", sum, loan.PrincipalAmount)
 	}
-	if installments[0].Amount != 1666.67 || installments[1].Amount != 1666.67 {
+	if installments[0].Amount != 1667 || installments[1].Amount != 1667 {
 		t.Errorf("expected first two installments to be the fixed amount, got %v, %v", installments[0].Amount, installments[1].Amount)
 	}
 	last := installments[2].Amount
-	if last != 1666.66 {
-		t.Errorf("expected last installment to absorb rounding drift (1666.66), got %v", last)
+	if last != 1666 {
+		t.Errorf("expected last installment to absorb rounding drift (1666), got %v", last)
 	}
 }
 

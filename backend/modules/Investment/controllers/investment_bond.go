@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html/template"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,7 +82,11 @@ func findTemplatesDir() string {
 func mustLoadTemplate(templateName, fileName string) *template.Template {
 	b, err := os.ReadFile(filepath.Join(findTemplatesDir(), fileName))
 	if err != nil {
-		panic(fmt.Sprintf("debenture subscription agreement: read template %s: %v", fileName, err))
+		// The desktop app links this package but carries no templates folder. A missing template then fails only when
+		// the document is asked for, instead of stopping the whole program at start-up.
+		log.Printf("debenture subscription agreement: template %s is not available (%v); the document cannot be produced here", fileName, err)
+		missing := func() (string, error) { return "", fmt.Errorf("template %s is not available in this build", fileName) }
+		return template.Must(template.New(templateName).Funcs(template.FuncMap{"templateUnavailable": missing}).Parse("{{templateUnavailable}}"))
 	}
 	return template.Must(template.New(templateName).Parse(string(b)))
 }
@@ -169,8 +174,11 @@ func renderInvestmentBondHTML(data InvestmentBondData) (string, error) {
 body{font-family:'Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:0;line-height:1.55;font-size:13.5px;padding:0}
 h1{font-size:19px;text-align:center;margin:0 0 2px;letter-spacing:0.5px}
 h3{font-size:14px;margin:20px 0 8px}
-table{width:100%;border-collapse:collapse;margin:10px 0}
-th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle}
+h3{break-after:avoid;page-break-after:avoid}
+table{width:calc(100% - 2px);border-collapse:collapse;margin:10px 1px;table-layout:fixed;break-inside:avoid;page-break-inside:avoid}
+tr{break-inside:avoid;page-break-inside:avoid}
+th:first-child,td:first-child{width:46%}
+th,td{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left;vertical-align:middle;overflow-wrap:anywhere;word-break:break-word}
 td.num,th.num{text-align:right}
 .sig-row{display:flex;justify-content:space-between;margin-top:40px;gap:40px}
 .sig-row>div{flex:1;text-align:center;font-size:12px}

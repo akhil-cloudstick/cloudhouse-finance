@@ -68,6 +68,9 @@ export type CashSummary = {
   expensesToday?: number;
   cashInHand?: number;
   bankBalance?: number;
+  // The per-source split of `collections` / `disbursements` (web CashInBreakdown / CashOutBreakdown).
+  collectionsBreakdown?: { repayments: number; pledges: number; auctions: number; goldSales: number; topUps: number };
+  disbursementsBreakdown?: { loanDisbursements: number; bankReleases: number; auctionRefunds: number; goldPurchases: number; withdrawals: number };
 };
 
 // Mirrors backend/internal/cash's GoldSale JSON shape (model.go).
@@ -143,6 +146,12 @@ export type LedgerRow = {
   // sheet and Edit open it. Absent on every other row.
   entryId?: number;
   editable?: boolean;
+  // The gold-loan repayment behind a row — the ledger offers its edit and delete.
+  loanId?: number;
+  paymentId?: number;
+  // Unique identity of the entry behind the row ("m:12" cash movement, "lp:42" loan payment, "e:7" expense …),
+  // the same in every ledger that shows it. Ledger links carry it so the exact entry is highlighted.
+  ref?: string;
 };
 // One line of a payment breakdown: how much was paid in which mode (and
 // through which bank for UPI / Bank Transfer). Each line of a Credit or Debit
@@ -152,6 +161,8 @@ export type PaymentPart = { mode: string; amount: number; bankId?: number };
 // (GET/PUT /cash-movements/:id/entry — backend entry.go).
 export type EntryKind = "cash_in" | "debit" | "self_transfer" | "gold_sale" | "system";
 export type EntryLine = { movementId: number; mode: string; amount: number; bankId?: number | null; bankName?: string };
+// One part of what a loan repayment was applied to, with the mode it was paid by (web's LedgerSplitLineView).
+export type LedgerSplitLineView = { label: string; mode?: string; amount: number };
 export type EntryInfo = {
   kind: EntryKind;
   // True when opened from the Expenses list — saving then goes through PUT /expenses/:id.
@@ -180,11 +191,21 @@ export type EntryInfo = {
   // A draw on a loan: the loan's number and its principal.
   loanNumber?: string;
   principalAmount?: number;
+  // How a gold sale's cost to acquire was paid (ledger-only), and from which bank.
+  costMode?: string;
+  costBankId?: number | null;
+  costBank?: string;
+  // Set for the loan's own calculated entries (service_charge, disbursement_reversal…).
+  loanEntry?: string;
+  // What a repayment was applied to ("Paid towards").
+  split?: LedgerSplitLineView[];
 };
 export type EntryUpdateInput = {
   // A gold sale edit.
   ornamentType?: string;
   costAmount?: number;
+  costMode?: string;
+  costBankId?: number;
   bankId?: number;
   category?: string;
   amount: number;
@@ -201,7 +222,7 @@ export type EntryUpdateInput = {
 };
 export type LedgerMode = (typeof LEDGER_MODES)[number];
 export type LedgerKind = "bank" | "customer" | "category" | "mode";
-export type LedgerParams = { limit: number; offset: number; fromDate?: string; toDate?: string; modes?: string; types?: string; loanNumbers?: string };
+export type LedgerParams = { limit: number; offset: number; fromDate?: string; toDate?: string; modes?: string; types?: string; loanNumbers?: string; search?: string };
 // totalDebit/totalCredit cover every row matching the filters, not the page.
 export type LedgerPage = { items: LedgerRow[]; total: number; totalDebit?: number; totalCredit?: number; categoryName?: string; loan?: LoanLedgerSummary };
 // Set on a loan source's category ledger — the loan's own position, principal-based.

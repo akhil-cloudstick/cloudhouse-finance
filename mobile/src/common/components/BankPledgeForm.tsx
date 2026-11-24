@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { AsyncSelect, ChipToggle, DateField, Field, FieldRow, Input, PrimaryButton, TextField } from "@/common/components/ui";
-import { ErrorText } from "./ErrorText";
+import { FieldErr } from "./ErrorText";
 import { SplitPaymentInput, type SplitPayment } from "./SplitPaymentInput";
 import { listLoansPage } from "@/modules/loans/services/loanService";
 import { listBanksPage } from "@/modules/banks/services/bankService";
@@ -35,9 +35,10 @@ type BankPledgeFormProps = {
   value: BankPledgeFormValue;
   onChange: (v: BankPledgeFormValue) => void;
   fixedLoan?: Loan;
-  error: string | null;
   onSubmit: () => void;
   submitting: boolean;
+  /** Extra gate from the caller (e.g. at least one ornament picked). */
+  extraReady?: boolean;
 };
 
 // Shared re-pledge form; pass fixedLoan to hide the loan picker, otherwise AsyncSelect excludes already-pledged loans.
@@ -45,14 +46,22 @@ export function BankPledgeForm({
   value,
   onChange,
   fixedLoan,
-  error,
   onSubmit,
   submitting,
+  extraReady = true,
 }: BankPledgeFormProps) {
   const set = <K extends keyof BankPledgeFormValue>(k: K, v: BankPledgeFormValue[K]) => onChange({ ...value, [k]: v });
 
   const cashIn = value.cash === "CashIn";
-  const canSave = !!(fixedLoan ?? value.loan) && !!value.bankName && Number(value.amount) > 0 && !!value.pledgeDate && (!cashIn || !!value.payment?.ready);
+  const [tried, setTried] = useState(false);
+  const errs: Record<string, string> = {};
+  if (!(fixedLoan ?? value.loan)) errs.loan = "Select a loan.";
+  if (!value.bankName) errs.bank = "Select a bank.";
+  if (!(Number(value.amount) > 0)) errs.amount = "Enter the pledged amount.";
+  if (!value.pledgeDate) errs.date = "Pick the pledge date.";
+  if (cashIn && Number(value.amount) > 0 && !value.payment?.ready) errs.pay = "The payment breakdown must add up to the pledged amount, with a bank for every UPI / Bank Transfer line.";
+  if (!extraReady) errs.ornaments = "Select at least one ornament.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
 
   return (
     <>
@@ -72,6 +81,7 @@ export function BankPledgeForm({
           })}
         />
       )}
+      <FieldErr m={fe("loan")} />
       <AsyncSelect<Bank>
         label="Bank"
         placeholder="Search banks"
@@ -82,6 +92,7 @@ export function BankPledgeForm({
         keyOf={(b) => b.id}
         renderItem={(b) => ({ title: b.name, sub: [b.branch, b.ifsc].filter(Boolean).join(" · ") || undefined })}
       />
+      <FieldErr m={fe("bank")} />
       <FieldRow>
         <Field label="Pledged amount" style={{ flex: 1 }}>
           <Input value={value.amount} onChangeText={(v) => set("amount", num(v))} placeholder="0" keyboardType="decimal-pad" />
@@ -90,10 +101,12 @@ export function BankPledgeForm({
           <Input value={value.rate} onChangeText={(v) => set("rate", num(v))} placeholder="0" keyboardType="decimal-pad" />
         </Field>
       </FieldRow>
+      <FieldErr m={fe("amount")} />
       <FieldRow>
         <DateField label="Pledge date" value={value.pledgeDate} onChange={(v) => set("pledgeDate", v)} max={todayISO()} />
         <DateField label="Due date" value={value.dueDate} onChange={(v) => set("dueDate", v)} min={value.pledgeDate || undefined} clearable />
       </FieldRow>
+      <FieldErr m={fe("date")} />
       <TextField label="Reference number" value={value.reference} onChangeText={(v) => set("reference", v)} placeholder="Optional" />
       <Field label="Cash treatment">
         <ChipToggle options={CASH} value={value.cash} onChange={(v) => set("cash", v)} labels={CASH_LABELS} />
@@ -101,8 +114,8 @@ export function BankPledgeForm({
       {cashIn && Number(value.amount) > 0 ? (
         <SplitPaymentInput total={Number(value.amount)} onChange={(p) => set("payment", p)} bankLabel="Bank (account it landed in)" />
       ) : null}
-      <ErrorText>{error}</ErrorText>
-      <PrimaryButton label="Repledge to Bank" onPress={onSubmit} loading={submitting} disabled={!canSave} style={{ marginBottom: 12 }} />
+      <FieldErr m={fe("pay") ?? fe("ornaments")} />
+      <PrimaryButton label="Repledge to Bank" onPress={() => (Object.keys(errs).length ? setTried(true) : onSubmit())} loading={submitting} style={{ marginBottom: 12 }} />
     </>
   );
 }

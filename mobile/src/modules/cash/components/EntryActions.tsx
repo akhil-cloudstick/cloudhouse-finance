@@ -1,9 +1,12 @@
 import React, { useState } from "react";
 import { Pressable, View } from "react-native";
-import { C, PIcon, PrimaryButton, Sheet, SheetFooter, Txt, toast, type AccAction } from "@/common/components/ui";
-import { billDetail } from "@/common/components/LedgerList";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { C, ConfirmSheet, PIcon, PrimaryButton, Sheet, SheetFooter, TruncText, Txt, toast, type AccAction } from "@/common/components/ui";
+import { useAuth } from "@/common/providers/AuthProvider";
+import { userMessage } from "@/common/services/apiErrors";
+import { billDetail } from "@/common/components/BillLink";
 import { inr, dmy } from "@/common/utils/format";
-import { getMovementEntry } from "@/modules/cash/services/cashService";
+import { deleteMovementEntry, getMovementEntry } from "@/modules/cash/services/cashService";
 import type { EntryInfo, EntryKind, LedgerRow } from "@/modules/cash/types/cash-types";
 import { EditEntrySheet } from "./EntryForms";
 
@@ -29,12 +32,12 @@ function Cell({ k, v }: CellProps) {
   );
 }
 
-type EntryInfoSheetProps = { info: EntryInfo | null; onClose: () => void; onEdit: () => void };
+type EntryInfoSheetProps = { info: EntryInfo | null; onClose: () => void; onEdit: () => void; onDelete?: () => void };
 
 // The ledger's info popup for a cash-in, a debit or a self transfer: its
 // remarks and everything recorded about it — category, amount, date, the
 // payment breakdown (or the From / To banks of a transfer), branch, bill.
-function EntryInfoSheet({ info, onClose, onEdit }: EntryInfoSheetProps) {
+function EntryInfoSheet({ info, onClose, onEdit, onDelete }: EntryInfoSheetProps) {
   const bill = billDetail(info?.receiptImage)[0];
   return (
     <Sheet visible={info != null} onClose={onClose} title="Entry Details" maxHeightPct={85}>
@@ -54,11 +57,21 @@ function EntryInfoSheet({ info, onClose, onEdit }: EntryInfoSheetProps) {
             {info.approvedAt ? <Cell k="Approved on" v={stamp(info.approvedAt)} /> : null}
           </View>
 
-          <Txt style={{ fontSize: 13, fontWeight: "700", marginTop: 6, marginBottom: 6 }}>Remarks</Txt>
-          <View style={{ borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, minHeight: 44 }}>
-            <Txt style={{ fontSize: 13.5, color: info.remarks ? undefined : C.muted }}>{info.remarks || "No remarks were added to this entry."}</Txt>
-          </View>
+          {info.kind !== "system" || info.remarks ? (
+            <>
+              <Txt style={{ fontSize: 13, fontWeight: "700", marginTop: 6, marginBottom: 6 }}>Remarks</Txt>
+              <View style={{ borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, minHeight: 44 }}>
+            <TruncText lines={4} style={{ fontSize: 13.5, color: info.remarks ? undefined : C.muted }}>{info.remarks || "No remarks were added to this entry."}</TruncText>
+              </View>
+            </>
+          ) : null}
 
+          {info.loanEntry === "service_charge" ? (
+            <Txt style={{ fontSize: 12.5, color: C.muted, marginTop: 14 }}>This charge is calculated from the loan&apos;s sanction and rate — it cannot be edited on its own.</Txt>
+          ) : null}
+          {info.loanEntry === "disbursement_reversal" ? (
+            <Txt style={{ fontSize: 12.5, color: C.muted, marginTop: 14 }}>This reversal is calculated from the loan&apos;s sanction and cannot be edited on its own — open the loan&apos;s sanction to change it.</Txt>
+          ) : null}
           {info.kind === "self_transfer" ? (
             <>
               <Txt style={{ fontSize: 13, fontWeight: "700", marginTop: 16, marginBottom: 8 }}>Transfer</Txt>
@@ -83,6 +96,17 @@ function EntryInfoSheet({ info, onClose, onEdit }: EntryInfoSheetProps) {
                   <Txt style={{ fontSize: 13.5, fontWeight: "700" }}>{inr(info.amount)}</Txt>
                 </View>
               ) : null}
+              {info.split && info.split.length > 0 ? (
+                <>
+                  <Txt style={{ fontSize: 13, fontWeight: "700", marginTop: 16, marginBottom: 8 }}>Paid towards</Txt>
+                  {info.split.map((ln, i) => (
+                    <View key={`${ln.label}-${ln.mode ?? ""}-${i}`} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 7, borderTopWidth: 1, borderTopColor: C.line }}>
+                      <Txt style={{ fontSize: 13.5, flex: 1 }}>{ln.label}{ln.mode ? ` · ${ln.mode}` : ""}</Txt>
+                      <Txt style={{ fontSize: 13.5, fontWeight: "600" }}>{inr(ln.amount)}</Txt>
+                    </View>
+                  ))}
+                </>
+              ) : null}
             </>
           )}
 
@@ -94,6 +118,7 @@ function EntryInfoSheet({ info, onClose, onEdit }: EntryInfoSheetProps) {
           ) : null}
           {info.editable ? (
             <SheetFooter>
+              {onDelete ? <PrimaryButton label="Delete" variant="danger" onPress={onDelete} /> : null}
               <PrimaryButton label="Edit" onPress={onEdit} />
             </SheetFooter>
           ) : null}
@@ -148,6 +173,23 @@ export function useEntryActions(entryId?: number, editable?: boolean, row?: Ledg
   const [sheet, setSheet] = useState<"info" | "edit" | "row" | null>(null);
   const [info, setInfo] = useState<EntryInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+  const { can } = useAuth();
+  // Delete is gated like the web's Entry Info popup.
+  const canDelete = can("Loan_Management", "can_delete_ledger_entry");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const remove = useMutation({
+    mutationFn: (id: number) => deleteMovementEntry(id),
+    onSuccess: () => {
+      // The ledger, summary and every list built on cash movements recompute.
+      qc.invalidateQueries();
+      setConfirmDelete(false);
+      setSheet(null);
+      toast.success("Entry deleted");
+    },
+    onError: (err) => setDeleteError(userMessage(err, "Could not delete this entry — try again.")),
+  });
   if (!entryId && !row) return { infoButton: null, actions: [], sheets: null };
 
   async function openInfo() {
@@ -171,12 +213,39 @@ export function useEntryActions(entryId?: number, editable?: boolean, row?: Ledg
         <PIcon name="info" color={C.brandDeep} size={16} />
       </Pressable>
     ),
-    actions: entryId && editable ? [{ label: "Edit", onPress: () => setSheet("edit") }] : [],
-    sheets:
-      sheet === "info" ? <EntryInfoSheet info={info} onClose={close} onEdit={() => setSheet(info?.editable ? "edit" : null)} />
-      : sheet === "edit" && entryId ? <EditEntrySheet entryId={entryId} onClose={close} />
-      : sheet === "row" ? <RowInfoSheet row={row ?? null} onClose={close} />
-      : null,
+    // Edit and Delete sit right on the row (Delete used to be reachable only from inside the info sheet).
+    actions:
+      entryId && editable
+        ? [
+            { label: "Edit", onPress: () => setSheet("edit") },
+            ...(canDelete ? [{ label: "Delete", danger: true, onPress: () => { setDeleteError(null); setConfirmDelete(true); } }] : []),
+          ]
+        : [],
+    sheets: (
+      <>
+        {sheet === "info" ? (
+          <EntryInfoSheet
+            info={info}
+            onClose={close}
+            onEdit={() => setSheet(info?.editable ? "edit" : null)}
+            onDelete={canDelete && entryId ? () => { setDeleteError(null); setConfirmDelete(true); } : undefined}
+          />
+        ) : sheet === "edit" && entryId ? <EditEntrySheet entryId={entryId} onClose={close} />
+        : sheet === "row" ? <RowInfoSheet row={row ?? null} onClose={close} />
+        : null}
+        <ConfirmSheet
+          visible={confirmDelete}
+          onClose={() => setConfirmDelete(false)}
+          title="Delete Entry"
+          danger
+          message={`Delete ${info?.category ? info.category : "this entry"}? Every payment line of it is removed from the ledger and the balances update.`}
+          confirmLabel="Delete"
+          loading={remove.isPending}
+          error={deleteError}
+          onConfirm={() => entryId && remove.mutate(entryId)}
+        />
+      </>
+    ),
   };
 }
 

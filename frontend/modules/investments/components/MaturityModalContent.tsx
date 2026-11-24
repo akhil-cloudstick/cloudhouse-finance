@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { ApiError } from "@/common/services/httpClient";
-import { fmt, fmtDate } from "@/common/utils/format";
+import { fmt, fmtDate, roundRupee } from "@/common/utils/format";
 import { Select } from "@/common/components/ui/Select";
 import { SplitPaymentInput, ZERO_SPLIT, type SplitAmounts } from "@/common/components/SplitPaymentInput";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
@@ -30,6 +30,8 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   const { closeModal } = useModal();
   const toast = useToast();
 
+  // Closing an Active live investment before its maturity date: only Close, interest up to today.
+  const early = investment.status === "Active";
   const [action, setAction] = useState<MaturityAction>("Close");
   const [plans, setPlans] = useState<BackendInvestmentPlan[]>([]);
   const [planId, setPlanId] = useState<number | "">("");
@@ -41,7 +43,11 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   const [saving, setSaving] = useState(false);
   // A live-engine investment is paid out in full when it is closed, so the close asks how.
   const isLive = investment.engine === "Live";
-  const payable = Math.round(((investment.outstandingPrincipal || 0) + (investment.outstandingInterest || 0)) * 100) / 100;
+  // A fixed-payout investment owes the principal it still holds plus the interest due or earned so far (worked out by
+  // the server); a live one owes its outstanding balances.
+  const payable = isLive
+    ? roundRupee((investment.outstandingPrincipal || 0) + (investment.outstandingInterest || 0))
+    : roundRupee(Math.max(0, investment.principalAmount - (investment.principalReturned || 0)) + (investment.settlementInterest || 0));
   const [split, setSplit] = useState<SplitAmounts>(ZERO_SPLIT);
   const [remaining, setRemaining] = useState(0);
   const [bankId, setBankId] = useState<number | undefined>(undefined);
@@ -55,14 +61,17 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
   const principalNum = +principal || 0;
 
   async function save() {
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
     if (action === "Renew") {
-      if (!planId) { fail("plan", "Please select an investment plan for the renewed investment."); return; }
-      if (!principalNum || principalNum <= 0) { fail("principal", "Please enter the principal amount for the renewed investment."); return; }
+      if (!planId) errors["plan"] ??= "Please select an investment plan for the renewed investment.";
+      if (!principalNum || principalNum <= 0) errors["principal"] ??= "Please enter the principal amount for the renewed investment.";
     }
-    if (isLive && action === "Close") {
-      if (Math.abs(remaining) >= 0.01) { fail("split", "The payment breakdown must add up to the amount payable."); return; }
-      if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) { fail("split", "Pick the bank the payout was made from."); return; }
+    if (action === "Close" && (isLive || payable > 0)) {
+      if (Math.abs(remaining) >= 0.01) errors["split"] ??= "The payment breakdown must add up to the amount payable.";
+      if (split.upiAmount + split.bankTransferAmount > 0 && !bankId) errors["split"] ??= "Pick the bank the payout was made from.";
     }
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
     setSaving(true);
     setErr("");
     setFe({});
@@ -71,9 +80,9 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
         action,
         planId: action === "Renew" ? Number(planId) : undefined,
         principalAmount: action === "Renew" ? principalNum : undefined,
-        ...(isLive && action === "Close" ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: split.chequeAmount, bankId } : {}),
+        ...(action === "Close" && (isLive || payable > 0) ? { cashAmount: split.cashAmount, upiAmount: split.upiAmount, bankTransferAmount: split.bankTransferAmount, chequeAmount: split.chequeAmount, bankId } : {}),
       });
-      toast(action === "Close" ? (isLive ? "Investment closed — principal and interest paid out" : "Investment closed — principal return payout added to the schedule") : "Investment renewed");
+      toast(action === "Close" ? "Investment closed — principal and any pending interest paid out" : "Investment renewed");
       onSaved();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not apply the maturity decision — try again.";
@@ -86,12 +95,14 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
 
   return (
     <>
-      <div className="hd"><h3>Maturity Decision — {investment.investmentNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>{early ? "Close Early" : "Maturity Decision"} — {investment.investmentNumber}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="notice" style={{ marginBottom: 14 }}>
-          This investment matured on <strong>{fmtDate(investment.maturityDate)}</strong>. Principal of <strong>{fmt(investment.principalAmount)}</strong> is outstanding — choose how to proceed.
+          {early
+            ? <>Pays the principal and any pending interest, then closes.</>
+            : <>Matured on <strong>{fmtDate(investment.maturityDate)}</strong>. Choose how to proceed.</>}
         </div>
-        <div className="frow"><div><label className="f">Decision *</label>
+        {!early && <div className="frow"><div><label className="f">Decision *</label>
           <div style={{ display: "flex", gap: 14, marginTop: 6 }}>
             <label className="cradio" style={{ fontSize: 13, alignItems: "center" }}>
               <input type="radio" name="maturityAction" checked={action === "Close"} onChange={() => setAction("Close")} />
@@ -102,13 +113,11 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
               <span className="mark" /><span>Renew — roll over into a new investment</span>
             </label>
           </div>
-        </div></div>
+        </div></div>}
 
-        {isLive && action === "Close" && (
+        {action === "Close" && (isLive || payable > 0) && (
           <>
-            <p style={{ fontSize: 12.5, margin: "4px 0 8px", color: "var(--muted)" }}>
-              Payable now: principal <strong>{fmt(investment.outstandingPrincipal || 0)}</strong> + interest to maturity <strong>{fmt(investment.outstandingInterest || 0)}</strong> = <strong>{fmt(payable)}</strong>
-            </p>
+            <p style={{ fontSize: 12.5, margin: "4px 0 8px", color: "var(--muted)" }}>Payable now: <strong>{fmt(payable)}</strong></p>
             <div className="frow">
               <div className={fe.split ? "has-err" : undefined}>
                 <SplitPaymentInput totalAmount={payable} onChange={(s, r, bid) => { setSplit(s); setRemaining(r); setBankId(bid); }} />
@@ -134,9 +143,7 @@ export function MaturityModalContent({ investment, onSaved }: MaturityModalConte
 
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
-      <div className="ft">
-        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving} onClick={save}>{saving ? "Saving…" : action === "Close" ? "Close Investment" : "Renew Investment"}</button>
+      <div className="ft">        <button className="btn" disabled={saving} onClick={save}>{saving ? "Saving…" : action === "Close" ? "Close Investment" : "Renew Investment"}</button>
       </div>
     </>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { NoteField } from "@/common/components/ui/NoteField";
 import { useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
@@ -10,23 +11,26 @@ import { Select } from "@/common/components/ui/Select";
 import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { searchCustomersPage } from "@/modules/customers/services/customerService";
+import { getLoanByNumber } from "@/modules/loans/services/loanService";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
+import { searchLoansPage } from "@/modules/loans/services/loanService";
+import { type LoanView } from "@/modules/loans/types/loan-types";
 import { createReminder } from "@/modules/reminders/services/reminderService";
 import { type ReminderView } from "@/modules/reminders/types/reminder-types";
 import { fmtDate } from "@/common/utils/format";
 import { singleFlight } from "@/common/utils/singleFlight";
 
 const TYPE_OPTIONS = [
-  { value: "Follow-Up", label: "Customer Follow-Up" },
-  { value: "Promise-to-Pay", label: "Promise-to-Pay Date" },
-  { value: "Custom", label: "Custom Reminder" },
+	{ value: "Follow-Up", label: "Customer Follow-Up" },
+	{ value: "Promise-to-Pay", label: "Promise-to-Pay Date" },
+	{ value: "Custom", label: "Custom Reminder" },
 ];
 
 // Server messages are put on the field they are about, by wording.
 const SERVER_FIELDS: Record<string, RegExp> = {
-  customer: /customer/i,
-  dueDate: /date/i,
-  loan: /loan/i,
+	customer: /customer/i,
+	dueDate: /date/i,
+	loan: /loan/i,
 };
 
 type AddReminderModalContentProps = { initialDate?: string; onSaved?: (r: ReminderView) => void };
@@ -37,51 +41,68 @@ type AddReminderModalContentProps = { initialDate?: string; onSaved?: (r: Remind
  * reminder). `initialDate` prefills the due date when opened from a
  * calendar day cell. */
 export function AddReminderModalContent({ initialDate, onSaved }: AddReminderModalContentProps) {
-  const { closeModal } = useModal();
-  const toast = useToast();
-  const { employee } = useAuth();
+	const { closeModal } = useModal();
+	const toast = useToast();
+	const { employee } = useAuth();
 
-  const [customerId, setCustomerId] = useState("");
-  const [customerLabel, setCustomerLabel] = useState("");
-  const [loanId, setLoanId] = useState("");
-  const [type, setType] = useState<"Follow-Up" | "Promise-to-Pay" | "Custom">("Follow-Up");
-  const [dueDate, setDueDate] = useState(initialDate || new Date().toISOString().slice(0, 10));
-  const [note, setNote] = useState("");
-  const [err, setErr] = useState("");
-  const [fe, setFe] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
+	const [customerId, setCustomerId] = useState("");
+	const [customerLabel, setCustomerLabel] = useState("");
+	const [loanId, setLoanId] = useState("");
+  	const [loanLabel, setLoanLabel] = useState("");
+	const [type, setType] = useState<"Follow-Up" | "Promise-to-Pay" | "Custom">("Follow-Up");
+	const [dueDate, setDueDate] = useState(initialDate || new Date().toISOString().slice(0, 10));
+	const [note, setNote] = useState("");
+	const [err, setErr] = useState("");
+	const [fe, setFe] = useState<Record<string, string>>({});
+	const [saving, setSaving] = useState(false);
 
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
-  const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
+	const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
+	const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
 
-  async function save() { return singleFlight("modal:reminder:save", async () => {
-    if (!customerId) { fail("customer", "Please select a customer."); return; }
-    if (!dueDate) { fail("dueDate", "Please choose a due date."); return; }
-    if (!employee) { setErr("You must be signed in to log a reminder."); return; }
+	async function save() { return singleFlight("modal:reminder:save", async () => {
+		// Every problem is shown at once, each beside its own field.
+		const errors: Record<string, string> = {};
+		if (!customerId) errors["customer"] ??= "Please select a customer.";
+		if (!dueDate) errors["dueDate"] ??= "Please choose a due date.";
+		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
+		// The loan is typed by its number (LN-00012); the reminder stores the loan's own id.
+		let resolvedLoanId: number | null = null;
+		const typedLoan = loanId.trim();
+		if (typedLoan) {
+			try {
+				const found = await getLoanByNumber(typedLoan.toUpperCase());
+				if (found.customerId !== customerId) { fail("loan", "This loan belongs to a different customer."); return; }
+				resolvedLoanId = found.numericId;
+			} catch {
+				fail("loan", "No loan found with this number.");
+				return;
+			}
+		}
+		if (!employee) { setErr("You must be signed in to log a reminder."); return; }
 
-    setSaving(true);
-    setErr("");
-    setFe({});
-    try {
-      const rec = await createReminder({
-        customerId: Number(customerId),
-        loanId: loanId ? Number(loanId) : null,
-        type,
-        dueDate,
-        note: note.trim(),
-        employeeId: employee.id,
-      });
-      onSaved?.(rec);
-      closeModal();
-      toast(`${type} reminder logged for ${customerLabel || "customer"} — ${fmtDate(dueDate)}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to log reminder.";
-      const field = fieldForMessage(msg, SERVER_FIELDS);
-      if (field) fail(field, msg); else setErr(msg);
-    } finally {
-      setSaving(false);
-    }
-  }); }
+		setSaving(true);
+		setErr("");
+		setFe({});
+		try {
+			const rec = await createReminder({
+				customerId: Number(customerId),
+				loanId: resolvedLoanId,
+				type,
+				dueDate,
+				note: note.trim(),
+				employeeId: employee.id,
+			});
+			onSaved?.(rec);
+			closeModal();
+			toast(`${type} reminder logged for ${customerLabel || "customer"} — ${fmtDate(dueDate)}`);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : "Failed to log reminder.";
+			const field = fieldForMessage(msg, SERVER_FIELDS);
+			if (field) fail(field, msg); else setErr(msg);
+		} finally {
+			setSaving(false);
+		}
+	}); }
 
   return (
     <>
@@ -97,7 +118,10 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
               searchHint="Searches: customer name, customer code, phone"
               getLabel={(c) => `${c.name} — ${c.code}`}
               getId={(c) => String(c.id)}
-              onChange={(id, c) => { setCustomerId(id); setCustomerLabel(`${c.name} — ${c.code}`); clearFe("customer"); }}
+              onChange={(id, c) => {
+                if (id !== customerId) { setLoanId(""); setLoanLabel(""); }
+                setCustomerId(id); setCustomerLabel(`${c.name} — ${c.code}`); clearFe("customer");
+              }}
             />
             <FieldError msg={fe.customer} />
           </div>
@@ -120,18 +144,28 @@ export function AddReminderModalContent({ initialDate, onSaved }: AddReminderMod
         <div className="frow">
           <div className={fe.loan ? "has-err" : undefined}>
             <label className="f">Loan Number (optional)</label>
-            <input className="inp" placeholder="Numeric loan id, if this reminder is about a specific loan" value={loanId} onChange={(e) => { setLoanId(e.target.value.replace(/\D/g, "")); clearFe("loan"); }} />
+            {/* Keyed by customer so changing the customer drops the previous customer's loan. */}
+            <SearchableSelect<LoanView>
+              key={customerId || "no-customer"}
+              value={loanLabel}
+              disabled={!customerId}
+              placeholder={customerId ? "Select a loan of this customer (optional)" : "Select a customer first"}
+              fetchFn={(q, p) => searchLoansPage(q, p, { customerId: Number(customerId) })}
+              searchHint="Searches this customer's loans by loan number"
+              getLabel={(l) => l.loanNumber}
+              getId={(l) => String(l.numericId)}
+              onChange={(id, l) => { setLoanId(id); setLoanLabel(l.loanNumber); clearFe("loan"); }}
+              portal
+            />
             <FieldError msg={fe.loan} />
           </div>
         </div>
         <div className="frow">
-          <div><label className="f">Note</label><input className="inp" placeholder="e.g. Call about overdue interest" value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <div><label className="f">Note</label><NoteField placeholder="e.g. Call about overdue interest" value={note} onChange={setNote} /></div>
         </div>
         <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
       </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Add Reminder"}</button>
+      <div className="ft">        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Add Reminder"}</button>
       </div>
     </>
   );

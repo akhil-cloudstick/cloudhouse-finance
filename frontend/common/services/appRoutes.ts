@@ -26,28 +26,28 @@
  */
 
 import {
-  APP_ROUTES,
-  DEFAULT_ROUTE,
-  ROUTE_ALIASES,
-  STANDALONE_PAGES,
-  isBusinessSegment,
-  type StandalonePage,
+	APP_ROUTES,
+	DEFAULT_ROUTE,
+	ROUTE_ALIASES,
+	STANDALONE_PAGES,
+	isBusinessSegment,
+	type StandalonePage,
 } from "@/common/config/routes";
 import { activeBusinessSlug, isValidBusinessSlug, resolveActiveSlug } from "@/common/services/tenantSession";
 import { navigationAllowed } from "@/common/config/routePermissions";
 
 export type ParsedPath = {
-  /** The business named by the URL, or null on a bare path. */
-  slug: string | null;
-  /** The console route, defaulting to the dashboard. */
-  route: string;
-  /** The route's argument — a customer, loan or packet id. */
-  arg?: string;
-  /** Set for /<slug>/login and /<slug>/reset, which are not console routes. */
-  page?: StandalonePage;
-  /** True when the URL used an old route name (ROUTE_ALIASES) — the address
-   * bar should be rewritten to the current one. */
-  aliased?: boolean;
+	/** The business named by the URL, or null on a bare path. */
+	slug: string | null;
+	/** The console route, defaulting to the dashboard. */
+	route: string;
+	/** The route's argument — a customer, loan or packet id. */
+	arg?: string;
+	/** Set for /<slug>/login and /<slug>/reset, which are not console routes. */
+	page?: StandalonePage;
+	/** True when the URL used an old route name (ROUTE_ALIASES) — the address
+	 * bar should be rewritten to the current one. */
+	aliased?: boolean;
 };
 
 /* parsePath splits a pathname into business, page, route and argument.
@@ -56,37 +56,37 @@ export type ParsedPath = {
  * bookmark holds, and the honest answer to "/ctfi/nonsense" is the dashboard,
  * not an error page. */
 export function parsePath(pathname?: string): ParsedPath {
-  const path = pathname ?? (typeof window === "undefined" ? "" : window.location.pathname);
-  const parts = path
-    .split("/")
-    .filter(Boolean)
-    .map((p) => {
-      try {
-        return decodeURIComponent(p);
-      } catch {
-        return p; // a malformed %-escape is still a usable literal segment
-      }
-    });
+	const path = pathname ?? (typeof window === "undefined" ? "" : window.location.pathname);
+	const parts = path
+		.split("/")
+		.filter(Boolean)
+		.map((p) => {
+			try {
+				return decodeURIComponent(p);
+			} catch {
+				return p; // a malformed %-escape is still a usable literal segment
+			}
+		});
 
-  let slug: string | null = null;
-  if (parts.length && isBusinessSegment(parts[0].toLowerCase())) {
-    slug = parts[0].toLowerCase();
-    parts.shift();
-  }
+	let slug: string | null = null;
+	if (parts.length && isBusinessSegment(parts[0].toLowerCase())) {
+		slug = parts[0].toLowerCase();
+		parts.shift();
+	}
 
-  const first = parts[0];
-  if (first && (STANDALONE_PAGES as readonly string[]).includes(first)) {
-    return { slug, route: DEFAULT_ROUTE, page: first as StandalonePage };
-  }
+	const first = parts[0];
+	if (first && (STANDALONE_PAGES as readonly string[]).includes(first)) {
+		return { slug, route: DEFAULT_ROUTE, page: first as StandalonePage };
+	}
 
-  const alias = first ? ROUTE_ALIASES[first] : undefined;
-  if (alias) return { slug, route: alias, arg: parts[1], aliased: true };
+	const alias = first ? ROUTE_ALIASES[first] : undefined;
+	if (alias) return { slug, route: alias, arg: parts[1], aliased: true };
 
-  return {
-    slug,
-    route: first && (APP_ROUTES as readonly string[]).includes(first) ? first : DEFAULT_ROUTE,
-    arg: parts[1],
-  };
+	return {
+		slug,
+		route: first && (APP_ROUTES as readonly string[]).includes(first) ? first : DEFAULT_ROUTE,
+		arg: parts[1],
+	};
 }
 
 /* prefix is the leading "/<slug>" for a business, or "" when none is known —
@@ -117,14 +117,14 @@ export function parsePath(pathname?: string): ParsedPath {
  * its own choice of business (e.g. Billing.tsx listing every OTHER business's
  * login link) and still gets it written into the URL unless it opts out. */
 function prefix(slug?: string | null, includeInUrl?: boolean): string {
-  if (slug === undefined) {
-    const resolved = resolveActiveSlug();
-    const s = resolved.slug ?? activeBusinessSlug();
-    const include = includeInUrl !== undefined ? includeInUrl : resolved.slug === null || resolved.fromPath;
-    return include && s && isValidBusinessSlug(s) ? `/${s}` : "";
-  }
-  const include = includeInUrl !== undefined ? includeInUrl : true;
-  return include && slug && isValidBusinessSlug(slug) ? `/${slug}` : "";
+	if (slug === undefined) {
+		const resolved = resolveActiveSlug();
+		const s = resolved.slug ?? activeBusinessSlug();
+		const include = includeInUrl !== undefined ? includeInUrl : resolved.slug === null || resolved.fromPath;
+		return include && s && isValidBusinessSlug(s) ? `/${s}` : "";
+	}
+	const include = includeInUrl !== undefined ? includeInUrl : true;
+	return include && slug && isValidBusinessSlug(slug) ? `/${slug}` : "";
 }
 
 /**
@@ -145,20 +145,20 @@ function prefix(slug?: string | null, includeInUrl?: boolean): string {
  * current URL in that case.
  */
 export function routeHref(
-  route: string,
-  arg?: string | number,
-  slug?: string | null,
-  includeInUrl?: boolean
+	route: string,
+	arg?: string | number,
+	slug?: string | null,
+	includeInUrl?: boolean
 ): string {
-  let r = route;
-  let a = arg;
-  if (a === undefined && r.includes("/")) {
-    const cut = r.indexOf("/");
-    a = r.slice(cut + 1);
-    r = r.slice(0, cut);
-  }
-  const tail = a === undefined || a === "" ? "" : `/${encodeURIComponent(String(a))}`;
-  return `${prefix(slug, includeInUrl)}/${r}${tail}`;
+	let r = route;
+	let a = arg;
+	if (a === undefined && r.includes("/")) {
+		const cut = r.indexOf("/");
+		a = r.slice(cut + 1);
+		r = r.slice(0, cut);
+	}
+	const tail = a === undefined || a === "" ? "" : `/${encodeURIComponent(String(a))}`;
+	return `${prefix(slug, includeInUrl)}/${r}${tail}`;
 }
 
 /* The event navigate() raises so the router re-reads the URL.
@@ -176,17 +176,17 @@ export const ROUTE_CHANGE_EVENT = "cloudhouse:routechange";
  * special-case, because assigning the hash it already had fired nothing.
  */
 export function navigate(route: string, arg?: string | number, slug?: string | null): void {
-  if (typeof window === "undefined") return;
-  // Every link, button and KPI card lands here (directly or through
-  // AppShell's link interceptor) — refuse a page the role can't open
-  // instead of landing on its NoAccess screen. See common/config/routePermissions.ts.
-  // Checked on the parsed target, since some callers pass a full href.
-  const href = routeHref(route, arg, slug);
-  if (!navigationAllowed(parsePath(href).route)) return;
-  // The marker tells goBack() that this entry was reached by an in-app move,
-  // so history.back() from it lands on an earlier console page.
-  window.history.pushState({ appNav: true }, "", href);
-  window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT));
+	if (typeof window === "undefined") return;
+	// Every link, button and KPI card lands here (directly or through
+	// AppShell's link interceptor) — refuse a page the role can't open
+	// instead of landing on its NoAccess screen. See common/config/routePermissions.ts.
+	// Checked on the parsed target, since some callers pass a full href.
+	const href = routeHref(route, arg, slug);
+	if (!navigationAllowed(parsePath(href).route)) return;
+	// The marker tells goBack() that this entry was reached by an in-app move,
+	// so history.back() from it lands on an earlier console page.
+	window.history.pushState({ appNav: true }, "", href);
+	window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT));
 }
 
 /**
@@ -196,30 +196,30 @@ export function navigate(route: string, arg?: string | number, slug?: string | n
  * falls back to the given route instead.
  */
 export function goBack(fallbackRoute: string, fallbackArg?: string | number): void {
-  if (typeof window === "undefined") return;
-  const state = window.history.state as { appNav?: boolean } | null;
-  if (state?.appNav) {
-    window.history.back();
-    return;
-  }
-  navigate(fallbackRoute, fallbackArg);
+	if (typeof window === "undefined") return;
+	const state = window.history.state as { appNav?: boolean } | null;
+	if (state?.appNav) {
+		window.history.back();
+		return;
+	}
+	navigate(fallbackRoute, fallbackArg);
 }
 
 /** The console's landing page for a business. */
 export function appPath(
-  slug?: string | null,
-  route: string = DEFAULT_ROUTE,
-  includeInUrl?: boolean
+	slug?: string | null,
+	route: string = DEFAULT_ROUTE,
+	includeInUrl?: boolean
 ): string {
-  return routeHref(route, undefined, slug, includeInUrl);
+	return routeHref(route, undefined, slug, includeInUrl);
 }
 
 /** The business's sign-in page: /<slug>/login, or bare /login. */
 export function loginPath(slug?: string | null, includeInUrl?: boolean): string {
-  return `${prefix(slug, includeInUrl)}/login`;
+	return `${prefix(slug, includeInUrl)}/login`;
 }
 
 /** The operator's reset tool for one business: /<slug>/reset. */
 export function resetPath(slug?: string | null, includeInUrl?: boolean): string {
-  return `${prefix(slug, includeInUrl)}/reset`;
+	return `${prefix(slug, includeInUrl)}/reset`;
 }

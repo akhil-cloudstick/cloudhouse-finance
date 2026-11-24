@@ -19,7 +19,7 @@ export function listCustomers(q?: string) {
 // customers whose home branch is one of these (a customer belongs to
 // exactly one branch — see customer.model.go) — used by the Cash Movements
 // filter's Branch→Customer narrowing (mirrors web's listCustomersPage).
-export function listCustomersPage(params: { q?: string; limit: number; offset: number; branchIds?: number[]; panStatus?: string; aadhaarStatus?: string }) {
+export function listCustomersPage(params: { q?: string; limit: number; offset: number; branchIds?: number[]; panStatus?: string; aadhaarStatus?: string; customerType?: string }) {
   const { branchIds, ...rest } = params;
   return apiRequest<{ items: Customer[]; hasMore: boolean; total?: number }>("/customers", {
     params: { ...rest, branchIds: branchIds?.length ? branchIds.join(",") : undefined },
@@ -66,8 +66,9 @@ export function listCustomerAuctionHistoryPage(customerId: number, limit: number
   return customerSubTable<CustomerAuctionRow>("auction-history", customerId, limit, offset, q, range);
 }
 
-export function createCustomer(input: CustomerInput) {
-  return apiRequest<Customer>("/customers", { method: "POST", body: input });
+/** confirmSamePerson: the user confirmed this is also an existing investor sharing a phone / PAN / Aadhaar. */
+export function createCustomer(input: CustomerInput, confirmSamePerson?: boolean) {
+  return apiRequest<Customer>("/customers", { method: "POST", body: input, params: confirmSamePerson ? { confirm_same_person: "true" } : undefined });
 }
 
 // Same shape as createCustomer's body — backend/internal/customer/handler.go's

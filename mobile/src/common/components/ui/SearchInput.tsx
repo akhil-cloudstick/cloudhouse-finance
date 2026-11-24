@@ -1,13 +1,19 @@
-import { useState } from "react";
-import { TextInput, View, type StyleProp, type ViewStyle } from "react-native";
+import { SELECTION_COLOR } from "@/common/theme/colors";
+import { useRef, useState } from "react";
+import { Pressable, TextInput, View, type StyleProp, type TextInputInstance, type ViewStyle } from "react-native";
+import { useHoldTip } from "./TipHost";
+import { useStableText } from "./useStableText";
 import { textStyle } from "@/common/theme/typography";
 import { C } from "./base";
+import { PIcon } from "./PIcon";
 import { s } from "./listKitStyles";
 
 type SearchInputProps = {
   value: string;
   onChangeText: (v: string) => void;
   placeholder: string;
+  /** Shown when the box is held, instead of the placeholder — what the search looks at. */
+  hint?: string;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -16,16 +22,27 @@ export function SearchInput({
   value,
   onChangeText,
   placeholder,
+  hint,
   style,
 }: SearchInputProps) {
   const [focused, setFocused] = useState(false);
+  const input = useRef<TextInputInstance>(null);
+  // Hold the box for its full hint (a long placeholder is cut off by the width), or the full text typed in it.
+  const hold = useHoldTip(() => hint ?? (value ? value : placeholder));
+  // The box shows its own copy of the text so a late or reshaped value from the parent cannot duplicate it or move the cursor.
+  const stable = useStableText(value, onChangeText);
   return (
     <View style={[s.searchWrap, style]}>
+      <View style={{ position: "relative", justifyContent: "center" }}>
       <TextInput
-        value={value}
-        onChangeText={onChangeText}
+        ref={input}
+        {...hold}
+        value={stable.value}
+        onChangeText={stable.onChangeText}
         placeholder={placeholder}
         placeholderTextColor={C.placeholder}
+        cursorColor={C.brand}
+        selectionColor={SELECTION_COLOR}
         autoComplete="off"
         importantForAutofill="no"
         textContentType="none"
@@ -35,8 +52,19 @@ export function SearchInput({
         allowFontScaling={false}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={textStyle([s.search, focused && { borderColor: C.brand }], false)}
+        style={textStyle([s.search, focused && { borderColor: C.brand }, !!value && { paddingRight: 44 }], false)}
       />
+      {value ? (
+        <Pressable
+          style={{ position: "absolute", right: 8, top: 0, bottom: 0, width: 28, alignItems: "center", justifyContent: "center" }}
+          hitSlop={8}
+          onPress={() => onChangeText("")}
+          accessibilityLabel="Clear search"
+        >
+          <PIcon name="close" color={C.muted} size={14} />
+        </Pressable>
+      ) : null}
+      </View>
     </View>
   );
 }

@@ -39,8 +39,8 @@ func balanceSheet(ctx context.Context, f models.Filter) ([]models.BalanceSheetRo
 		Where(`ocb.balance_date = (SELECT MAX(o2.balance_date) FROM opening_cash_balances o2
 			WHERE o2.branch_id = ocb.branch_id AND o2.mode = 'Cash' AND o2.balance_date <= ?)`, asOf).
 		Group("ocb.branch_id, ocb.amount, ocb.balance_date")
-	if f.BranchID != nil {
-		cq = cq.Where("ocb.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		cq = cq.Where("ocb.branch_id IN ?", f.BranchIDs)
 	}
 	if err := cq.Scan(&cashRows).Error; err != nil {
 		return nil, models.BalanceSheetTotals{}, err
@@ -56,8 +56,8 @@ func balanceSheet(ctx context.Context, f models.Filter) ([]models.BalanceSheetRo
 		Select(`COALESCE(SUM(CASE WHEN cm.type = 'in' THEN cm.amount ELSE -cm.amount END), 0) as value`).
 		Where("cm.mode IN ?", []string{"UPI", "Bank Transfer"}).
 		Where("cm.occurred_on <= ?", asOf)
-	if f.BranchID != nil {
-		bq = bq.Where("cm.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		bq = bq.Where("cm.branch_id IN ?", f.BranchIDs)
 	}
 	if err := bq.Scan(&bank).Error; err != nil {
 		return nil, models.BalanceSheetTotals{}, err
@@ -75,8 +75,8 @@ func balanceSheet(ctx context.Context, f models.Filter) ([]models.BalanceSheetRo
 			COALESCE(SUM(l.accrued_penal_interest), 0) as accrued_penal`).
 		Where("l.status IN ?", balanceOpenLoanStatuses).
 		Where("l.deleted_at IS NULL")
-	if f.BranchID != nil {
-		lq = lq.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		lq = lq.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := lq.Scan(&lt).Error; err != nil {
 		return nil, models.BalanceSheetTotals{}, err
@@ -88,8 +88,8 @@ func balanceSheet(ctx context.Context, f models.Filter) ([]models.BalanceSheetRo
 		Select("COALESCE(SUM(r.pledged_amount), 0) as value").
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
 		Where("r.status = ?", "Active")
-	if f.BranchID != nil {
-		brq = brq.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		brq = brq.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := brq.Scan(&borrowings).Error; err != nil {
 		return nil, models.BalanceSheetTotals{}, err
@@ -101,8 +101,8 @@ func balanceSheet(ctx context.Context, f models.Filter) ([]models.BalanceSheetRo
 		Joins("LEFT JOIN loans l ON l.id = r.loan_id").
 		Where("r.surplus_payable_amount > 0").
 		Where("r.surplus_disposition = ?", "")
-	if f.BranchID != nil {
-		spq = spq.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		spq = spq.Where("l.branch_id IN ?", f.BranchIDs)
 	}
 	if err := spq.Scan(&surplusPayable).Error; err != nil {
 		return nil, models.BalanceSheetTotals{}, err
@@ -112,8 +112,8 @@ func balanceSheet(ctx context.Context, f models.Filter) ([]models.BalanceSheetRo
 		WithContext(ctx).Table("expenses e").
 		Select("COALESCE(SUM(e.amount), 0) as value").
 		Where("e.status = ?", "Pending")
-	if f.BranchID != nil {
-		peq = peq.Where("e.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		peq = peq.Where("e.branch_id IN ?", f.BranchIDs)
 	}
 	if err := peq.Scan(&pendingExpenses).Error; err != nil {
 		return nil, models.BalanceSheetTotals{}, err

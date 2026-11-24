@@ -227,8 +227,8 @@ table:not(.hd-table):not(.amt-table) th{background:#ececec;font-size:12px}
 .sig-line{display:inline-block;border-top:1px solid #333;padding-top:4px;min-width:170px;margin-top:34px}
 /* Owner signature: the uploaded image sits in a fixed slot above the line,
  * so the line stays at the same height whether or not one is set. */
-.owner-sig .slot{height:46px;display:flex;align-items:flex-end}
-.owner-sig .sig-img{max-height:44px;max-width:170px;display:block}
+.owner-sig .slot{height:75px;display:flex;align-items:flex-end}
+.owner-sig .sig-img{max-height:73px;max-width:240px;display:block}
 .owner-sig .sig-line{margin-top:0}
 `
 	if lang == BondLangMalayalam {
@@ -265,7 +265,7 @@ func releaseAgreementDataForLoan(ctx context.Context, l *models.Loan) ReleaseAgr
 		CustomerAddress: l.Customer.Address,
 		BorrowedDate:    l.OpenedDate,
 		BorrowedAmount:  l.PrincipalAmount,
-		ReturnedDate:    time.Now(),
+		ReturnedDate:    loanClosedOn(ctx, l),
 		ReturnedAmount:  l.TotalPaid,
 		TotalInterest:   l.InterestPaid + l.PenalInterestPaid,
 		Ornaments:       ornaments,

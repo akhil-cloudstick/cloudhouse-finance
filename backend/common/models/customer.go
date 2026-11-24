@@ -10,6 +10,7 @@ import (
 type Customer struct {
 	config.TenantScoped
 	ID                  uint           `json:"id" gorm:"primaryKey"`
+	UUID                string         `json:"uuid" gorm:"type:uuid;default:gen_random_uuid()"`
 	Code                string         `json:"code" gorm:"index;size:20"`
 	Name                string         `json:"name" gorm:"not null;size:120"`
 	Phone               string         `json:"phone" gorm:"size:20"`
@@ -80,6 +81,7 @@ type CustomerResponse struct {
 	BankAccountName   string    `json:"bank_account_name,omitempty"`
 	BankAccountNumber string    `json:"bank_account_number,omitempty"`
 	BankIFSC          string    `json:"bank_ifsc,omitempty"`
+	LoanCount         *int64    `json:"loan_count,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }

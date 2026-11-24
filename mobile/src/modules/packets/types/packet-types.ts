@@ -22,6 +22,7 @@ export type PacketOrnament = {
   quantity: number;
   goldValue: number;
   remarks?: string;
+  releasedAt?: string | null;
 };
 
 export type Packet = {
@@ -38,8 +39,12 @@ export type Packet = {
     status?: string;
     ornaments?: PacketOrnament[];
   };
+  // Ornaments already handed back in a partial release (sent on a single-packet read only).
+  releasedOrnaments?: PacketOrnament[];
   status: string;
   currentLockerId?: number;
+  /** Filled by the API on list reads only. */
+  lockerCode?: string;
   totalGrossWeight?: number;
   totalNetWeight?: number;
   movements?: PacketMovement[];

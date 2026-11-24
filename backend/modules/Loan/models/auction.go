@@ -16,24 +16,31 @@ const (
 
 type AuctionRecord struct {
 	config.TenantScoped
-	ID                       uint                     `json:"id" gorm:"primaryKey"`
-	LoanID                   uint                     `json:"loan_id" gorm:"not null;index"`
-	Stage                    string                   `json:"stage" gorm:"not null;size:20"`
-	AuctionEligibleDate      time.Time                `json:"auction_eligible_date" gorm:"not null"`
-	AuctionDate              *time.Time               `json:"auction_date,omitempty"`
-	AuctionReferenceNumber   string                   `json:"auction_reference_number" gorm:"size:60"`
-	SaleAmount               float64                  `json:"sale_amount" gorm:"type:numeric(16,2);default:0"`
-	AuctionExpenses          float64                  `json:"auction_expenses" gorm:"type:numeric(16,2);default:0"`
-	SurplusShortfall         float64                  `json:"surplus_shortfall" gorm:"type:numeric(16,2);default:0"`
-	FinalSettlementStatus    string                   `json:"final_settlement_status" gorm:"not null;size:24;default:'Pending'"`
-	SurplusPayableAmount     float64                  `json:"surplus_payable_amount" gorm:"type:numeric(16,2);default:0"`
-	SurplusDisposition       string                   `json:"surplus_disposition,omitempty" gorm:"size:24"`
-	SurplusPaidOutMovementID *uint                    `json:"surplus_paid_out_movement_id,omitempty"`
-	Notices                  []AuctionNotice          `json:"notices,omitempty" gorm:"foreignKey:AuctionRecordID"`
-	Events                   []AuctionEvent           `json:"events,omitempty" gorm:"foreignKey:AuctionRecordID"`
-	DecisionRequests         []AuctionDecisionRequest `json:"decision_requests,omitempty" gorm:"foreignKey:AuctionRecordID"`
-	CreatedAt                time.Time                `json:"created_at"`
-	UpdatedAt                time.Time                `json:"updated_at"`
+	ID                     uint       `json:"id" gorm:"primaryKey"`
+	LoanID                 uint       `json:"loan_id" gorm:"not null;index"`
+	Stage                  string     `json:"stage" gorm:"not null;size:20"`
+	AuctionEligibleDate    time.Time  `json:"auction_eligible_date" gorm:"not null"`
+	AuctionDate            *time.Time `json:"auction_date,omitempty"`
+	AuctionReferenceNumber string     `json:"auction_reference_number" gorm:"size:150"`
+	SaleAmount             float64    `json:"sale_amount" gorm:"type:numeric(16,2);default:0"`
+	AuctionExpenses        float64    `json:"auction_expenses" gorm:"type:numeric(16,2);default:0"`
+	SurplusShortfall       float64    `json:"surplus_shortfall" gorm:"type:numeric(16,2);default:0"`
+	FinalSettlementStatus  string     `json:"final_settlement_status" gorm:"not null;size:24;default:'Pending'"`
+	SurplusPayableAmount   float64    `json:"surplus_payable_amount" gorm:"type:numeric(16,2);default:0"`
+	// Due at sale time (nil on rows sold before these columns existed; shown only in Auction History).
+	DuePrincipal             *float64 `json:"due_principal,omitempty" gorm:"type:numeric(16,2)"`
+	DueInterest              *float64 `json:"due_interest,omitempty" gorm:"type:numeric(16,2)"`
+	DuePenal                 *float64 `json:"due_penal,omitempty" gorm:"type:numeric(16,2)"`
+	DueTotal                 *float64 `json:"due_total,omitempty" gorm:"type:numeric(16,2)"`
+	SurplusDisposition       string   `json:"surplus_disposition,omitempty" gorm:"size:24"`
+	SurplusPaidOutMovementID *uint    `json:"surplus_paid_out_movement_id,omitempty"`
+	// SurplusRemarks is the reason/notes entered when the surplus was settled (required when retained as income).
+	SurplusRemarks   string                   `json:"surplus_remarks,omitempty" gorm:"size:500"`
+	Notices          []AuctionNotice          `json:"notices,omitempty" gorm:"foreignKey:AuctionRecordID"`
+	Events           []AuctionEvent           `json:"events,omitempty" gorm:"foreignKey:AuctionRecordID"`
+	DecisionRequests []AuctionDecisionRequest `json:"decision_requests,omitempty" gorm:"foreignKey:AuctionRecordID"`
+	CreatedAt        time.Time                `json:"created_at"`
+	UpdatedAt        time.Time                `json:"updated_at"`
 }
 
 type AuctionEvent struct {

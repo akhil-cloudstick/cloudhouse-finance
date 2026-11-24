@@ -6,8 +6,8 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Reports/models"
 	"context"
-	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -28,8 +28,15 @@ func expenseCashflow(ctx context.Context, f models.Filter) ([]models.ExpenseCash
 		Where("m.occurred_on >= ? AND m.occurred_on < ?", from, to).
 		Where("m.expense_id IS NULL").
 		Group("date(m.occurred_on), b.name, m.branch_id, m.type")
-	if f.BranchID != nil {
-		mq = mq.Where("m.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		mq = mq.Where("m.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CollectionModes) > 0 {
+		mq = mq.Where("LOWER(REPLACE(m.mode, ' ', '_')) IN ?", lowerModes(f.CollectionModes))
+	}
+	// Cash movements carry no expense category, so a category filter leaves only the categorised expenses.
+	if len(f.ExpenseCategoryIDs) > 0 {
+		mq = mq.Where("1 = 0")
 	}
 	var movements []movementRow
 	if err := mq.Scan(&movements).Error; err != nil {
@@ -50,8 +57,17 @@ func expenseCashflow(ctx context.Context, f models.Filter) ([]models.ExpenseCash
 		Where("e.mode = ?", "Cash").
 		Where("e.status = ?", "Approved").
 		Group("date(e.occurred_on), b.name, e.branch_id")
-	if f.BranchID != nil {
-		eq = eq.Where("e.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		eq = eq.Where("e.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CollectionModes) > 0 {
+		eq = eq.Where("LOWER(REPLACE(e.mode, ' ', '_')) IN ?", lowerModes(f.CollectionModes))
+	}
+	if len(f.ExpenseCategoryIDs) > 0 {
+		eq = eq.Where("e.category IN (?)", config.DB.WithContext(ctx).Table("categories").Select("name").Where("id IN ?", f.ExpenseCategoryIDs))
+	}
+	if len(f.EmployeeIDs) > 0 {
+		eq = eq.Where("e.id IN ?", f.EmployeeIDs)
 	}
 	var expenses []expenseRow
 	if err := eq.Scan(&expenses).Error; err != nil {
@@ -101,7 +117,7 @@ func expenseCashflow(ctx context.Context, f models.Filter) ([]models.ExpenseCash
 		totals.TotalDisbursements += row.Disbursements
 		totals.TotalExpenses += row.CashExpenses
 	}
-	paisa := func(v float64) float64 { return math.Round(v*100) / 100 }
+	paisa := common.RoundMoney
 	totals.TotalCollections = paisa(totals.TotalCollections)
 	totals.TotalDisbursements = paisa(totals.TotalDisbursements)
 	totals.TotalExpenses = paisa(totals.TotalExpenses)
@@ -115,8 +131,20 @@ func kycReport(ctx context.Context, f models.Filter) ([]models.KYCRow, models.KY
 		Select("c.id as customer_id, c.code, c.name, c.phone, c.kyc_status, c.pan_status, c.aadhaar_status").
 		Where("c.deleted_at IS NULL").
 		Order("c.name asc")
-	if f.BranchID != nil {
-		q = q.Where("c.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("c.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("c.id IN ?", f.CustomerIDs)
+	}
+	if len(f.KYCStatuses) > 0 {
+		q = q.Where("LOWER(TRIM(c.kyc_status)) IN ?", lowerTrimmed(f.KYCStatuses))
+	}
+	if len(f.PANStatuses) > 0 {
+		q = q.Where("LOWER(TRIM(c.pan_status)) IN ?", lowerTrimmed(f.PANStatuses))
+	}
+	if len(f.AadhaarStatuses) > 0 {
+		q = q.Where("LOWER(TRIM(c.aadhaar_status)) IN ?", lowerTrimmed(f.AadhaarStatuses))
 	}
 	var rows []models.KYCRow
 	if err := q.Scan(&rows).Error; err != nil {
@@ -138,17 +166,21 @@ func employeePerformance(ctx context.Context, f models.Filter) ([]models.Employe
 	from, to := dateRange(f)
 	type empRow struct {
 		EmployeeID uint
+		Code       string
 		Name       string
 		Role       string
 		BranchName string
 	}
 	eq := config.DB.
 		WithContext(ctx).Table("employees e").
-		Select("e.id as employee_id, e.name, e.role, b.name as branch_name").
+		Select("e.id as employee_id, e.code, e.name, e.role, b.name as branch_name").
 		Joins("LEFT JOIN branches b ON b.id = e.branch_id").
 		Where("e.deleted_at IS NULL")
-	if f.BranchID != nil {
-		eq = eq.Where("e.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		eq = eq.Where("e.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.Roles) > 0 {
+		eq = eq.Where("LOWER(TRIM(e.role)) IN ?", lowerTrimmed(f.Roles))
 	}
 	var emps []empRow
 	if err := eq.Scan(&emps).Error; err != nil {
@@ -208,6 +240,7 @@ func employeePerformance(ctx context.Context, f models.Filter) ([]models.Employe
 	for _, e := range emps {
 		row := models.EmployeePerformanceRow{
 			EmployeeID:     e.EmployeeID,
+			EmployeeCode:   e.Code,
 			Name:           e.Name,
 			Role:           e.Role,
 			BranchName:     e.BranchName,
@@ -230,6 +263,39 @@ func communicationHistory(ctx context.Context, f models.Filter, triggerType stri
 	if err != nil {
 		return nil, models.CommunicationHistoryTotals{}, err
 	}
+	if len(f.EmployeeIDs) > 0 {
+		allowed := map[uint]bool{}
+		for _, id := range f.EmployeeIDs {
+			allowed[id] = true
+		}
+		kept := logs[:0]
+		for _, l := range logs {
+			if l.TriggeredByEmployeeID != nil && allowed[*l.TriggeredByEmployeeID] {
+				kept = append(kept, l)
+			}
+		}
+		logs = kept
+	}
+	if len(f.Channels) > 0 || len(f.Statuses) > 0 {
+		channels, statuses := map[string]bool{}, map[string]bool{}
+		for _, v := range lowerTrimmed(f.Channels) {
+			channels[v] = true
+		}
+		for _, v := range lowerTrimmed(f.Statuses) {
+			statuses[v] = true
+		}
+		kept := logs[:0]
+		for _, l := range logs {
+			if len(channels) > 0 && !channels[strings.ToLower(strings.TrimSpace(l.Channel))] {
+				continue
+			}
+			if len(statuses) > 0 && !statuses[strings.ToLower(strings.TrimSpace(l.Status))] {
+				continue
+			}
+			kept = append(kept, l)
+		}
+		logs = kept
+	}
 	rows := make([]models.CommunicationHistoryRow, 0, len(logs))
 	var totals models.CommunicationHistoryTotals
 	for _, l := range logs {
@@ -250,4 +316,22 @@ func communicationHistory(ctx context.Context, f models.Filter, triggerType stri
 		}
 	}
 	return rows, totals, nil
+}
+
+// lowerModes normalises payment modes ("Bank Transfer", "bank_transfer") to the lower snake form.
+func lowerModes(modes []string) []string {
+	out := make([]string, 0, len(modes))
+	for _, m := range modes {
+		out = append(out, strings.ReplaceAll(strings.ToLower(strings.TrimSpace(m)), " ", "_"))
+	}
+	return out
+}
+
+// lowerTrimmed lower-cases and trims each value, for case-insensitive IN filters.
+func lowerTrimmed(vals []string) []string {
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, strings.ToLower(strings.TrimSpace(v)))
+	}
+	return out
 }

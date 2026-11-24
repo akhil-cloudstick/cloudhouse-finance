@@ -23,7 +23,7 @@ export const PARENT_ROUTE: Record<string, string> = {
 /* Ported from legacy/app.js's `titles` lookup, used for the header breadcrumb. */
 export const TITLES: Record<string, string> = {
   dashboard: "Dashboard", customers: "Customers & KYC", customer: "Customer 360°",
-  loans: "Loans", loan: "Loan Details", newloan: "New Gold Loan", schemes: "Loan Schemes", loanrisk: "Loan Risk",
+  loans: "Loans", loan: "Loan Details", newloan: "New Gold Loan", editloan: "Edit Loan", schemes: "Loan Schemes", loanrisk: "Loan Risk",
   personalloans: "Personal Loans", personalloan: "Personal Loan Details",
   investments: "Investments", investment: "Investment Details",
   goldrates: "Gold Rates", packets: "Packets & Lockers", packet: "Packet Detail", ledger: "Ledger",
@@ -33,6 +33,7 @@ export const TITLES: Record<string, string> = {
   "roles-permissions": "Roles & Permissions",
   billing: "Billing",
   settings: "Settings",
+  support: "Support",
   "ledger-bank": "Bank Ledger", "ledger-customer": "Customer Ledger", "ledger-branch": "Branch Ledger", "ledger-category": "Category Ledger",
   "cash-ledger": "Cash Ledger", "upi-ledger": "UPI Ledger", "bank-transfer-ledger": "Bank Transfer Ledger", "cheque-ledger": "Cheque Ledger",
 };

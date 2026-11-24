@@ -1,54 +1,43 @@
-import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
-import * as Print from "expo-print";
-import * as FileSystem from "expo-file-system/legacy";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import {
-  AccRow,
-  Buffering,
-  C,
-  Card,
-  EmptyText,
-  FlatHeader,
-  PScroll,
-  PillButton,
-  GroupedFilter,
-  emptyGroupedFilter,
-  gfDate,
-  gfFirst,
-  type GroupedFilterValue,
-  type GFSection,
-  ReportRow,
-  ReportSectionLabel,
-  Screen,
-  SearchInput,
-  ServerFlatList,
-  Sheet,
-  Txt,
-  type AccDetail,
-  openPage,
-  toast,
-} from "@/common/components/ui";
-import { SheetScrollView } from "@/common/components/ui/SheetScrollView";
-import { listBranchesPage } from "@/modules/branches/services/branchService";
-import { useServerList } from "@/common/hooks/use-server-list";
-import { getToken } from "@/common/services/tokenStorage";
+import { C, EmptyText, FlatHeader, PScroll, type GFSection, ReportRow, ReportSectionLabel, Screen, SearchInput, type AccDetail, openPage, toast } from "@/common/components/ui";
+import { listCustomersPage } from "@/modules/customers/services/customerService";
+import { listLoansPage } from "@/modules/loans/services/loanService";
+import { listSchemesPage } from "@/modules/schemes/services/schemeService";
+import { listPurityStandards } from "@/modules/purity-standards/services/purityStandardService";
+import { listOrnamentTypes } from "@/modules/ornament-types/services/ornamentTypeService";
+import { listLockersPage } from "@/modules/lockers/services/lockerService";
+import { fetchRoles } from "@/modules/roles/services/roleService";
+import { AUCTION_OUTCOME_LABELS } from "@/modules/auctions/types/auction-types";
+import { listBanksPage } from "@/modules/banks/services/bankService";
+import { listEmployeesPage } from "@/modules/employees/services/employeeService";
+import { listInvestmentPlansPage } from "@/modules/investments/services/investmentService";
+import { listExpenseCategoriesPage } from "@/modules/cash/services/cashService";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { TENANT_MODULES, type TenantModule } from "@/common/config/tenantModules";
-import { getAuctions, getBalanceSheet, getBankPledge, getCommunicationHistory, getDepositRegister, getDisbursement, getEmployeePerformance, getExpenseCashflow, getFormG, getGoldRateHistory, getGoldRelease, getGoldWeight, getInterestCollection, getInterestPayoutRegister, getKYC, getLoanExtensions, getLoansStatus, getMaturityRegister, getOutstandingPrincipal, getPackets, getPaymentCollection, getPersonalLoans, getProfitAndLoss, reportExportUrl } from "@/modules/reports/services/reportsService";
-import { type FormGStatement, type ReportFilters, type ReportResult, type StatementRow } from "@/modules/reports/types/reports-types";
+import { getAuctions, getBalanceSheet, getBankPledge, getCommunicationHistory, getDepositRegister, getDisbursement, getEmployeePerformance, getExpenseCashflow, getGoldRateHistory, getGoldRateSetByPage, getGoldRelease, getGoldWeight, getInterestCollection, getInterestPayoutRegister, getKYC, getLoanExtensions, getLoansStatus, getMaturityRegister, getPackets, getPaymentCollection, getPersonalLoans, getProfitAndLoss } from "@/modules/reports/services/reportsService";
+import { DayBookSheet } from "@/modules/reports/components/DayBookSheet";
+import { type ReportFilters, type ReportResult } from "@/modules/reports/types/reports-types";
 import { dmy, inr, todayISO } from "@/common/utils/format";
-import { isUserCancel, userMessage } from "@/common/services/apiErrors";
 import { useCanOpen } from "@/common/config/routePermissions";
+import * as Print from "expo-print";
+import { downloadExport } from "@/modules/reports/services/reportDownload";
+import { isUserCancel, userMessage } from "@/common/services/apiErrors";
+
+// Reports — prototype #header-reports + #page-reports (grouped report rows)
+// and #report-table-modal. Tapping a report opens its table in a sheet:
+// server-paged (page / page_size = 10) with a server-side search (`q`) and
+// optional from/to, rows as accordion rows, Export .xlsx + Print through the
+// server export (GET /reports/export/:key). Balance Sheet / P&L / Form G are
+// statements, rendered as statement lines inside the same sheet.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type RowView = { id?: string; name: string; sub?: string; amount?: string; status?: string; details?: AccDetail[] };
 // "link" opens another screen instead of a report sheet (see `href`).
-type Kind = "table" | "statement" | "formg" | "link";
-type ReportDef = {
+type Kind = "table" | "statement" | "formg" | "link" | "daybook";
+export type ReportDef = {
   key: string;
   title: string;
   group: string;
@@ -60,45 +49,117 @@ type ReportDef = {
   defaultRange?: () => { from?: string; to?: string };
   tenantModule?: TenantModule;
   href?: string;
-  // The report's own extra single-select dropdown (web ReportView extraFilter).
-  extra?: { field: "status" | "triggerType"; label: string; options: string[] };
+  // Extra filter sections (beyond Branch / Date). Each selection is sent as its `param` (comma-joined) on the fetch and the export.
+  filterGroups?: FilterGroup[];
 };
+type FilterGroup = { key: string; param: string; section: GFSection };
+
+type Page = { q?: string; limit: number; offset: number };
+const staticGroup = (param: string, label: string, options: (string | { value: string; label: string })[]): FilterGroup => ({
+  key: param,
+  param,
+  section: { kind: "static", key: param, label, options: options.map((o) => (typeof o === "string" ? { value: o, label: o } : o)) },
+});
+const asyncGroup = (param: string, label: string, fetchPage: (p: Page) => Promise<{ items: { value: string; label: string }[]; hasMore: boolean }>): FilterGroup => ({
+  key: param,
+  param,
+  section: { kind: "async", key: param, label, fetchPage },
+});
+// Backend-paged (limit/offset + search) option lists — never a full list.
+const customerGroup = (param = "customer_id", label = "Customer") =>
+  asyncGroup(param, label, (p) => listCustomersPage(p).then((r) => ({ items: r.items.map((c) => ({ value: String(c.id), label: c.name })), hasMore: r.hasMore })));
+const loanGroup = () => asyncGroup("loan_id", "Loan", (p) => listLoansPage(p).then((r) => ({ items: r.items.map((l) => ({ value: String(l.id), label: l.loanNumber })), hasMore: r.hasMore })));
+const schemeGroup = () => asyncGroup("scheme_id", "Scheme", (p) => listSchemesPage(p).then((r) => ({ items: r.items.map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore })));
+const bankGroup = () => asyncGroup("bank_id", "Bank", (p) => listBanksPage(p).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })));
+const employeeGroup = (label = "Employee") =>
+  asyncGroup("employee_id", label, (p) => listEmployeesPage(p).then((r) => ({ items: r.items.map((e) => ({ value: String(e.id), label: e.name })), hasMore: r.hasMore })));
+// "Set By" is the free-text name a gold rate was signed with, so the options are those names (paged, searchable).
+const setByGroup = () =>
+  asyncGroup("set_by", "Set By", (p) => getGoldRateSetByPage(p).then((r) => ({ items: r.items.map((n) => ({ value: n, label: n })), hasMore: r.hasMore })));
+const planGroup = () => asyncGroup("plan_id", "Plan", (p) => listInvestmentPlansPage(p).then((r) => ({ items: (r.items ?? []).map((x) => ({ value: String(x.id), label: x.name })), hasMore: r.hasMore })));
+const expenseCategoryGroup = () =>
+  asyncGroup("expense_category_id", "Expense Category", (p) =>
+    listExpenseCategoriesPage(p.q ?? "", Math.floor(p.offset / p.limit), p.limit, true).then((r) => ({ items: r.items.map((c) => ({ value: String(c.id), label: c.name })), hasMore: r.hasMore })),
+  );
+// Purity as an ornament stores it ("22K") so the report's exact match works; same options as web.
+// Falls back to 24K–10K when the purity-standard list is empty or unavailable.
+const purityGroup = (): FilterGroup =>
+  asyncGroup("purity", "Purity (karat)", async (p) => {
+    let karats: number[] = [];
+    try {
+      const r = await listPurityStandards();
+      karats = (Array.isArray(r) ? r : []).map((x: { karat?: number }) => x.karat).filter((k): k is number => k != null);
+    } catch {
+      /* fall back below */
+    }
+    if (karats.length === 0) karats = Array.from({ length: 15 }, (_, i) => 24 - i);
+    const term = (p.q ?? "").trim().toLowerCase();
+    const items = [...new Set(karats)]
+      .sort((a, b) => b - a)
+      .map((k) => ({ value: `${k}K`, label: `${k}K` }))
+      .filter((o) => !term || o.label.toLowerCase().includes(term));
+    return { items, hasMore: false };
+  });
+const INVESTMENT_STATUSES =["Active", "Matured", "Renewed", "Closed"];
+// Same extra filters as web's ReportsPage: ornament type, locker, role (live role list, seeded roles as a fallback).
+const ornamentTypeGroup = () =>
+  asyncGroup("ornament_type", "Ornament Type", (p) => listOrnamentTypes(p.q).then((r) => ({ items: (r ?? []).slice(p.offset, p.offset + p.limit).map((t) => ({ value: t.name, label: t.name })), hasMore: (r ?? []).length > p.offset + p.limit })));
+const lockerGroup = () =>
+  asyncGroup("locker_id", "Locker", (p) => listLockersPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: (r.items ?? []).map((l) => ({ value: String(l.id), label: l.code })), hasMore: r.hasMore })));
+const DEFAULT_ROLES = ["Administrator", "Management", "Branch Manager", "Loan Operator", "Cashier", "Accountant", "Collection Staff", "Auction Administrator", "Auditor"];
+const roleGroup = () =>
+  asyncGroup("role", "Role", async (p) => {
+    if (p.offset > 0) return { items: [], hasMore: false };
+    let names = DEFAULT_ROLES;
+    try {
+      const rs = await fetchRoles();
+      if (rs.length) names = rs.map((r) => r.name);
+    } catch {
+      /* seeded roles */
+    }
+    const term = (p.q ?? "").trim().toLowerCase();
+    return { items: names.filter((n) => !term || n.toLowerCase().includes(term)).map((n) => ({ value: n, label: n })), hasMore: false };
+  });
+const VERIFY_STATUSES = ["Verified", "Pending", "Failed", "Name Mismatch"];
 
 const w = (n?: number | null) => `${(n ?? 0).toFixed(2)} g`;
-const firstOfMonth = () => `${todayISO().slice(0, 8)}01`;
+export const firstOfMonth = () => `${todayISO().slice(0, 8)}01`;
 const monthsAgo = (months: number) => {
   const d = new Date();
   d.setMonth(d.getMonth() - months);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-const REPORTS: ReportDef[] = [
+export const REPORTS: ReportDef[] = [
+  // Loans & Collections
   {
     key: "disbursement",
     title: "Daily Loan Disbursement",
     group: "Loans & Collections",
     kind: "table",
+    filterGroups: [customerGroup(), schemeGroup()],
     fetch: getDisbursement,
     headline: (t) => inr(t?.totalAmount),
     sub: (t) => `${t?.count ?? 0} loans`,
-    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: dmy(r.openedDate), amount: inr(r.amount), details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Scheme", v: r.schemeName || "—" }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: dmy(r.openedDate), amount: inr(r.amount), details: [{ k: "Opened", v: dmy(r.openedDate) }, { k: "Amount", v: inr(r.amount) }, { k: "Branch", v: r.branchName || "—" }, { k: "Scheme", v: r.schemeName || "—" }] }),
   },
   {
     key: "loans-status",
     title: "Active / Closed / Overdue Loans",
     group: "Loans & Collections",
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("status", "Status", ["Active", "Due Soon", "Overdue", "Defaulted", "Closed"])],
     fetch: getLoansStatus,
-    extra: { field: "status", label: "Status", options: ["Active", "Closed", "Pending Approval", "Auction Eligible"] },
     headline: (t) => `${t?.count ?? 0} loans`,
-    sub: (t) => `${t?.active ?? 0} active · ${t?.overdue ?? 0} overdue · ${t?.dueSoon ?? 0} due soon · ${t?.closed ?? 0} closed`,
-    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: `Due ${dmy(r.dueDate)}`, amount: inr(r.outstanding), status: r.status, details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Outstanding", v: inr(r.outstanding) }] }),
+    sub: (t) => `${t?.active ?? 0} active · ${t?.overdue ?? 0} overdue · ${t?.defaulted ?? 0} defaulted · ${t?.dueSoon ?? 0} due soon · ${t?.closed ?? 0} closed`,
+    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: `Due ${dmy(r.dueDate)}`, amount: inr(r.outstanding), status: r.status, details: [{ k: "Status", v: r.status || "—" }, { k: "Due date", v: dmy(r.dueDate) }, { k: "Branch", v: r.branchName || "—" }, { k: "Outstanding", v: inr(r.outstanding) }] }),
   },
   {
     key: "interest-collection",
     title: "Interest & Penal Collection",
     group: "Loans & Collections",
     kind: "table",
+    filterGroups: [customerGroup()],
     fetch: getInterestCollection,
     headline: (t) => inr(t?.total),
     sub: (t) => `${inr(t?.totalInterest)} interest · ${inr(t?.totalPenal)} penal`,
@@ -107,34 +168,27 @@ const REPORTS: ReportDef[] = [
       name: dmy(r.paidOn),
       sub: r.branchName,
       amount: inr((r.interestApplied ?? 0) + (r.penalApplied ?? 0)),
-      details: [{ k: "Interest", v: inr(r.interestApplied) }, { k: "Penal", v: inr(r.penalApplied) }],
+      details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Paid on", v: dmy(r.paidOn) }, { k: "Interest", v: inr(r.interestApplied) }, { k: "Penal", v: inr(r.penalApplied) }, { k: "Branch", v: r.branchName || "—" }],
     }),
-  },
-  {
-    key: "outstanding-principal",
-    title: "Outstanding Principal",
-    group: "Loans & Collections",
-    kind: "table",
-    fetch: getOutstandingPrincipal,
-    headline: (t) => inr(t?.totalOutstanding),
-    sub: (t) => `${t?.totalLoans ?? 0} loans across branches`,
-    row: (r) => ({ name: r.branchName, sub: `${r.loanCount} loans`, amount: inr(r.outstanding), details: [{ k: "Loans", v: String(r.loanCount) }, { k: "Outstanding", v: inr(r.outstanding) }] }),
   },
   {
     key: "payment-collection",
     title: "Payment Collection",
     group: "Loans & Collections",
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("payment_type", "Payment Type", ["Interest", "Penal Interest", "Principal", "Partial", "Full Settlement", "Waiver", "Discount", "Auction Sale", "Auction Write-Off"])],
     fetch: getPaymentCollection,
     headline: (t) => inr(t?.totalAmount),
     sub: (t) => `${t?.count ?? 0} payments`,
-    row: (r) => ({ id: r.loanNumber, name: r.type, sub: dmy(r.paidOn), amount: inr(r.amount), details: [{ k: "Branch", v: r.branchName || "—" }, { k: "Staff", v: r.employeeName || "—" }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.type, sub: dmy(r.paidOn), amount: inr(r.amount), details: [{ k: "Paid on", v: dmy(r.paidOn) }, { k: "Type", v: r.type || "—" }, { k: "Branch", v: r.branchName || "—" }, { k: "Collected by", v: r.employeeName || "—" }] }),
   },
+  // Gold & Custody
   {
     key: "gold-weight",
     title: "Gold / Ornament & Weight",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), ornamentTypeGroup(), purityGroup()],
     fetch: getGoldWeight,
     headline: (t) => w(t?.totalNetWeight),
     sub: (t) => `${w(t?.totalGrossWeight)} gross · ${inr(t?.totalGoldValue)} total value`,
@@ -143,7 +197,7 @@ const REPORTS: ReportDef[] = [
       name: r.name,
       sub: r.customerName,
       amount: inr(r.goldValue),
-      details: [{ k: "Purity", v: r.purity || "—" }, { k: "Gross wt", v: w(r.grossWeight) }, { k: "Net wt", v: w(r.netWeight) }],
+      details: [{ k: "Customer", v: r.customerName || "—" }, { k: "Purity", v: r.purity || "—" }, { k: "Gross wt", v: w(r.grossWeight) }, { k: "Net wt", v: w(r.netWeight) }, { k: "Value", v: inr(r.goldValue) }],
     }),
   },
   {
@@ -151,16 +205,18 @@ const REPORTS: ReportDef[] = [
     title: "Packet Tracking & Locker",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), loanGroup(), staticGroup("status", "Status", ["Locker Stored", "Bank Pledged", "Returned", "Released"]), lockerGroup()],
     fetch: getPackets,
     headline: (t) => `${t?.count ?? 0} packets`,
     sub: (t) => `${t?.inLocker ?? 0} in locker · ${t?.bankPledged ?? 0} pledged · ${t?.released ?? 0} released`,
-    row: (r) => ({ id: r.code, name: r.loanNumber, sub: r.lockerCode ? `Locker ${r.lockerCode}` : undefined, status: r.status, details: [{ k: "Locker", v: r.lockerCode || "—" }, { k: "Movements", v: String(r.movementCount ?? 0) }] }),
+    row: (r) => ({ id: r.code, name: r.loanNumber, sub: r.lockerCode ? `Locker ${r.lockerCode}` : undefined, status: r.status, details: [{ k: "Packet code", v: r.code || "—" }, { k: "Loan #", v: r.loanNumber || "—" }, { k: "Status", v: r.status || "—" }, { k: "Locker", v: r.lockerCode || "—" }, { k: "Movements", v: String(r.movementCount ?? 0) }] }),
   },
   {
     key: "bank-pledge",
     title: "Bank Pledge & Liability",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [bankGroup(), staticGroup("status", "Status", ["Active", "Released"])],
     fetch: getBankPledge,
     headline: (t) => inr(t?.outstandingLiability),
     sub: (t) => `${t?.count ?? 0} pledge records`,
@@ -170,7 +226,7 @@ const REPORTS: ReportDef[] = [
       sub: dmy(r.pledgeDate),
       amount: inr(r.pledgedAmount),
       status: r.status,
-      details: [{ k: "Pledged on", v: dmy(r.pledgeDate) }, { k: "Released on", v: dmy(r.releaseDate) }],
+      details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Pledged amount", v: inr(r.pledgedAmount) }, { k: "Pledged on", v: dmy(r.pledgeDate) }, { k: "Released on", v: dmy(r.releaseDate) }, { k: "Status", v: r.status || "—" }],
     }),
   },
   {
@@ -178,6 +234,7 @@ const REPORTS: ReportDef[] = [
     title: "Loan Extensions",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("status", "Status", ["Pending", "Approved", "Rejected"])],
     fetch: getLoanExtensions,
     headline: (t) => `${t?.count ?? 0} requests`,
     sub: () => "Requested tenure extensions",
@@ -186,7 +243,7 @@ const REPORTS: ReportDef[] = [
       name: `${r.months ?? "—"} months`,
       sub: `Requested ${dmy(r.requestedAt)}`,
       status: r.status,
-      details: [{ k: "New due date", v: dmy(r.newDueDate) }, { k: "Requested on", v: dmy(r.requestedAt) }],
+      details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Months", v: String(r.months ?? "—") }, { k: "New due date", v: dmy(r.newDueDate) }, { k: "Requested on", v: dmy(r.requestedAt) }, { k: "Status", v: r.status || "—" }],
     }),
   },
   {
@@ -194,26 +251,30 @@ const REPORTS: ReportDef[] = [
     title: "Gold Release / Closure",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), loanGroup(), staticGroup("status", "Status", ["Pending", "Approved", "Rejected"])],
     fetch: getGoldRelease,
     headline: (t) => `${t?.count ?? 0} releases`,
     sub: (t) => `${inr(t?.totalSettlement)} total settlement`,
-    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: dmy(r.requestedAt), amount: inr(r.settlementAmount), status: r.status, details: [{ k: "Requested on", v: dmy(r.requestedAt) }, { k: "Settlement", v: inr(r.settlementAmount) }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.customerName, sub: dmy(r.requestedAt), amount: inr(r.settlementAmount), status: r.status, details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Customer", v: r.customerName || "—" }, { k: "Requested on", v: dmy(r.requestedAt) }, { k: "Status", v: r.status || "—" }, { k: "Settlement", v: inr(r.settlementAmount) }] }),
   },
   {
     key: "auctions",
     title: "Auction Reports",
     group: "Gold & Custody",
     kind: "table",
+    filterGroups: [customerGroup(), loanGroup(), staticGroup("settlement", "Settlement", Object.entries(AUCTION_OUTCOME_LABELS).map(([value, label]) => ({ value, label })))],
     fetch: getAuctions,
     headline: (t) => `${t?.count ?? 0} auctions`,
     sub: (t) => `${inr(t?.totalSaleAmount)} total sale amount`,
-    row: (r) => ({ id: r.loanNumber, name: r.stage, sub: dmy(r.auctionDate), amount: inr(r.saleAmount), status: r.settlementStatus, details: [{ k: "Auction date", v: dmy(r.auctionDate) }, { k: "Sale amount", v: inr(r.saleAmount) }] }),
+    row: (r) => ({ id: r.loanNumber, name: r.stage, sub: dmy(r.auctionDate), amount: inr(r.saleAmount), status: AUCTION_OUTCOME_LABELS[r.settlementStatus as keyof typeof AUCTION_OUTCOME_LABELS] ?? r.settlementStatus, details: [{ k: "Loan #", v: r.loanNumber || "—" }, { k: "Stage", v: r.stage || "—" }, { k: "Auction date", v: dmy(r.auctionDate) }, { k: "Sale amount", v: inr(r.saleAmount) }] }),
   },
+  // Branch & Compliance
   {
     key: "expense-cashflow",
     title: "Expense & Cash Flow",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [staticGroup("collection_mode", "Collection Mode", [{ value: "cash", label: "Cash" }, { value: "upi", label: "UPI" }, { value: "bank_transfer", label: "Bank Transfer" }, { value: "cheque", label: "Cheque" }]), expenseCategoryGroup()],
     fetch: getExpenseCashflow,
     headline: (t) => inr(t?.netCashflow),
     sub: (t) => `${inr(t?.totalCollections)} in · ${inr(t?.totalDisbursements)} out · ${inr(t?.totalExpenses)} expenses`,
@@ -233,16 +294,18 @@ const REPORTS: ReportDef[] = [
     title: "KYC Verification",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("kyc_status", "KYC", VERIFY_STATUSES), staticGroup("pan_status", "PAN", VERIFY_STATUSES), staticGroup("aadhaar_status", "Aadhaar", VERIFY_STATUSES)],
     fetch: getKYC,
     headline: (t) => `${t?.count ?? 0} customers`,
     sub: (t) => `${t?.verified ?? 0} verified · ${t?.pending ?? 0} pending`,
-    row: (r) => ({ id: r.code, name: r.name, sub: r.phone, status: r.kycStatus, details: [{ k: "PAN", v: r.panStatus || "—" }, { k: "Aadhaar", v: r.aadhaarStatus || "—" }] }),
+    row: (r) => ({ id: r.code, name: r.name, sub: r.phone, status: r.kycStatus, details: [{ k: "Customer code", v: r.code || "—" }, { k: "Phone", v: r.phone || "—" }, { k: "KYC", v: r.kycStatus || "—" }, { k: "PAN", v: r.panStatus || "—" }, { k: "Aadhaar", v: r.aadhaarStatus || "—" }] }),
   },
   {
     key: "gold-rate-history",
     title: "Gold Rate History",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [setByGroup()],
     fetch: getGoldRateHistory,
     headline: (t) => `${t?.count ?? 0} rates`,
     sub: () => "Published daily rates",
@@ -253,6 +316,7 @@ const REPORTS: ReportDef[] = [
     title: "Employee Performance",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [employeeGroup(), roleGroup()],
     fetch: getEmployeePerformance,
     headline: (t) => `${t?.totalLoansProcessed ?? 0} loans processed`,
     sub: (t) => `${inr(t?.totalCollections)} collected`,
@@ -261,6 +325,7 @@ const REPORTS: ReportDef[] = [
       sub: [r.role, r.branchName].filter(Boolean).join(" · "),
       amount: inr(r.collectionsAmount),
       details: [
+        ...(r.employeeCode ? [{ k: "Employee ID", v: r.employeeCode }] : []),
         { k: "Loans processed", v: String(r.loansProcessed ?? 0) },
         { k: "Reminders sent", v: String(r.remindersSent ?? 0) },
         { k: "Approvals", v: String(r.approvals ?? 0) },
@@ -273,11 +338,11 @@ const REPORTS: ReportDef[] = [
     title: "Communication History",
     group: "Branch & Compliance",
     kind: "table",
+    filterGroups: [employeeGroup(), staticGroup("channel", "Channel", ["WhatsApp"]), staticGroup("status", "Status", ["sent", "failed"]), staticGroup("trigger_type", "Trigger Type", ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"])],
     fetch: getCommunicationHistory,
-    extra: { field: "triggerType", label: "Trigger Type", options: ["loan_sanction", "payment", "closure", "auction_notice", "reminder", "otp"] },
     headline: (t) => `${t?.count ?? 0} messages`,
     sub: (t) => `${t?.sent ?? 0} sent · ${t?.failed ?? 0} failed`,
-    row: (r) => ({ name: r.recipientName, sub: `${r.channel} · ${dmy(r.sentAt)}`, status: r.status, details: [{ k: "Phone", v: r.recipientPhone || "—" }, { k: "Trigger", v: r.triggerType || "—" }] }),
+    row: (r) => ({ name: r.recipientName, sub: `${r.channel} · ${dmy(r.sentAt)}`, status: r.status, details: [{ k: "Phone", v: r.recipientPhone || "—" }, { k: "Channel", v: r.channel || "—" }, { k: "Trigger", v: r.triggerType || "—" }, { k: "Sent at", v: dmy(r.sentAt) }] }),
   },
   {
     key: "personal-loans",
@@ -285,6 +350,7 @@ const REPORTS: ReportDef[] = [
     group: "Branch & Compliance",
     tenantModule: TENANT_MODULES.personalLoans,
     kind: "table",
+    filterGroups: [customerGroup(), staticGroup("frequency", "Frequency", ["Daily", "Weekly", "Monthly"])],
     fetch: getPersonalLoans,
     headline: (t) => inr(t?.totalOutstanding),
     sub: (t) => `${t?.count ?? 0} loans · ${inr(t?.totalDisbursed)} disbursed`,
@@ -297,6 +363,7 @@ const REPORTS: ReportDef[] = [
       details: [{ k: "Principal", v: inr(r.principalAmount) }, { k: "Disbursed", v: inr(r.disbursedAmount) }, { k: "Branch", v: r.branchName || "—" }],
     }),
   },
+  // Financial Statements
   {
     key: "balance-sheet",
     title: "Balance Sheet",
@@ -324,6 +391,10 @@ const REPORTS: ReportDef[] = [
     kind: "formg",
     defaultRange: () => ({ from: monthsAgo(3), to: todayISO() }),
   },
+  // Web's "Ledger / Statement Export" tile — its own page inside Reports
+  // (app/(tabs)/ledger-statement.tsx): Branch/Customer/Type/Date filters,
+  // running balance, clickable loan/customer/bank/category/mode links and a
+  // PDF / Excel export of whatever the filters show.
   {
     key: "ledger-export",
     title: "Ledger Report",
@@ -331,12 +402,21 @@ const REPORTS: ReportDef[] = [
     kind: "link",
     href: "/ledger-statement?from=reports",
   },
+  // Hand-entered Day Book — its own sheet (DayBookSheet).
+  {
+    key: "day-book",
+    title: "Day Book",
+    group: "Financial Statements",
+    kind: "daybook",
+  },
+  // Investments
   {
     key: "investments-deposit-register",
     title: "Investment Deposit Register",
     group: "Investments",
     tenantModule: TENANT_MODULES.investments,
     kind: "table",
+    filterGroups: [customerGroup("investor_id", "Investor"), planGroup(), staticGroup("status", "Status", INVESTMENT_STATUSES)],
     fetch: getDepositRegister,
     headline: (t) => inr(t?.totalPrincipal),
     sub: (t) => `${t?.count ?? 0} deposits`,
@@ -355,6 +435,7 @@ const REPORTS: ReportDef[] = [
     group: "Investments",
     tenantModule: TENANT_MODULES.investments,
     kind: "table",
+    filterGroups: [customerGroup("investor_id", "Investor"), planGroup(), staticGroup("status", "Status", ["Pending", "Paid"])],
     fetch: getInterestPayoutRegister,
     headline: (t) => `${inr(t?.totalPending)} pending`,
     sub: (t) => `${inr(t?.totalPaid)} paid of ${inr(t?.totalDue)}`,
@@ -366,6 +447,7 @@ const REPORTS: ReportDef[] = [
     group: "Investments",
     tenantModule: TENANT_MODULES.investments,
     kind: "table",
+    filterGroups: [customerGroup("investor_id", "Investor"), planGroup(), staticGroup("status", "Status", INVESTMENT_STATUSES)],
     fetch: getMaturityRegister,
     headline: (t) => `${t?.count ?? 0} investments`,
     sub: (t) => `${t?.active ?? 0} active · ${t?.matured ?? 0} matured · ${t?.renewed ?? 0} renewed · ${t?.closed ?? 0} closed`,
@@ -377,17 +459,22 @@ const GROUPS = ["Loans & Collections", "Gold & Custody", "Branch & Compliance", 
 export default function ReportsScreen() {
   const { hasModule } = useTheme();
   const [search, setSearch] = useState("");
-  const [open, setOpen] = useState<ReportDef | null>(null);
+  const router = useRouter();
+  const [dayBookOpen, setDayBookOpen] = useState(false);
 
   const canOpen = useCanOpen();
+  // A "link" row (e.g. Ledger / Statement) only when its page may be opened.
   const available = REPORTS.filter((r) => (!r.tenantModule || hasModule(r.tenantModule)) && (r.kind !== "link" || !r.href || canOpen(r.href)));
+  // Static list of report titles (not data) — filtered locally.
   const needle = search.trim().toLowerCase();
   const shown = needle ? available.filter((r) => r.title.toLowerCase().includes(needle)) : available;
 
+  // Dashboard tiles deep-link here with ?section=<key>; `t` re-applies it per tap.
   const params = useLocalSearchParams<{ section?: string; t?: string }>();
   const openReport = (r: ReportDef) => {
     if (r.kind === "link" && r.href) openPage(`${r.href}&t=${Date.now()}`);
-    else setOpen(r);
+    else if (r.kind === "daybook") setDayBookOpen(true);
+    else router.push(`/reports/${r.key}` as never);
   };
   useEffect(() => {
     const target = available.find((r) => r.key === params.section);
@@ -397,8 +484,11 @@ export default function ReportsScreen() {
 
   return (
     <Screen header={<FlatHeader title="Reports" subtitle="Branch reports & summaries" />}>
+      {/* Outside the scroll view so it stays pinned while the report list scrolls. */}
+      <View style={{ backgroundColor: C.bg }}>
+        <SearchInput value={search} onChangeText={setSearch} placeholder="Search reports" style={{ paddingTop: 12, paddingBottom: 8 }} />
+      </View>
       <PScroll>
-        <SearchInput value={search} onChangeText={setSearch} placeholder="Search reports" style={{ paddingTop: 12, paddingBottom: 0 }} />
         {GROUPS.map((g) => {
           const rows = shown.filter((r) => r.group === g);
           if (!rows.length) return null;
@@ -406,253 +496,14 @@ export default function ReportsScreen() {
             <View key={g}>
               <ReportSectionLabel>{g}</ReportSectionLabel>
               {rows.map((r) => (
-                <ReportRow key={r.key} title={r.title} onPress={() => openReport(r)} />
+                <ReportRow key={r.key} title={r.title} onPress={() => openReport(r)}  />
               ))}
             </View>
           );
         })}
         {shown.length === 0 ? <EmptyText>No reports match your search.</EmptyText> : null}
       </PScroll>
-      <ReportSheet report={open} onClose={() => setOpen(null)} />
+      <DayBookSheet visible={dayBookOpen} onClose={() => setDayBookOpen(false)} />
     </Screen>
   );
-}
-
-async function downloadExport(key: string, format: "xlsx" | "pdf", range: { from?: string; to?: string; q?: string; branchId?: number; status?: string; triggerType?: string }) {
-  const token = await getToken();
-  const targetUri = `${FileSystem.cacheDirectory}${key}-${Date.now()}.${format}`;
-  const qs = new URLSearchParams({ format });
-  if (range.from) qs.set("from", range.from);
-  if (range.to) qs.set("to", range.to);
-  if (range.q) qs.set("q", range.q);
-  if (range.branchId) qs.set("branch_id", String(range.branchId));
-  if (range.status) qs.set("status", range.status);
-  if (range.triggerType) qs.set("trigger_type", range.triggerType);
-  const result = await FileSystem.downloadAsync(reportExportUrl(key, qs), targetUri, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (result.status < 200 || result.status >= 300) throw new Error(`${format === "pdf" ? "Print" : "Export"} failed (${result.status})`);
-  return result.uri;
-}
-
-type ReportSheetProps = { report: ReportDef | null; onClose: () => void };
-
-function ReportSheet({ report, onClose }: ReportSheetProps) {
-  const visible = !!report;
-  const showBranchFilter = useShowBranchFilter();
-  const [fv, setFv] = useState<GroupedFilterValue>(emptyGroupedFilter());
-  const from = gfDate(fv, "date").from ?? "";
-  const to = gfDate(fv, "date").to ?? "";
-  const branchId = gfFirst(fv, "branch") ? Number(gfFirst(fv, "branch")) : undefined;
-  const extraValue = gfFirst(fv, "extra");
-  const [printing, setPrinting] = useState(false);
-  const [exporting, setExporting] = useState(false);
-
-  useEffect(() => {
-    if (report) {
-      const r = report.defaultRange?.() ?? (report.kind === "table" ? { from: firstOfMonth(), to: todayISO() } : {});
-      setFv({ options: {}, dates: { date: { from: r.from || undefined, to: r.to || undefined } } });
-    }
-  }, [report]);
-
-  const isTable = report?.kind === "table";
-  const totalsRef = useRef<any>(null);
-  const extraParams: Pick<ReportFilters, "status" | "triggerType"> =
-    report?.extra && extraValue ? (report.extra.field === "status" ? { status: extraValue } : { triggerType: extraValue }) : {};
-  const filters = { from: from || undefined, to: to || undefined, branchId, ...extraParams };
-  const list = useServerList<any, { from?: string; to?: string; branchId?: number; status?: string; triggerType?: string; rk: string }>({
-    key: ["reports", "table"],
-    filters: { ...filters, rk: report?.key ?? "" },
-    enabled: visible && isTable,
-    fetchPage: async (p) => {
-      const page = Math.floor(p.offset / p.limit) + 1;
-      const res = await report!.fetch!({ page, pageSize: p.limit, q: p.q, from: p.from, to: p.to, branchId: p.branchId, status: p.status, triggerType: p.triggerType });
-      totalsRef.current = res.totals;
-      return { items: res.rows ?? [], hasMore: page * p.limit < (res.totalCount ?? 0), total: res.totalCount };
-    },
-  });
-  useEffect(() => {
-    list.setSearch("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [report?.key]);
-
-  const statement = useQuery({
-    queryKey: ["reports", "statement", report?.key, from, to, branchId],
-    queryFn: () => report!.fetch!({ from: from || undefined, to: to || undefined, branchId, pageSize: 500 }),
-    enabled: visible && report?.kind === "statement",
-  });
-  const formG = useQuery({
-    queryKey: ["reports", "form-g", from, to, branchId],
-    queryFn: () => getFormG({ from: from || undefined, to: to || undefined, branchId }),
-    enabled: visible && report?.kind === "formg",
-  });
-
-  const range = { ...filters, q: isTable ? list.search.trim() || undefined : undefined };
-  async function onExport() {
-    if (!report) return;
-    setExporting(true);
-    try {
-      const uri = await downloadExport(report.key, "xlsx", range);
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", dialogTitle: `${report.title} export` });
-      } else {
-        toast.info("Saved", `Saved to ${uri} — sharing isn't available on this device.`);
-      }
-    } catch (e) {
-      if (isUserCancel(e)) return;
-      toast.error("Export failed", userMessage(e, "Could not export — try again."));
-    } finally {
-      setExporting(false);
-    }
-  }
-  async function onPrint() {
-    if (!report) return;
-    setPrinting(true);
-    try {
-      const uri = await downloadExport(report.key, "pdf", range);
-      await Print.printAsync({ uri });
-    } catch (e) {
-      if (isUserCancel(e)) return;
-      toast.error("Print failed", userMessage(e, "Could not print — try again."));
-    } finally {
-      setPrinting(false);
-    }
-  }
-
-  const totals = report?.kind === "statement" ? statement.data?.totals : totalsRef.current;
-  const summary =
-    report?.headline && totals && !(isTable && list.isLoading) ? (
-      <Card style={{ marginHorizontal: 16, marginBottom: 12, padding: 14 }}>
-        <Txt style={{ fontWeight: "800", fontSize: 16.5 }}>{report.headline(totals)}</Txt>
-        {report.sub ? <Txt style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>{report.sub(totals)}</Txt> : null}
-      </Card>
-    ) : null;
-
-  const sections: GFSection[] = report
-    ? [
-        ...(!showBranchFilter ? [] : [{
-          kind: "async" as const,
-          key: "branch",
-          label: "Branch",
-          single: true,
-          fetchPage: (p: { q?: string; limit: number; offset: number }) => listBranchesPage({ q: p.q, limit: p.limit, offset: p.offset }).then((r) => ({ items: r.items.map((b) => ({ value: String(b.id), label: b.name })), hasMore: r.hasMore })),
-        }]),
-        ...(report.extra ? [{ kind: "static" as const, key: "extra", label: report.extra.label, single: true, options: report.extra.options.map((o) => ({ value: o, label: o })) }] : []),
-        { kind: "date", key: "date", label: "Date", hideFrom: report.key === "balance-sheet" },
-      ]
-    : [];
-  const headExtra = report ? (
-    <View style={{ paddingTop: 12 }}>
-      {isTable ? <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search this report" style={{ paddingHorizontal: 16, paddingBottom: 8 }} /> : null}
-      <View style={{ paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <GroupedFilter title="Filter report" sections={sections} value={fv} onChange={setFv} />
-        <View style={{ flex: 1 }} />
-        <PillButton label={exporting ? "Downloading…" : "Download"} onPress={() => { if (!exporting) onExport(); }} />
-        <PillButton label={printing ? "Printing…" : "Export PDF"} onPress={() => { if (!printing) onPrint(); }} />
-      </View>
-    </View>
-  ) : null;
-
-  let body: React.ReactNode = null;
-  if (!report) body = null;
-  else if (isTable)
-    body = (
-      <ServerFlatList
-        list={list}
-        items={list.items}
-        inSheet
-        gutter={16}
-        header={summary}
-        emptyText={list.search ? "No records match your search." : "No records."}
-        keyOf={(_, i) => String(i)}
-        renderItem={(r, i) => {
-          const v = report.row!(r);
-          return <AccRow defaultOpen={i === 0} id={v.id} name={v.name || "—"} sub={v.sub} amount={v.amount} status={v.status} details={v.details} />;
-        }}
-      />
-    );
-  else {
-    const loading = report.kind === "statement" ? statement.isLoading : formG.isLoading;
-    const error = report.kind === "statement" ? statement.isError : formG.isError;
-    const lines = report.kind === "statement" ? (statement.data?.rows ?? []).map(statementLine) : formGLines(formG.data);
-    body = (
-      <SheetScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
-        {loading ? (
-          <Buffering block />
-        ) : error ? (
-          <EmptyText>Couldn&apos;t load this statement.</EmptyText>
-        ) : (
-          <>
-            {summary}
-            {report.kind === "formg" && formG.data ? (
-              <Card style={{ marginHorizontal: 16, marginBottom: 12, padding: 14 }}>
-                <Txt style={{ fontWeight: "800", fontSize: 14 }}>{formG.data.lenderName}</Txt>
-                <Txt style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>{[formG.data.periodLabel, formG.data.lenderAddress].filter(Boolean).join(" · ")}</Txt>
-              </Card>
-            ) : null}
-            {lines.length === 0 ? (
-              <EmptyText>No records.</EmptyText>
-            ) : (
-              <Card style={{ marginHorizontal: 16, paddingVertical: 4 }}>
-                {lines.map((l, i) => (
-                  <View
-                    key={i}
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      paddingVertical: 9,
-                      paddingLeft: l.indent * 12,
-                      borderTopWidth: i === 0 ? 0 : 1,
-                      borderTopColor: C.line,
-                    }}
-                  >
-                    <Txt style={{ flex: 1, fontSize: 12.5, fontWeight: l.bold ? "700" : "500", color: l.bold ? C.ink : C.muted }}>{l.title}</Txt>
-                    {l.detail ? <Txt style={{ fontSize: 12.5, fontWeight: "700", textAlign: "right", flexShrink: 1 }}>{l.detail}</Txt> : null}
-                  </View>
-                ))}
-              </Card>
-            )}
-          </>
-        )}
-      </SheetScrollView>
-    );
-  }
-
-  return (
-    <Sheet visible={visible} onClose={onClose} title={report?.title ?? "Report"} maxHeightPct={88} scroll={false} headExtra={headExtra}>
-      <View style={{ flexShrink: 1 }}>{body}</View>
-    </Sheet>
-  );
-}
-
-type Line = { title: string; detail: string; bold?: boolean; indent: number };
-
-function statementLine(r: StatementRow): Line {
-  return { title: r.label, detail: r.style === "header" ? "" : inr(r.amount), bold: !!r.style, indent: r.indent ?? 0 };
-}
-
-function formGLines(s?: FormGStatement): Line[] {
-  if (!s) return [];
-  const out: Line[] = [];
-  const category = (heading: string, list: FormGStatement["section1Advanced"]) => {
-    out.push({ title: heading, detail: "", bold: true, indent: 0 });
-    for (const c of list ?? []) out.push({ title: c.label, detail: `${c.persons} persons · ${inr(c.amount)}${c.remarks ? ` · ${c.remarks}` : ""}`, indent: 1 });
-  };
-  category("1. Loans advanced during the period", s.section1Advanced);
-  category("2. Loans redeemed during the period", s.section2Redeemed);
-  const d = s.section3Deposits;
-  out.push({ title: "3. Deposits", detail: "", bold: true, indent: 0 });
-  out.push({ title: "Opening balance", detail: `${d.openingCount} · ${inr(d.openingAmount)}`, indent: 1 });
-  out.push({ title: "Received during the period", detail: `${d.duringCount} · ${inr(d.duringAmount)}`, indent: 1 });
-  out.push({ title: "Repaid during the period", detail: `${d.repaidCount} · ${inr(d.repaidAmount)}`, indent: 1 });
-  out.push({ title: "Closing balance", detail: `${d.closingCount} · ${inr(d.closingAmount)}`, indent: 1 });
-  const f = s.section4FinancialPosition;
-  out.push({ title: "4. Financial position", detail: "", bold: true, indent: 0 });
-  out.push({ title: "Maximum outstanding", detail: `${inr(f.maxOutstanding)}${f.maxOutstandingDate ? ` on ${dmy(f.maxOutstandingDate)}` : ""}`, indent: 1 });
-  out.push({ title: "Value of assets", detail: inr(f.assetsValue), indent: 1 });
-  out.push({ title: "Value of liabilities", detail: inr(f.liabilitiesValue), indent: 1 });
-  out.push({ title: "Excess of assets over liabilities", detail: inr(f.excessAssetsOverLiabilities), indent: 1 });
-  out.push({ title: "Excess of liabilities over assets", detail: inr(f.excessLiabilitiesOverAssets), indent: 1 });
-  return out;
 }

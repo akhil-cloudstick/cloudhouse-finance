@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
@@ -18,9 +20,11 @@ type schemeRequest struct {
 	BranchID           uint                    `json:"branch_id"`
 	InterestRate       float64                 `json:"interest_rate"`
 	DurationMonths     int                     `json:"duration_months" binding:"required"`
-	LTVPercent         float64                 `json:"ltv_percent" binding:"required"`
+	LTVBased           *bool                   `json:"ltv_based"`
+	LTVPercent         float64                 `json:"ltv_percent"`
 	InterestMethod     string                  `json:"interest_method"`
 	PenalRate          float64                 `json:"penal_rate"`
+	AccrualBasis       string                  `json:"accrual_basis"`
 	Conditions         string                  `json:"conditions"`
 	IsActive           bool                    `json:"is_active"`
 	RateTiers          []commonModels.RateTier `json:"rate_tiers"`
@@ -40,9 +44,11 @@ type SchemeCreateInput struct {
 	BranchID           uint
 	InterestRate       float64
 	DurationMonths     int
+	LTVBased           bool
 	LTVPercent         float64
 	InterestMethod     string
 	PenalRate          float64
+	AccrualBasis       string
 	Conditions         string
 	IsActive           bool
 	RateTiers          []commonModels.RateTier
@@ -68,9 +74,11 @@ func (req schemeRequest) toInput() SchemeCreateInput {
 		BranchID:           req.BranchID,
 		InterestRate:       req.InterestRate,
 		DurationMonths:     req.DurationMonths,
+		LTVBased:           req.LTVBased == nil || *req.LTVBased,
 		LTVPercent:         req.LTVPercent,
 		InterestMethod:     req.InterestMethod,
 		PenalRate:          req.PenalRate,
+		AccrualBasis:       req.AccrualBasis,
 		RateTiers:          req.RateTiers,
 		MinimumDays:        req.MinimumDays,
 		Conditions:         req.Conditions,
@@ -86,16 +94,33 @@ func insertScheme(ctx context.Context, s *commonModels.Scheme) error {
 		WithContext(ctx).Create(s).Error
 }
 
-func findSchemes(ctx context.Context, query string, methods []string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
+// schemeSearchSQL matches the name or code as text, and the LTV, interest rate or duration only when the search is
+// exactly that number ("75" or "75%"). Matching those columns as text made "8" return every scheme with an 8 in
+// its rate (e.g. 18%).
+const schemeSearchSQL = "(name ILIKE ? OR code ILIKE ? OR ltv_percent = ? OR interest_rate = ? OR duration_months = ?)"
+
+// schemeNumber reads a search like "75" or "75 %" as a number; anything else gives -1, which no scheme column holds.
+func schemeNumber(query string) float64 {
+	n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(query), "%")), 64)
+	if err != nil || n < 0 {
+		return -1
+	}
+	return n
+}
+
+func findSchemes(ctx context.Context, query string, methods []string, active *bool, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
 	var schemes []commonModels.Scheme
 	q := config.DB.
 		WithContext(ctx).Preload("Branch").Order("id asc")
 	if query != "" {
 		like := "%" + query + "%"
-		q = q.Where("name ILIKE ? OR code ILIKE ? OR CAST(interest_rate AS TEXT) ILIKE ? OR CAST(ltv_percent AS TEXT) ILIKE ? OR CAST(duration_months AS TEXT) ILIKE ?", like, like, like, like, like)
+		q = q.Where(schemeSearchSQL, like, like, schemeNumber(query), schemeNumber(query), schemeNumber(query))
 	}
 	if len(methods) > 0 {
 		q = q.Where("interest_method IN ?", methods)
+	}
+	if active != nil {
+		q = q.Where("is_active = ?", *active)
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
@@ -116,7 +141,8 @@ func findActive(ctx context.Context, query string, branchID *uint, limit, offset
 	q := config.DB.
 		WithContext(ctx).Where("is_active = ?", true).Order("id asc")
 	if query != "" {
-		q = q.Where("name ILIKE ? OR code ILIKE ?", "%"+query+"%", "%"+query+"%")
+		like := "%" + query + "%"
+		q = q.Where(schemeSearchSQL, like, like, schemeNumber(query), schemeNumber(query), schemeNumber(query))
 	}
 	if branchID != nil {
 		q = q.Where("branch_id = ?", *branchID)
@@ -197,9 +223,19 @@ func normalizeTiers(in *SchemeCreateInput) {
 	}
 }
 
+func accrualBasisOrDefault(basis string) string {
+	if basis == commonModels.AccrualBasisMonthly {
+		return commonModels.AccrualBasisMonthly
+	}
+	return commonModels.AccrualBasisDaily
+}
+
 func validateTiers(in SchemeCreateInput) error {
 	if in.MinimumDays < 0 {
 		return NewBadRequest("minimum period cannot be negative")
+	}
+	if in.AccrualBasis != "" && in.AccrualBasis != commonModels.AccrualBasisDaily && in.AccrualBasis != commonModels.AccrualBasisMonthly {
+		return NewBadRequest("accrual method must be daily or monthly")
 	}
 	if in.InterestMethod != commonModels.InterestMethodMultiple {
 		return nil
@@ -239,14 +275,25 @@ func checkMultipleInterest(ctx context.Context, method, current string) error {
 	return nil
 }
 
+// schemeLTV is 0 for a scheme that is not based on gold LTV.
+func schemeLTV(in SchemeCreateInput) float64 {
+	if !in.LTVBased {
+		return 0
+	}
+	return in.LTVPercent
+}
+
 func schemeValidate(in SchemeCreateInput) error {
 	if err := validateTiers(in); err != nil {
 		return err
 	}
+	if utf8.RuneCountInString(in.Conditions) > 150 {
+		return NewBadRequest("conditions can be at most 150 characters")
+	}
 	if in.DurationMonths <= 0 {
 		return NewBadRequest("duration must be greater than zero months")
 	}
-	if in.LTVPercent <= 0 || in.LTVPercent > 100 {
+	if in.LTVBased && (in.LTVPercent <= 0 || in.LTVPercent > 100) {
 		return NewBadRequest("ltv percent must be between 0 and 100")
 	}
 	if in.InterestRate < 0 {
@@ -259,7 +306,7 @@ func schemeValidate(in SchemeCreateInput) error {
 	case "", commonModels.ServiceChargeTypeNone:
 	case commonModels.ServiceChargeTypeFlat, commonModels.ServiceChargeTypePercent:
 		if in.ServiceChargeValue < 0 || (in.ServiceChargeType == commonModels.ServiceChargeTypePercent && in.ServiceChargeValue > 100) {
-			return NewBadRequest("service charge value must be non-negative, and no more than 100 for a Percent charge")
+			return NewBadRequest("service charge value is not valid")
 		}
 	default:
 		return NewBadRequest("service charge type must be None, Flat, or Percent")
@@ -307,9 +354,11 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 		Name:               in.Name,
 		InterestRate:       in.InterestRate,
 		DurationMonths:     in.DurationMonths,
-		LTVPercent:         in.LTVPercent,
+		LTVBased:           in.LTVBased,
+		LTVPercent:         schemeLTV(in),
 		InterestMethod:     in.InterestMethod,
 		PenalRate:          in.PenalRate,
+		AccrualBasis:       accrualBasisOrDefault(in.AccrualBasis),
 		RateTiers:          in.RateTiers,
 		MinimumDays:        in.MinimumDays,
 		Conditions:         in.Conditions,
@@ -318,14 +367,18 @@ func SaveScheme(ctx context.Context, in SchemeCreateInput) (*commonModels.Scheme
 		ServiceChargeValue: in.ServiceChargeValue,
 		ServiceChargeMode:  in.ServiceChargeMode,
 	}
+	// a scheme queued on a PC keeps the id that PC gave it
+	if entry, queued := config.SyncEntryFromContext(ctx); queued {
+		rec.UUID = entry.ClientUUID
+	}
 	if err := insertScheme(ctx, rec); err != nil {
 		return nil, err
 	}
 	return rec, nil
 }
 
-func listSchemes(ctx context.Context, query string, methods []string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
-	return findSchemes(ctx, query, methods, branchID, limit, offset)
+func listSchemes(ctx context.Context, query string, methods []string, active *bool, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
+	return findSchemes(ctx, query, methods, active, branchID, limit, offset)
 }
 
 func listActive(ctx context.Context, query string, branchID *uint, limit, offset int) ([]commonModels.Scheme, int64, error) {
@@ -376,9 +429,11 @@ func updateScheme(ctx context.Context, id uint, in SchemeUpdateInput, branchID *
 	rec.Name = in.Name
 	rec.InterestRate = in.InterestRate
 	rec.DurationMonths = in.DurationMonths
-	rec.LTVPercent = in.LTVPercent
+	rec.LTVBased = in.LTVBased
+	rec.LTVPercent = schemeLTV(in)
 	rec.InterestMethod = in.InterestMethod
 	rec.PenalRate = in.PenalRate
+	rec.AccrualBasis = accrualBasisOrDefault(in.AccrualBasis)
 	rec.RateTiers = in.RateTiers
 	rec.MinimumDays = in.MinimumDays
 	rec.Conditions = in.Conditions
@@ -408,15 +463,26 @@ func deleteScheme(ctx context.Context, id uint, branchID *uint) error {
 		return err
 	}
 	if loans > 0 || drafts > 0 {
-		return errSchemeInUse(loans, drafts)
+		return errSchemeInUse(loans, drafts, schemeLoanNumbers(ctx, id))
 	}
 	return hardDelete(ctx, id)
 }
 
-func errSchemeInUse(loans, drafts int64) error {
+// schemeLoanNumbers are the first loans that use the scheme, so the refusal can name them.
+func schemeLoanNumbers(ctx context.Context, id uint) []string {
+	var numbers []string
+	config.DB.WithContext(ctx).Raw("SELECT loan_number FROM loans WHERE scheme_id = ? ORDER BY id LIMIT ?", id, maxListedRecords).Scan(&numbers)
+	return numbers
+}
+
+func errSchemeInUse(loans, drafts int64, numbers []string) error {
 	var parts []string
 	if loans > 0 {
-		parts = append(parts, fmt.Sprintf("%d loan(s)", loans))
+		if len(numbers) > 0 {
+			parts = append(parts, fmt.Sprintf("%d loan(s) (%s)", loans, RecordList(numbers, loans)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d loan(s)", loans))
+		}
 	}
 	if drafts > 0 {
 		parts = append(parts, fmt.Sprintf("%d loan draft(s)", drafts))
@@ -486,14 +552,26 @@ func ListSchemes(c echo.Context) error {
 			methods = append(methods, m)
 		}
 	}
+	var active *bool
+	switch strings.ToLower(strings.TrimSpace(c.QueryParam("status"))) {
+	case "":
+	case "active":
+		v := true
+		active = &v
+	case "inactive":
+		v := false
+		active = &v
+	default:
+		return Fail(c, http.StatusBadRequest, "status must be Active or Inactive")
+	}
 	if limit == 0 {
-		rec, _, err := listSchemes(ctx, c.QueryParam("search"), methods, branchID, 0, 0)
+		rec, _, err := listSchemes(ctx, c.QueryParam("search"), methods, active, branchID, 0, 0)
 		if err != nil {
 			return FailErr(c, err)
 		}
 		return SuccessAll(c, rec)
 	}
-	rec, total, err := listSchemes(ctx, c.QueryParam("search"), methods, branchID, limit, offset)
+	rec, total, err := listSchemes(ctx, c.QueryParam("search"), methods, active, branchID, limit, offset)
 	if err != nil {
 		return FailErr(c, err)
 	}

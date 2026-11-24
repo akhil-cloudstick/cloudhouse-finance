@@ -28,6 +28,7 @@ func MovementRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(movementPath+"/:id/entry", cash.GetMovementEntry, auth.Staff(perms.Read)...)
 	// Editing a cash-in, debit or self transfer rewrites money records, so it needs the same right as recording one.
 	e.PATCH(movementPath+"/:id/update", cash.UpdateMovement, auth.Staff(perms.Create)...)
+	e.DELETE(movementPath+"/:id/entry", cash.DeleteMovement, auth.Staff(auth.RequirePermission("can delete ledger entry"))...)
 	e.PATCH(movementPath+"/:id/status", cash.UpdateMovementStatus, auth.Staff(perms.Update)...)
 	return e
 }

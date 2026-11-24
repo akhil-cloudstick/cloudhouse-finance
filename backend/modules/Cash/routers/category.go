@@ -13,5 +13,6 @@ func CategoryRoutes(e *echo.Echo) *echo.Echo {
 	perms := auth.CRUDPermissions("cash")
 	e.GET(categoryPath, cash.ListCategories, auth.Staff(perms.Read)...)
 	e.POST(categoryPath, cash.CreateCategory, auth.Staff(perms.Create)...)
+	e.DELETE(categoryPath+"/:id", cash.DeleteCategory, auth.Staff(perms.Update)...)
 	return e
 }

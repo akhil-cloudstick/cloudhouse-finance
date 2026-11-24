@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest, API_BASE_URL, apiUrl } from "@/common/services/httpClient";
-import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, InterestCollectionRow, InterestCollectionTotals, OutstandingPrincipalRow, OutstandingPrincipalTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, StatementRow, BalanceSheetTotals, ProfitLossTotals, FormGStatement } from "@/modules/reports/types/reports-types";
+import type { ReportFilters, ReportResult, DisbursementRow, DisbursementTotals, LoanStatusRow, LoanStatusTotals, InterestCollectionRow, InterestCollectionTotals, PaymentCollectionRow, PaymentCollectionTotals, GoldWeightRow, GoldWeightTotals, PacketRow, PacketTotals, BankPledgeRow, BankPledgeTotals, LoanExtensionRow, LoanExtensionTotals, GoldReleaseRow, GoldReleaseTotals, AuctionRow, AuctionTotals, ExpenseCashflowRow, ExpenseCashflowTotals, KYCRow, KYCTotals, GoldRateHistoryRow, GoldRateHistoryTotals, EmployeePerformanceRow, EmployeePerformanceTotals, CommunicationHistoryRow, CommunicationHistoryTotals, PersonalLoanRow, PersonalLoanTotals, DepositRegisterRow, DepositRegisterTotals, InterestPayoutRegisterRow, InterestPayoutRegisterTotals, MaturityRegisterRow, MaturityRegisterTotals, StatementRow, DayBookRow, DayBookTotals, DayBookInput, BalanceSheetTotals, ProfitLossTotals, FormGStatement } from "@/modules/reports/types/reports-types";
 
 function fetchReport<Row, Totals>(path: string, filters: ReportFilters) {
   return apiRequest<ReportResult<Row, Totals>>(`/reports/${path}`, {
@@ -9,12 +9,17 @@ function fetchReport<Row, Totals>(path: string, filters: ReportFilters) {
       branch_id: filters.branchId,
       page: filters.page,
       page_size: filters.pageSize,
-      status: filters.status,
-      trigger_type: filters.triggerType,
       q: filters.q,
+      ...filters.extra,
     },
   });
 }
+
+/* Distinct "Set By" names for the gold-rate-history filter — searchable and paged by the backend. */
+export const getGoldRateSetByPage = (p: { q?: string; limit: number; offset: number }) =>
+  apiRequest<{ items: string[] | null; hasMore: boolean }>("/reports/gold-rate-history/set-by", {
+    params: { search: p.q, limit: p.limit, offset: p.offset },
+  }).then((r) => ({ items: r.items ?? [], hasMore: !!r.hasMore }));
 
 /* ---- One function per report endpoint (path segments per routes.go). ---- */
 
@@ -26,9 +31,6 @@ export const getLoansStatus = (f: ReportFilters) =>
 
 export const getInterestCollection = (f: ReportFilters) =>
   fetchReport<InterestCollectionRow, InterestCollectionTotals>("interest-collection", f);
-
-export const getOutstandingPrincipal = (f: ReportFilters) =>
-  fetchReport<OutstandingPrincipalRow, OutstandingPrincipalTotals>("outstanding-principal", f);
 
 export const getPaymentCollection = (f: ReportFilters) =>
   fetchReport<PaymentCollectionRow, PaymentCollectionTotals>("payment-collection", f);
@@ -86,10 +88,23 @@ export const getProfitAndLoss = (f: ReportFilters) =>
 
 export const getFormG = (f: ReportFilters) =>
   apiRequest<FormGStatement>("/reports/form-g", {
-    params: { from: f.from, to: f.to, branch_id: f.branchId },
+    params: f.period ? { period: f.period, year: f.year, branch_id: f.branchId } : { from: f.from, to: f.to, branch_id: f.branchId },
   });
 
 // A report export (xlsx/pdf), downloaded straight to a file rather than through apiRequest.
 export function reportExportUrl(key: string, query: URLSearchParams): string {
   return apiUrl(`/reports/export/${key}?${query.toString()}`);
 }
+
+/* ---- Day Book (hand-entered lines). The whole period comes back at once, oldest first. ---- */
+export const getDayBook = (f: ReportFilters) =>
+  fetchReport<DayBookRow, DayBookTotals>("day-book", f);
+
+export const createDayBookEntry = (input: DayBookInput) =>
+  apiRequest<DayBookRow>("/reports/day-book", { method: "POST", body: input });
+
+export const updateDayBookEntry = (id: number, input: DayBookInput) =>
+  apiRequest<DayBookRow>(`/reports/day-book/${id}`, { method: "PATCH", body: input });
+
+export const deleteDayBookEntry = (id: number) =>
+  apiRequest<void>(`/reports/day-book/${id}`, { method: "DELETE" });

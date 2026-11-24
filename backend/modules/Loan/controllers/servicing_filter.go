@@ -39,12 +39,42 @@ func inAuctionPipeline(status string) bool {
 	return status == models.StatusAuctionEligible || status == models.StatusAuctionedBalanceDue
 }
 
+// inArrears: interest or penal interest is still owed. A past-term loan with none owed (only principal left) is
+// being serviced, so it reads Active, not Overdue.
+func inArrears(l *models.Loan) bool {
+	return l.OutstandingInterest >= moneyEpsilon || l.OutstandingPenalInterest >= moneyEpsilon
+}
+
+// effectiveStatus is the one status a loan reads as, after the read-time flags are set. It is what the loan's row
+// shows and what the status tabs match, so a loan is never listed under one tab and labelled with another.
+// Defaulted is its own class (served by the servicing filter), so it is reported as such here.
+func effectiveStatus(l *models.Loan) string {
+	switch l.Status {
+	case models.StatusActive, models.StatusDueSoon, models.StatusOverdue:
+	default:
+		return l.Status // Pending Approval, Closure Requested, Auction Eligible, Auctioned…, Closed, Rejected
+	}
+	if l.IsDefaulted {
+		return "Defaulted"
+	}
+	if l.IsOverdue {
+		if inArrears(l) {
+			return models.StatusOverdue
+		}
+		return models.StatusActive
+	}
+	if l.IsDueSoon {
+		return models.StatusDueSoon
+	}
+	return models.StatusActive
+}
+
 func matchesServicing(l *models.Loan, servicing string) bool {
 	switch servicing {
 	case "due_soon":
 		return l.IsDueSoon
 	case "overdue":
-		return l.IsOverdue && !l.IsDefaulted && l.Status != models.StatusActive && !inAuctionPipeline(l.Status)
+		return l.IsOverdue && !l.IsDefaulted && inArrears(l) && !inAuctionPipeline(l.Status)
 	case "defaulted":
 		return l.IsDefaulted && !inAuctionPipeline(l.Status)
 	}
@@ -52,15 +82,20 @@ func matchesServicing(l *models.Loan, servicing string) bool {
 }
 
 func servicingCandidates(servicing string, now time.Time) (statusNotIn []string, dueBefore, dueFrom *time.Time) {
-	notIn := append([]string{}, notDefaultableStatuses...)
+	// A fully paid loan (Closure Requested) is never due, overdue or defaulted.
+	notIn := append(append([]string{}, notDefaultableStatuses...), models.StatusClosureRequested)
+	// A loan is due, not overdue, for the whole of its due date, so the day
+	// boundaries are the start of today rather than the current instant.
+	today := startOfDay(now)
 	switch servicing {
 	case "due_soon":
-		from := now
-		before := now.AddDate(0, 0, dueSoonWindowDays+1)
+		from := today
+		before := today.AddDate(0, 0, dueSoonWindowDays+1)
 		return notIn, &before, &from
 	case "overdue":
-		notIn = append(notIn, models.StatusAuctionEligible, models.StatusAuctionedBalanceDue, models.StatusActive)
-		return notIn, &now, nil
+		// Active stays a candidate: the saved status can lag, and the read-time arrears check decides.
+		notIn = append(notIn, models.StatusAuctionEligible, models.StatusAuctionedBalanceDue)
+		return notIn, &today, nil
 	case "defaulted":
 		notIn = append(notIn, models.StatusAuctionEligible, models.StatusAuctionedBalanceDue)
 		before := now.AddDate(0, 0, -defaultedAfterDays)

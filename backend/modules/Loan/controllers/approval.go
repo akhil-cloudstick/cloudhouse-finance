@@ -6,8 +6,10 @@ import (
 	"cloudhouse/backend/config"
 	cashbook "cloudhouse/backend/modules/Cash/controllers"
 	"cloudhouse/backend/modules/Loan/models"
+	packet "cloudhouse/backend/modules/Packet/controllers"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -102,23 +104,28 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 	stored := normalizeSanctionStage(l.ApprovalStage)
 	step, ok := chain.ByKey(stored)
 	if !ok {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if sent := normalizeSanctionStage(in.Stage); sent != stored && sent != step.Key {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	stage := step.Key
 	final := chain.IsFinal(stage)
 	next, _ := chain.Next(stage)
 	if !common.CanAct(ctx, in.ActorRoleID, common.FlowLoanSanction, stage) {
-		return nil, common.NewBadRequest("approval action does not match the loan's current approval stage")
+		return nil, common.NewBadRequest("wrong approval stage")
 	}
 	if final && in.Action != models.ApprovalStageRejected {
+		// A UPI / Bank Transfer payout leaves from a bank: without one there is nothing to check the balance of or to debit.
+		if (in.UpiAmount > 0 || in.BankTransferAmount > 0) && in.BankID == nil {
+			return nil, common.NewBadRequest("select the bank for the UPI / Bank Transfer part")
+		}
 		if err := ensurePayoutFunds(ctx, l.BranchID, in.CashAmount, in.BankID, in.UpiAmount+in.BankTransferAmount); err != nil {
 			return nil, err
 		}
 	}
 	disbursing := false
+	disbursedOn := time.Now() // when the money is recorded as paid out
 	rejected := in.Action == models.ApprovalStageRejected
 	var nextStageLabel string
 	if rejected {
@@ -139,11 +146,16 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 			l.Status = models.StatusActive
 			disbursing = true
 			now := time.Now()
+			// A loan opened on a past date is disbursed on that date: its sanction, payout and cash line carry the
+			// opening date, not the day it was approved. (A loan opened today or later starts when it is paid out.)
+			if o := l.OpenedDate.In(time.Local); o.Format("2006-01-02") < l.CreatedAt.In(time.Local).Format("2006-01-02") {
+				disbursedOn = time.Date(o.Year(), o.Month(), o.Day(), now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), time.Local)
+			}
 			l.SanctionedAmount = l.PrincipalAmount
 			// The customer is paid the principal less the service charge, whether the charge is withheld
 			// from the payout or added to the principal (the loan then carries the charge).
 			l.DisbursedAmount = common.RoundMoney(l.PrincipalAmount - l.ServiceChargeAmount)
-			l.DisbursementDate = &now
+			l.DisbursementDate = &disbursedOn
 			startAccrualAtDisbursement(l, now)
 		}
 	}
@@ -174,7 +186,7 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 	// other way round).
 	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if disbursing {
-			if _, err := cashbook.RecordLoanDisbursementGross(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, payoutParts, nil, l.BranchID, time.Now(), l.CustomerID); err != nil {
+			if _, err := cashbook.RecordLoanDisbursementGross(cashbook.WithTx(ctx, tx), l.ID, l.LoanNumber, payoutParts, nil, l.BranchID, disbursedOn, l.CustomerID); err != nil {
 				return fmt.Errorf("could not record the disbursement in Cash-in-Hand, loan not approved: %w", err)
 			}
 		}
@@ -191,7 +203,7 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 			LoanID:             l.ID,
 			Amount:             l.DisbursedAmount,
 			Type:               models.PaymentTypeDisbursement,
-			PaidOn:             time.Now(),
+			PaidOn:             disbursedOn,
 			Description:        "Loan disbursed",
 			Method:             common.DeriveMethod(in.CashAmount, in.UpiAmount, in.BankTransferAmount, in.ChequeAmount),
 			CashAmount:         in.CashAmount,
@@ -203,6 +215,12 @@ func SaveLoanApproval(ctx context.Context, loanID uint, in ApprovalInput) (*mode
 		})
 	}); err != nil {
 		return nil, err
+	}
+	if rejected {
+		// A rejected loan's gold goes back to the customer: release its packet and free the locker slot.
+		if err := packet.RecordGoldReleaseMovement(ctx, loanID, "Loan rejected - packet released"); err != nil {
+			log.Printf("packet release on rejection failed for loan %d: %v", loanID, err)
+		}
 	}
 	switch {
 	case disbursing:
@@ -240,6 +258,9 @@ func findApprovalByLoanID(ctx context.Context, loanID uint) ([]models.LoanApprov
 	var approvals []models.LoanApproval
 	err := config.DB.
 		WithContext(ctx).Where("loan_id = ?", loanID).Order("id asc").Find(&approvals).Error
+	if err == nil {
+		nameLoanApprovals(ctx, approvals)
+	}
 	return approvals, err
 }
 
@@ -336,4 +357,36 @@ func ApproveRequest(c echo.Context) error {
 		common.FailErr(c, common.NewBadRequest("type must be Extension or Release"))
 	}
 	return nil
+}
+
+// employeeNames reads the names of the given employees in one query.
+func employeeNames(ctx context.Context, ids []uint) map[uint]string {
+	out := map[uint]string{}
+	if len(ids) == 0 {
+		return out
+	}
+	var rows []struct {
+		ID   uint
+		Name string
+	}
+	if err := config.DB.WithContext(ctx).Table("employees").Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		log.Printf("employee names lookup failed: %v", err)
+		return out
+	}
+	for _, r := range rows {
+		out[r.ID] = r.Name
+	}
+	return out
+}
+
+// nameLoanApprovals fills ActorName on each approval.
+func nameLoanApprovals(ctx context.Context, approvals []models.LoanApproval) {
+	ids := make([]uint, 0, len(approvals))
+	for _, a := range approvals {
+		ids = append(ids, a.ActorEmployeeID)
+	}
+	names := employeeNames(ctx, ids)
+	for i := range approvals {
+		approvals[i].ActorName = names[approvals[i].ActorEmployeeID]
+	}
 }

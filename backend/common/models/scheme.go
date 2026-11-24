@@ -20,6 +20,11 @@ const (
 
 const InterestMethodMultiple = "Multiple interest"
 
+const (
+	AccrualBasisDaily   = "daily"
+	AccrualBasisMonthly = "monthly"
+)
+
 // RateTier is one step of a Multiple-interest ladder: the rate applies while
 // interest has been unpaid for up to Days days (the last step has Days 0 = thereafter).
 type RateTier struct {
@@ -30,15 +35,19 @@ type RateTier struct {
 type Scheme struct {
 	config.TenantScoped
 	ID                 uint           `json:"id" gorm:"primaryKey"`
+	UUID               string         `json:"uuid" gorm:"type:uuid;default:gen_random_uuid()"`
 	BranchID           uint           `json:"branch_id" gorm:"not null"`
 	Branch             Branch         `json:"branch" gorm:"foreignKey:BranchID"`
 	Code               string         `json:"code" gorm:"index;size:20"`
 	Name               string         `json:"name" gorm:"not null;size:120"`
 	InterestRate       float64        `json:"interest_rate" gorm:"not null"`
 	DurationMonths     int            `json:"duration_months" gorm:"not null"`
+	// false: the loan is not limited by gold value, so LTVPercent is 0 and loans on this scheme have no eligible cap.
+	LTVBased           bool           `json:"ltv_based" gorm:"not null;default:true"`
 	LTVPercent         float64        `json:"ltv_percent" gorm:"not null"`
 	InterestMethod     string         `json:"interest_method" gorm:"size:80"`
 	PenalRate          float64        `json:"penal_rate"`
+	AccrualBasis       string         `json:"accrual_basis" gorm:"size:10;not null;default:'daily'"`
 	RateTiers          []RateTier     `json:"rate_tiers" gorm:"serializer:json;type:text"`
 	MinimumDays        int            `json:"minimum_days" gorm:"not null;default:0"`
 	Conditions         string         `json:"conditions"`

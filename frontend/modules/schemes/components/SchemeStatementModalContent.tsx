@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useModal } from "@/common/components/ModalProvider";
@@ -252,6 +253,7 @@ export function SchemeStatementModalContent({ scheme: s }: SchemeStatementModalC
                 ) : (
                   <div className="tbl-wrap" style={{ border: "none" }}>
                     <table className="tbl tbl-tight">
+                      <TableCols widths={[28, 18, 18, 18, 18]} />
                       <thead>
                         <tr><th>Payment</th><th className="num">Amount</th><th className="num">Interest</th><th className="num">Principal</th><th className="num">Balance</th></tr>
                       </thead>
@@ -281,7 +283,6 @@ export function SchemeStatementModalContent({ scheme: s }: SchemeStatementModalC
           )}
         </span>
         <span style={{ flex: 1 }} />
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
         <button className="btn ghost" disabled={downloading !== null || shown.length === 0} onClick={() => handleDownload("xlsx")}>
           <Icon name="download" /> {downloading === "xlsx" ? "Preparing…" : "Excel"}
         </button>

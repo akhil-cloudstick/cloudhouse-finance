@@ -7,6 +7,7 @@ export const APP_ROUTES = [
   "loans",
   "loan",
   "newloan",
+  "editloan",
   "schemes",
   "goldrates",
   "requests",
@@ -36,6 +37,7 @@ export const APP_ROUTES = [
   "roles-permissions",
   "billing",
   "settings",
+  "support",
 ] as const;
 
 export type AppRoute = (typeof APP_ROUTES)[number];
@@ -74,6 +76,15 @@ export const RESERVED_ROOT_SEGMENTS: ReadonlySet<string> = new Set<string>([
   "reset-password",
   "digilocker-callback",
   "esign-callback",
+  "customer-app",
+  "staff-app",
+  "privacy-policy",
+  "account-deletion",
+  "terms-and-conditions",
+  "disclaimer",
+  "refund-policy",
+  "data-safety",
+  "contact",
 ]);
 
 // A business coded "api" or "loans" would produce links that can never resolve to it.

@@ -16,7 +16,9 @@ import {
   TextField,
   Txt,
   openPage,
+  toast,
 } from "@/common/components/ui";
+import { FieldErr } from "@/common/components/ErrorText";
 import { useServerList } from "@/common/hooks/use-server-list";
 import { createBranch, deactivateBranch, listBranchesPage, updateBranch } from "@/modules/branches/services/branchService";
 import type { Branch } from "@/modules/branches/types/branch-types";
@@ -40,7 +42,7 @@ function BranchFormSheet({ visible, onClose, editing }: BranchFormSheetProps) {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [isActive, setIsActive] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -49,20 +51,19 @@ function BranchFormSheet({ visible, onClose, editing }: BranchFormSheetProps) {
     setAddress(editing?.address ?? "");
     setPhone(editing?.phone ?? "");
     setIsActive(editing ? editing.isActive : true);
-    setError(null);
+    setTried(false);
   }, [visible, editing]);
 
   // Same rules as web's Branch form — bad characters are filtered as you type and each field is checked on save.
   const NAME_RE = /^[A-Za-z][A-Za-z\s.'-]*$/;
   const ADDRESS_RE = /^[A-Za-z0-9\s,./#'-]*$/;
-  function validate(): string | null {
-    const n = name.trim();
-    if (n.length < 2 || !NAME_RE.test(n)) return "Please enter a valid branch name (letters only, at least 2 characters).";
-    if (!code.trim()) return "Please enter a branch code.";
-    if (address.trim().length < 3) return "Please enter a branch address (at least 3 characters).";
-    if (phone && !/^\d{10}$/.test(phone)) return "Phone number must be exactly 10 digits.";
-    return null;
-  }
+  const errs: Record<string, string> = {};
+  const n = name.trim();
+  if (n.length < 2 || !NAME_RE.test(n)) errs.name = "Enter a valid branch name (letters only, at least 2 characters).";
+  if (!code.trim()) errs.code = "Enter a branch code.";
+  if (address.trim().length < 3) errs.address = "Enter a branch address (at least 3 characters).";
+  if (phone && !/^\d{10}$/.test(phone)) errs.phone = "Phone number must be exactly 10 digits.";
+  const fe = (k: string) => (tried ? errs[k] : undefined);
   const save = useMutation({
     mutationFn: () => {
       const input = { name: name.trim(), code: code.trim().toUpperCase(), address: address.trim(), phone: phone || undefined };
@@ -72,62 +73,66 @@ function BranchFormSheet({ visible, onClose, editing }: BranchFormSheetProps) {
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       onClose();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save."),
+    onError: (err) => toast.error("Could not save", err instanceof ApiError ? err.message : "Try again."),
   });
 
   return (
     <Sheet visible={visible} onClose={onClose} title={editing ? "Edit Branch" : "Add Branch"} maxHeightPct={85}>
       <TextField label="Branch name" value={name} onChangeText={(v) => (v === "" || /^[A-Za-z\s.'-]*$/.test(v)) && setName(v)} placeholder="e.g. MG Road" maxLength={80} />
+      <FieldErr m={fe("name")} />
       <FieldRow>
         <TextField label="Code *" value={code} onChangeText={(v) => /^[A-Za-z0-9-]*$/.test(v) && setCode(v.toUpperCase())} placeholder="e.g. KOR01" autoCapitalize="characters" maxLength={20} />
         <TextField label="Phone" value={phone} onChangeText={(v) => setPhone(v.replace(/\D/g, "").slice(0, 10))} keyboardType="phone-pad" placeholder="10 digits (optional)" />
       </FieldRow>
+      <FieldErr m={fe("code") ?? fe("phone")} />
       <TextField label="Address" value={address} onChangeText={(v) => (v === "" || ADDRESS_RE.test(v)) && setAddress(v)} placeholder="Full address" multiline maxLength={255} />
+      <FieldErr m={fe("address")} />
       {editing ? (
         <Field label="Status">
           <ChipToggle options={["Active", "Inactive"] as const} value={isActive ? "Active" : "Inactive"} onChange={(v) => setIsActive(v === "Active")} />
         </Field>
       ) : null}
-      {error ? <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{error}</Txt> : null}
       <PrimaryButton
         label={editing ? "Save Changes" : "Add Branch"}
         onPress={() => {
-          const v = validate();
-          if (v) return setError(v);
-          setError(null);
+          if (Object.keys(errs).length) return setTried(true);
           save.mutate();
         }}
         loading={save.isPending}
-        disabled={!name.trim() || !code.trim() || !address.trim()}
       />
     </Sheet>
   );
 }
 
-type DeactivateSheetProps = { branch: Branch | null; onClose: () => void };
+type StatusSheetProps = { branch: Branch | null; activate: boolean; onClose: () => void };
 
-/** Deactivate confirmation (ports the old [id].tsx's deactivate action). */
-function DeactivateSheet({ branch, onClose }: DeactivateSheetProps) {
+/** Deactivate / Activate confirmation. Activating goes through the same update call the edit form uses (isActive: true);
+ * the server applies the plan's branch limit and answers with its own message when it is reached. */
+function StatusSheet({ branch, activate, onClose }: StatusSheetProps) {
   const queryClient = useQueryClient();
-  const deactivate = useMutation({
-    mutationFn: () => deactivateBranch(branch!.id),
+  const change = useMutation({
+    mutationFn: () =>
+      activate
+        ? updateBranch(branch!.id, { name: branch!.name, code: branch!.code, address: branch!.address, phone: branch!.phone, isActive: true })
+        : deactivateBranch(branch!.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["branches"] });
       onClose();
     },
   });
-  useEffect(() => deactivate.reset(), [branch]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => change.reset(), [branch, activate]); // eslint-disable-line react-hooks/exhaustive-deps
+  const verb = activate ? "Activate" : "Deactivate";
   return (
-    <Sheet visible={branch != null} onClose={onClose} title="Deactivate Branch" maxHeightPct={50}>
+    <Sheet visible={branch != null} onClose={onClose} title={`${verb} Branch`} maxHeightPct={50}>
       <Txt style={{ fontSize: 13, color: C.muted, marginBottom: 14 }}>
-        {branch?.name} will be marked inactive. Existing records are kept.
+        {activate ? `${branch?.name} will be selectable for new records again.` : `${branch?.name} will be marked inactive. Existing records are kept.`}
       </Txt>
-      {deactivate.isError ? (
+      {change.isError ? (
         <Txt style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>
-          {deactivate.error instanceof ApiError ? deactivate.error.message : "Could not deactivate."}
+          {change.error instanceof ApiError ? change.error.message : `Could not ${verb.toLowerCase()}.`}
         </Txt>
       ) : null}
-      <PrimaryButton label="Deactivate Branch" variant="danger" loading={deactivate.isPending} onPress={() => deactivate.mutate()} />
+      <PrimaryButton label={`${verb} Branch`} variant={activate ? "primary" : "danger"} loading={change.isPending} onPress={() => change.mutate()} />
     </Sheet>
   );
 }
@@ -136,6 +141,8 @@ export default function BranchesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Branch | null>(null);
   const [deactivating, setDeactivating] = useState<Branch | null>(null);
+  // Which way the status sheet goes for that branch (a deactivated branch can be activated again).
+  const [activating, setActivating] = useState(false);
   const { can } = useAuth();
   const canCreate = can("Branch_Management", "can_create_branch");
   const canUpdate = can("Branch_Management", "can_update_branch");
@@ -163,7 +170,7 @@ export default function BranchesScreen() {
         ) : undefined
       }
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(b) => String(b.id)}
@@ -172,7 +179,7 @@ export default function BranchesScreen() {
           <>
             {q ? (
               <Txt style={{ fontSize: 12, color: atLimit ? C.red : C.muted, paddingHorizontal: 18, paddingTop: 12 }}>
-                {q.unlimited ? `${q.used} branches · ${q.plan} plan, no limit` : `${q.used} of ${q.quota} branches used · ${q.plan} plan${atLimit ? " — upgrade to add more" : ""}`}
+                {q.unlimited ? null : `${q.used} of ${q.quota} branches used · ${q.plan} plan${atLimit ? " — upgrade to add more" : ""}`}
               </Txt>
             ) : null}
             <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by branch name, code, or address" style={{ paddingTop: 14 }} />
@@ -180,6 +187,14 @@ export default function BranchesScreen() {
         }
         renderItem={(b, i) => (
           <AccRow
+            // iPad and bigger: the same columns as the web Branches table.
+            cells={[
+              { h: "Branch", v: b.name, flex: 1.4 },
+              { h: "Code", v: b.code || "—", flex: 0.8 },
+              { h: "Address", v: b.address || "—", flex: 2 },
+              { h: "Phone", v: b.phone || "—" },
+              { h: "Status", v: b.isActive ? "Active" : "Inactive", chip: true },
+            ]}
             defaultOpen={i === 0}
             id={b.code || undefined}
             name={b.name}
@@ -192,7 +207,9 @@ export default function BranchesScreen() {
             ]}
             actions={[
               ...(canViewLedger ? [{ label: "Ledger", onPress: () => openPage(`/branches/${b.id}?label=${encodeURIComponent(b.name)}`) }] : []),
-              ...(b.isActive && canDelete ? [{ label: "Deactivate", danger: true, onPress: () => setDeactivating(b) }] : []),
+              // Always in the same place (between Ledger and Edit): Deactivate while active, Activate once it is not.
+              ...(b.isActive && canDelete ? [{ label: "Deactivate", danger: true, onPress: () => { setActivating(false); setDeactivating(b); } }] : []),
+              ...(!b.isActive && canUpdate ? [{ label: "Activate", onPress: () => { setActivating(true); setDeactivating(b); } }] : []),
               ...(canUpdate
                 ? [
                     {
@@ -211,7 +228,7 @@ export default function BranchesScreen() {
       />
 
       <BranchFormSheet visible={formOpen} onClose={() => setFormOpen(false)} editing={editing} />
-      <DeactivateSheet branch={deactivating} onClose={() => setDeactivating(null)} />
+      <StatusSheet branch={deactivating} activate={activating} onClose={() => setDeactivating(null)} />
     </Screen>
   );
 }

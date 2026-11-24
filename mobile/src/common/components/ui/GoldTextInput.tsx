@@ -1,10 +1,11 @@
 import React from "react";
 import { TextInput, TextInputProps, View, StyleSheet, ViewStyle, StyleProp, Platform } from "react-native";
 import { BlurView } from "expo-blur";
-import { colors } from "@/common/theme/colors";
+import { colors, SELECTION_COLOR } from "@/common/theme/colors";
 import { typeScale, textStyle } from "@/common/theme/typography";
 import { ThemedText } from "./ThemedText";
 import { doneBarFor } from "./KeyboardDoneBar";
+import { useStableText } from "./useStableText";
 
 // `containerStyle` (not `style`, which only moves the input box) keeps the label aligned with the input.
 // `blur` is iOS-only here: Android needs a `blurTarget` wiring we don't have, so it gets a plain tint.
@@ -24,6 +25,8 @@ export function GoldTextInput({
   // Deliberately more saturated red than colors.red, for a flagged-wrong value.
   invalid?: boolean;
 }) {
+  // The box shows its own copy of the text so a late or reshaped value from the parent cannot duplicate it or move the cursor.
+  const stable = useStableText(rest.value, rest.onChangeText);
   const InputSurface = blur && Platform.OS === "ios" ? BlurView : View;
   return (
     <View style={[styles.wrap, containerStyle]}>
@@ -39,12 +42,18 @@ export function GoldTextInput({
         >
           <TextInput
             placeholderTextColor={colors.placeholder}
+            cursorColor={colors.brand}
+            selectionColor={SELECTION_COLOR}
             autoComplete="off"
             importantForAutofill="no"
             textContentType="none"
+            autoCorrect={false}
+            spellCheck={false}
             style={textStyle([styles.input, right ? styles.inputWithRight : null, style], false)}
             inputAccessoryViewID={doneBarFor(rest.keyboardType)}
             {...rest}
+            value={stable.value}
+            onChangeText={stable.onChangeText}
           />
         </InputSurface>
         {right ? <View style={styles.right}>{right}</View> : null}

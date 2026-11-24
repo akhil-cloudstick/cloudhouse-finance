@@ -1,33 +1,49 @@
-// expo-router's root `Tabs` export is deprecated in SDK 57 — use expo-router/js-tabs instead.
+// `expo-router`'s root export of `Tabs` is deprecated in SDK 57 — the
+// supported path is `expo-router/js-tabs`.
 import type { Customer } from "@/modules/customers/types/customer-types";
 import { syncPersistedSection } from "@/common/hooks/use-persisted-state";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSegments } from "expo-router";
 import { Tabs } from "expo-router/js-tabs";
-import { Dimensions, Easing, View } from "react-native";
+import { Animated, Easing, View } from "react-native";
+import { PanGestureHandler } from "react-native-gesture-handler";
+import { PRIMARY_ROUTES, pageShift } from "@/common/components/ui/swipeStore";
+import { useTabSwipe } from "@/common/hooks/use-tab-swipe";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { C, HeaderHost, HeaderHostContext, PillButton, PTabBar, ShellContext, type ShellActions, Spinner, toast, Txt } from "@/common/components/ui";
+import { C, HeaderHost, HeaderHostContext, openPage, PillButton, PTabBar, ShellContext, type ShellActions, Spinner, toast, Txt } from "@/common/components/ui";
+import { CustomerFormSheet } from "@/modules/customers/components/CustomerFormSheet";
 import { NoAccess } from "@/common/components/NoAccess";
-import { PTAB_HEIGHT, PTAB_INSET, tabBarLift } from "@/common/theme/layout";
+import { PAGE_WIDTH, PTAB_HEIGHT, PTAB_INSET, tabBarLift } from "@/common/theme/layout";
 import { MoreSheet } from "./MoreSheet";
 import { ProfileSheet } from "./ProfileSheet";
 import { RemindersModal } from "./RemindersModal";
 import { SearchModal } from "./SearchModal";
 import { GoldRateModal } from "./GoldRateModal";
+import type { LoanDraft } from "@/modules/loans/types/loan-types";
 import { CreateLoanSheet } from "@/common/components/CreateLoanSheet";
 import { CollectPaymentSheet } from "@/common/components/CollectPaymentSheet";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { setPagePrefetch } from "@/common/components/ui/shellContext";
+import { setPagePrefetch, TabNameContext } from "@/common/components/ui/shellContext";
 import { getLoan } from "@/modules/loans/services/loanService";
+import { getCustomer } from "@/modules/customers/services/customerService";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { routeEnabled } from "@/common/config/tenantModules";
 import { routeAllowed, setRouteChecker } from "@/common/config/routePermissions";
 import { useAuth } from "@/common/providers/AuthProvider";
 
-// ShellContext carries the global openers (New Loan, More, search, gold rate, reminders, profile) used everywhere.
-const SCREEN_W = Dimensions.get("window").width;
+// Staff shell (ui-demos/staff-app-prototype.html): a persistent floating tab
+// bar — Dashboard / Customers / Loans (centre FAB) / Schemes / More — and
+// screen-owned headers (every screen renders its own FlatHeader/HeroHeader
+// via <Screen>, so navigators here never draw one: headerShown is false
+// everywhere). Every other module is reached from the More sheet.
+//
+// ShellContext carries the global openers — New Loan, More, search, gold
+// rate, reminders, profile — so every header and quick action drives the one
+// instance of each sheet mounted here.
+const SCREEN_W = PAGE_WIDTH;
 
-// Catches a deep link, a stale nav state, or a module switched off while open.
+// One guard for every optional module (src/common/config/tenantModules.ts): catches
+// a deep link, a stale nav state, or a module switched off while open.
 function useTenantModuleGuard() {
   const segments = useSegments();
   const router = useRouter();
@@ -51,7 +67,8 @@ function useRoutePermissionGuard() {
 
 type RouteGateProps = { route: string; children: React.ReactElement };
 
-// Decided during render so a page this role can't view never mounts.
+// The permission twin of the guard above, decided during render so a page
+// this role can't view (deep link, router.push()) never mounts.
 function RouteGate({ route, children }: RouteGateProps) {
   const { can, permissionsLoaded } = useAuth();
   if (!permissionsLoaded) {
@@ -62,7 +79,7 @@ function RouteGate({ route, children }: RouteGateProps) {
     );
   }
   if (!routeAllowed(route, can)) return <NoAccess />;
-  return children;
+  return <TabNameContext.Provider value={route}>{children}</TabNameContext.Provider>;
 }
 
 function PermissionsFailedBanner() {
@@ -96,11 +113,12 @@ function PermissionsFailedBanner() {
   );
 }
 
-type SheetName = "newLoan" | "more" | "search" | "gold" | "reminders" | "profile" | null;
+type SheetName = "newLoan" | "registerCustomer" | "more" | "search" | "gold" | "reminders" | "profile" | null;
 
 type CollectLauncherProps = { loanId: number | null; onClose: () => void };
 
-// Fetches just this loan and shows its sheet over the current page — no loan-detail navigation.
+// Collect Payment opened from a list or the dashboard: fetch just this loan
+// and show its sheet over the current page — no loan-detail navigation.
 function CollectLauncher({ loanId, onClose }: CollectLauncherProps) {
   const loan = useQuery({ queryKey: ["loan", String(loanId)], queryFn: () => getLoan(loanId!), enabled: loanId != null });
   useEffect(() => {
@@ -118,6 +136,11 @@ function usePagePrefetch() {
   const qc = useQueryClient();
   useEffect(() => {
     setPagePrefetch((path) => {
+      const cid = path.match(/^\/?(?:\(tabs\)\/)?customers\/(\d+)/)?.[1];
+      if (cid) {
+        if (qc.getQueryData(["customer", cid])) return null;
+        return qc.prefetchQuery({ queryKey: ["customer", cid], queryFn: () => getCustomer(Number(cid)) });
+      }
       const id = path.match(/^\/?(?:\(tabs\)\/)?loans\/(\d+)/)?.[1];
       if (!id || qc.getQueryData(["loan", id])) return null;
       return qc.prefetchQuery({ queryKey: ["loan", id], queryFn: () => getLoan(Number(id)) });
@@ -126,26 +149,75 @@ function usePagePrefetch() {
   }, [qc]);
 }
 
+// The navigator's props live at module level so a re-render of TabsLayout (every tab change
+// re-renders it, via useSegments) hands React Navigation the same functions instead of new ones,
+// which made it re-process every page's options.
+type TabsProps = React.ComponentProps<typeof Tabs>;
+
+const renderTabBar: NonNullable<TabsProps["tabBar"]> = (props) => <PTabBar {...props} />;
+
+const renderScreenLayout: NonNullable<TabsProps["screenLayout"]> = ({ route, children }) => <RouteGate route={route.name}>{children}</RouteGate>;
+
+const tabScreenOptions: NonNullable<TabsProps["screenOptions"]> = ({ route }) => ({
+  headerShown: false,
+  sceneStyle: { backgroundColor: "transparent" },
+  // A tab keeps its stack when left, so Back can return to the exact
+  // page; tapping the tab in the bar resets it to the module root.
+  // openPage() (Shell.tsx) switches tabs and resets a tab's stack in
+  // one dispatch, so a hidden tab is never rendered mid-flight with
+  // stale content to freeze in place — every tab can freeze on blur.
+  freezeOnBlur: false,
+  // Slide only — no opacity (Android redraws elevation shadows under
+  // an animating opacity, which made edges flash).
+  // The four primary pages are placed from swipe.pos alone: page i
+  // sits at (i - pos) widths, so a tap, a finger swipe and the tab
+  // bar all share one position. Other pages keep the navigator slide.
+  sceneStyleInterpolator: ({ current }) => {
+    const i = PRIMARY_ROUTES.indexOf(route.name);
+    const x =
+      i >= 0
+        ? pageShift[i]
+        : current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [-SCREEN_W, 0, SCREEN_W] });
+    return { sceneStyle: { transform: [{ translateX: x }] } };
+  },
+  transitionSpec: { animation: "timing", config: { duration: 220, easing: Easing.out(Easing.cubic) } },
+});
+
 export default function TabsLayout() {
-  // Entering a different section clears its remembered filters (see usePersistedState.ts).
-  syncPersistedSection(((useSegments() as string[])[1]) ?? "");
+  // Before any screen below reads its remembered filters: entering a different
+  // section clears them (see usePersistedState.ts).
+  const segs = useSegments() as string[];
+  syncPersistedSection(segs[1] ?? "");
+  // The tab swipe only does anything on one of the four primary list pages. Elsewhere (a detail
+  // page, a More page) it was still claiming every sideways drag, so a horizontal scroller there —
+  // the customer / loan detail tab strip — could scroll one way and then not back. Off there.
+  const swipeEnabled = PRIMARY_ROUTES.includes(segs[1] ?? "") && segs.slice(2).every((s) => s === "index");
   useTenantModuleGuard();
   useRoutePermissionGuard();
   usePagePrefetch();
+  const swipeHandlers = useTabSwipe();
   const [open, setOpen] = useState<SheetName>(null);
   const close = useCallback(() => setOpen(null), []);
   const [collectLoanId, setCollectLoanId] = useState<number | null>(null);
   // A customer picked from their own page, for the New Loan sheet to start with.
   const [newLoanCustomer, setNewLoanCustomer] = useState<Customer | null>(null);
+  const [newLoanDraft, setNewLoanDraft] = useState<LoanDraft | null>(null);
   const closeCollect = useCallback(() => setCollectLoanId(null), []);
   const actions = useMemo<ShellActions>(
     () => ({
       openNewLoan: () => {
         setNewLoanCustomer(null);
+        setNewLoanDraft(null);
+        setOpen("newLoan");
+      },
+      openNewLoanDraft: (draft: LoanDraft) => {
+        setNewLoanCustomer(null);
+        setNewLoanDraft(draft);
         setOpen("newLoan");
       },
       openNewLoanFor: (customer: Customer) => {
         setNewLoanCustomer(customer);
+        setNewLoanDraft(null);
         setOpen("newLoan");
       },
       openMore: () => setOpen("more"),
@@ -153,6 +225,7 @@ export default function TabsLayout() {
       openGoldRate: () => setOpen("gold"),
       openReminders: () => setOpen("reminders"),
       openProfile: () => setOpen("profile"),
+      openRegisterCustomer: () => setOpen("registerCustomer"),
       openCollect: (loanId: number) => setCollectLoanId(loanId),
     }),
     []
@@ -161,63 +234,69 @@ export default function TabsLayout() {
   return (
     <ShellContext.Provider value={actions}>
       <HeaderHostContext.Provider value>
-      <View style={{ flex: 1 }}>
+      <PanGestureHandler {...swipeHandlers} enabled={swipeEnabled}>
+      {/* Animated.View: the gesture's native event is attached to this view. */}
+      <Animated.View style={{ flex: 1 }} collapsable={false}>
       <Tabs
-        tabBar={(props) => <PTabBar {...props} />}
-        // Back walks the pages visited rather than jumping to Dashboard.
+        // Keep every page mounted and attached: the swipe shows a neighbour before it is focused.
+        detachInactiveScreens={false}
+        tabBar={renderTabBar}
+        // Back walks the pages visited (so a page opened from a quick link
+        // returns to where it was opened), rather than jumping to Dashboard.
         backBehavior="history"
-        screenLayout={({ route, children }) => <RouteGate route={route.name}>{children}</RouteGate>}
-        screenOptions={{
-          headerShown: false,
-          sceneStyle: { backgroundColor: "transparent" },
-          // A tab keeps its stack when left so Back can return to the exact page; openPage() resets it on tab tap.
-          freezeOnBlur: true,
-          // Slide only — an animating opacity made Android elevation shadows flash at the edges.
-          sceneStyleInterpolator: ({ current }) => ({
-            sceneStyle: {
-              transform: [
-                { translateX: current.progress.interpolate({ inputRange: [-1, 0, 1], outputRange: [-SCREEN_W, 0, SCREEN_W] }) },
-              ],
-            },
-          }),
-          transitionSpec: { animation: "timing", config: { duration: 220, easing: Easing.out(Easing.cubic) } },
-        }}
+        screenLayout={renderScreenLayout}
+        screenOptions={tabScreenOptions}
       >
-        {/* tab bar destinations */}
-        <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
+        {/* --- tab bar destinations --- */}
+        <Tabs.Screen name="dashboard" options={{ title: "Dashboard", lazy: false }} />
         <Tabs.Screen name="customers" options={{ title: "Customers", lazy: false }} />
         <Tabs.Screen name="loans" options={{ title: "Loans", lazy: false }} />
-        <Tabs.Screen name="schemes" options={{ title: "Schemes" }} />
+        <Tabs.Screen name="schemes" options={{ title: "Schemes", lazy: false }} />
 
-        {/* reachable from the More sheet */}
-        <Tabs.Screen name="auctions" options={{ title: "Auctions", href: null }} />
-        <Tabs.Screen name="packets" options={{ title: "Packets & Lockers", href: null }} />
-        <Tabs.Screen name="banks" options={{ title: "Bank Pledges", href: null }} />
-        <Tabs.Screen name="requests" options={{ title: "Requests", href: null }} />
-        <Tabs.Screen name="cash" options={{ title: "Ledger", href: null }} />
-        <Tabs.Screen name="personal-loans" options={{ title: "Personal Loans", href: null }} />
-        <Tabs.Screen name="investments" options={{ title: "Investments", href: null }} />
-        <Tabs.Screen name="reminders" options={{ title: "Reminders", href: null }} />
-        <Tabs.Screen name="reports" options={{ title: "Reports", href: null }} />
-        <Tabs.Screen name="ledger-statement" options={{ title: "Ledger / Statement", href: null }} />
-        <Tabs.Screen name="loan-risk" options={{ title: "Loan Risk", href: null }} />
-        <Tabs.Screen name="employees" options={{ title: "Employees", href: null }} />
-        <Tabs.Screen name="branches" options={{ title: "Branches", href: null }} />
-        <Tabs.Screen name="roles" options={{ title: "Roles & Permissions", href: null }} />
-        <Tabs.Screen name="settings" options={{ title: "Settings", href: null }} />
-        <Tabs.Screen name="billing" options={{ title: "Billing & Plan", href: null }} />
+        {/* --- reachable from the More sheet ---
+            Not `href: null`: Expo Router 58 treats that as "hidden" and drops the route from the
+            navigator's visible routes, so focusing one of these pages rendered nothing. Our own
+            tab bar only draws the four tabs above, so nothing needs hiding. */}
+        <Tabs.Screen name="auctions" options={{ title: "Auctions" }} />
+        <Tabs.Screen name="packets" options={{ title: "Packets & Lockers" }} />
+        <Tabs.Screen name="banks" options={{ title: "Bank Pledges" }} />
+        <Tabs.Screen name="bank-management" options={{ title: "Bank Management" }} />
+        <Tabs.Screen name="requests" options={{ title: "Extension & Release" }} />
+        <Tabs.Screen name="cash" options={{ title: "Ledger" }} />
+        <Tabs.Screen name="personal-loans" options={{ title: "Personal Loans" }} />
+        <Tabs.Screen name="investments" options={{ title: "Investments" }} />
+        <Tabs.Screen name="reminders" options={{ title: "Reminders" }} />
+        <Tabs.Screen name="reports" options={{ title: "Reports" }} />
+        <Tabs.Screen name="ledger-statement" options={{ title: "Ledger / Statement" }} />
+        <Tabs.Screen name="loan-risk" options={{ title: "Loan Risk" }} />
+        <Tabs.Screen name="gold-rates" options={{ title: "Gold Rates" }} />
+        <Tabs.Screen name="employees" options={{ title: "Employees" }} />
+        <Tabs.Screen name="branches" options={{ title: "Branches" }} />
+        <Tabs.Screen name="roles" options={{ title: "Roles & Permissions" }} />
+        <Tabs.Screen name="billing" options={{ title: "Billing & Plan" }} />
+        <Tabs.Screen name="support" options={{ title: "Support" }} />
       </Tabs>
+      {/* One header above every page — see Screen in Shell.tsx. */}
       <HeaderHost />
       <PermissionsFailedBanner />
-      </View>
+      </Animated.View>
+      </PanGestureHandler>
       </HeaderHostContext.Provider>
 
-      <CreateLoanSheet visible={open === "newLoan"} onClose={close} initialCustomer={newLoanCustomer} />
+      <CreateLoanSheet visible={open === "newLoan"} onClose={close} initialCustomer={newLoanCustomer} initialDraft={newLoanDraft} />
       <MoreSheet visible={open === "more"} onClose={close} onGoldRate={() => setOpen("gold")} />
       <SearchModal visible={open === "search"} onClose={close} />
       <GoldRateModal visible={open === "gold"} onClose={close} />
       <RemindersModal visible={open === "reminders"} onClose={close} />
       <ProfileSheet visible={open === "profile"} onClose={close} />
+      {/* Register Customer over the current page, like New Loan; the new profile opens once saved. */}
+      <CustomerFormSheet
+        visible={open === "registerCustomer"}
+        onClose={close}
+        onSaved={(c) => {
+          if (c?.id) openPage(`/customers/${c.id}`);
+        }}
+      />
       <CollectLauncher loanId={collectLoanId} onClose={closeCollect} />
     </ShellContext.Provider>
   );

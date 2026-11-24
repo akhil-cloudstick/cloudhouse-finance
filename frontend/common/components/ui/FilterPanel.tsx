@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/common/components/Icon";
 import { DatePicker } from "@/common/components/ui/DatePicker";
 import { fmtDate } from "@/common/utils/format";
@@ -85,33 +85,50 @@ function CategoryOptionList({
 
   const isAsync = category.kind === "async";
 
+  // Latest category/callback live in refs so loadPage keeps a stable identity:
+  // a parent re-render (e.g. after selecting a customer) must not refetch page 1
+  // and reset the list's scroll position.
+  const categoryRef = useRef(category);
+  const onLoadedRef = useRef(onOptionsLoaded);
+  useLayoutEffect(() => {
+    categoryRef.current = category;
+    onLoadedRef.current = onOptionsLoaded;
+  });
+
   const loadPage = useCallback((p: number, term: string, append: boolean) => {
-    if (category.kind !== "async") return;
+    const cat = categoryRef.current;
+    if (cat.kind !== "async") return;
     setLoading(true);
-    category
+    cat
       .fetchOptions(term, p)
       .then(({ items, hasMore: more }) => {
         setAsyncItems((prev) => (append ? [...prev, ...items] : items));
         setHasMore(more);
-        onOptionsLoaded?.(items);
+        onLoadedRef.current?.(items);
       })
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category]);
+  }, []);
 
   useEffect(() => {
     if (!isAsync) return;
     setPage(1);
     loadPage(1, search, false);
-    // loadPage (not just category.key/search) is a dependency on purpose —
-    // its own identity changes whenever `category` does (see its useCallback
-    // above), which is what makes this refire when a caller's fetchOptions
-    // closure changes to reflect new outside state (e.g. Cash.tsx's Customer
-    // picker re-querying once the Branch section's selection changes) even
-    // though category.key stays "customer" the whole time. Without this, a
-    // cross-filtering async category kept its first-loaded, now-stale page
-    // until the user switched tabs away and back or typed in its search box.
+    // Keyed on category.key and search only. A cross-filtering category (e.g. Customer
+    // narrowed by Branch) passes a changing `refetchKey` via its fetchOptions identity
+    // only when the user is on another tab, since the list remounts per category.
   }, [isAsync, category.key, search, loadPage]);
+
+  // A small page (5 rows) can leave the list shorter than its box, so there is nothing to scroll and the next
+  // page would never load: keep loading until the list overflows or there is no more.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!isAsync || !el || loading || !hasMore) return;
+    if (el.scrollHeight <= el.clientHeight + 1) {
+      const next = page + 1;
+      setPage(next);
+      loadPage(next, search, true);
+    }
+  }, [asyncItems, hasMore, loading, isAsync, page, search, loadPage]);
 
   function onScroll() {
     const el = listRef.current;
@@ -222,6 +239,8 @@ export function FilterPanel({
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
+      // A day picked in the date picker unmounts that button before this runs, so the click looks outside the panel.
+      if (e.target instanceof Node && !e.target.isConnected) return;
       if (boxRef.current && !boxRef.current.contains(e.target as Node) && panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
@@ -255,13 +274,34 @@ export function FilterPanel({
     // internal scroller, needed for its infinite-scroll pagination) must
     // NOT count — the capture-phase listener sees that scroll too, so it's
     // excluded by checking the event target is outside the popover itself.
-    function onScroll(e: Event) {
-      if (panelRef.current && e.target instanceof Node && panelRef.current.contains(e.target)) return;
-      setOpen(false);
+    // Only a scroll the user starts closes it. Picking an option can reload the page's table, and
+    // the shorter content clamps the scroll position: the popover then stays put, so the option
+    // under the pointer does not move.
+    const inPanel = (t: EventTarget | null) => !!panelRef.current && t instanceof Node && panelRef.current.contains(t);
+    let userScrollUntil = 0;
+    function markUserScroll(e: Event) {
+      if (!inPanel(e.target)) userScrollUntil = Date.now() + 700;
     }
+    const SCROLL_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "]);
+    function onKeyDown(e: KeyboardEvent) {
+      if (SCROLL_KEYS.has(e.key)) markUserScroll(e);
+    }
+    function onScroll(e: Event) {
+      if (inPanel(e.target)) return;
+      if (Date.now() <= userScrollUntil) setOpen(false);
+    }
+    const passive: AddEventListenerOptions = { capture: true, passive: true };
+    window.addEventListener("wheel", markUserScroll, passive);
+    window.addEventListener("touchmove", markUserScroll, passive);
+    window.addEventListener("mousedown", markUserScroll, true);
+    window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", updatePos);
     return () => {
+      window.removeEventListener("wheel", markUserScroll, passive);
+      window.removeEventListener("touchmove", markUserScroll, passive);
+      window.removeEventListener("mousedown", markUserScroll, true);
+      window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", updatePos);
     };
@@ -302,8 +342,8 @@ export function FilterPanel({
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, minWidth: 0 }}>
-      <div className="dp" ref={boxRef}>
-        <button type="button" className={size === "sm" ? "btn ghost sm" : "btn ghost"} onClick={() => setOpen((o) => !o)} title="Filters" aria-label="Filters">
+      <div className="dp" ref={boxRef} style={{ display: "inline-flex", alignItems: "center" }}>
+        <button type="button" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", ...(size === "sm" ? { height: 31 } : {}) }} className={size === "sm" ? "btn ghost sm" : "btn ghost"} onClick={() => setOpen((o) => !o)} title="Filters" aria-label="Filters">
           <Icon name="filter" />
           {activeCount > 0 && <span className="filter-badge">{activeCount}</span>}
         </button>
@@ -329,8 +369,10 @@ export function FilterPanel({
                   overflowY: "visible",
                   flexShrink: 0,
                   flexWrap: smallScreen ? "nowrap" : undefined,
-                  minWidth: smallScreen ? 0 : 130,
+                  width: smallScreen ? undefined : 150,
+                  minWidth: smallScreen ? 0 : 150,
                   maxWidth: smallScreen ? "none" : 150,
+                  boxSizing: "border-box",
                   gap: smallScreen ? 4 : 2,
                   padding: 6,
                   background: "var(--brand-faint, var(--line))",
@@ -366,10 +408,11 @@ export function FilterPanel({
                       }}
                       onClick={() => setActiveKey(c.key)}
                     >
-                      <span>{c.label}</span>
+                      <span style={{ minWidth: 0, flex: smallScreen ? undefined : 1, overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }} title={c.label}>{c.label}</span>
                       {count > 0 && (
                         <span
                           style={{
+                            flexShrink: 0,
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
@@ -379,8 +422,8 @@ export function FilterPanel({
                             borderRadius: 99,
                             fontSize: 10.5,
                             fontWeight: 700,
-                            background: c.key === activeKey ? "rgba(255,255,255,.25)" : "var(--brand-deep)",
-                            color: "#fff",
+                            background: c.key === activeKey ? "#fff" : "var(--brand-deep)",
+                            color: c.key === activeKey ? "var(--brand-deep)" : "#fff",
                           }}
                         >
                           {count}
@@ -398,6 +441,7 @@ export function FilterPanel({
                   </div>
                 ) : activeCategory ? (
                   <CategoryOptionList
+                    key={activeCategory.key}
                     category={activeCategory}
                     selected={categoryValues(value, activeCategory.key)}
                     onToggle={(v) => toggle(activeCategory, v)}
@@ -410,11 +454,6 @@ export function FilterPanel({
         )}
       </div>
 
-      {activeCount > 0 && !hideClearAll && (
-        <button type="button" className="btn plain sm" onClick={resetAll} style={{ color: "var(--muted)" }}>
-          Clear all ×
-        </button>
-      )}
     </div>
   );
 }

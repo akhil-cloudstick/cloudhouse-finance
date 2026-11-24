@@ -14,9 +14,9 @@ const SUBTITLE: Record<LedgerKind, string> = {
 };
 
 export default function LedgerScreen() {
-  const { id, ref, label, focusDate, focusAmount } = useLocalSearchParams<{ id: LedgerKind; ref: string; label?: string; focusDate?: string; focusAmount?: string }>();
+  const { id, ref, label, focusDate, focusAmount, focusRef, focusMethod, focusLoan } = useLocalSearchParams<{ id: LedgerKind; ref: string; label?: string; focusDate?: string; focusAmount?: string; focusRef?: string; focusMethod?: string; focusLoan?: string }>();
   // Opened from a row of another ledger: that transaction is scrolled to and highlighted here.
-  const focus = focusDate && focusAmount && Number.isFinite(Number(focusAmount)) ? { date: String(focusDate), amount: Number(focusAmount) } : undefined;
+  const focus = focusDate && focusAmount && Number.isFinite(Number(focusAmount)) ? { date: String(focusDate), amount: Number(focusAmount), ref: focusRef ? String(focusRef) : undefined, method: focusMethod ? String(focusMethod) : undefined, loanRef: focusLoan ? String(focusLoan) : undefined } : undefined;
   const [categoryName, setCategoryName] = useState<string>();
   return (
     <Screen header={<FlatHeader title={categoryName || label || "Ledger"} subtitle={SUBTITLE[id] ?? "Ledger"} back />}>

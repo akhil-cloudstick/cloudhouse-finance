@@ -16,6 +16,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 	"time"
 
 	"gorm.io/gorm/clause"
@@ -102,8 +103,35 @@ func canDecideAuction(ctx context.Context, roleID uint, flow string) bool {
 	return common.CanAct(ctx, roleID, flow, st.Key)
 }
 
+// A defaulted loan is listed even while its gold is pledged to a bank: marking it eligible is then refused with a
+// message telling staff to release the gold first (see SaveAuctionEligibility).
 func isAuctionCase(l *models.Loan) bool {
-	return l.Status == models.StatusAuctionEligible || l.Status == models.StatusAuctionedBalanceDue || l.IsDefaulted
+	// Auctioned loans only get this far when the query found an unconcluded case for them.
+	return l.Status == models.StatusAuctionEligible || l.Status == models.StatusAuctionedBalanceDue || l.Status == models.StatusAuctioned || l.IsDefaulted
+}
+
+// AvailableForAuction is false while any of the loan's gold is pledged to a bank: it is not in the
+// branch's hands, so a defaulted loan is not an auction candidate until the bank releases it.
+func AvailableForAuction(l *models.Loan) bool {
+	return l.BankPledgeStatus != models.BankPledgeStatusPledged
+}
+
+// goldAtBankRefusal stops an auction step (`step`, e.g. "continuing the auction") while the loan is
+// marked Bank Pledged or an active pledge record still holds some of its ornaments.
+func goldAtBankRefusal(bankPledgeStatus string, activePledges int64, step string) error {
+	if bankPledgeStatus == models.BankPledgeStatusPledged || activePledges > 0 {
+		return common.NewBadRequest("this loan's gold is pledged to a bank; release it from the bank before " + step)
+	}
+	return nil
+}
+
+// auctionCaseBlocksBankPledge refuses handing gold to a bank while it is committed to an open
+// auction case — otherwise the case would carry on (scheduled, even sold) with the gold at the bank.
+func auctionCaseBlocksBankPledge(stage string) error {
+	if IsActiveAuctionStage(stage) {
+		return common.NewBadRequest("this loan has an auction case in progress; its gold cannot be pledged to a bank until the case is closed")
+	}
+	return nil
 }
 
 func resolveAuctionAfterPayment(ctx context.Context, l *models.Loan, p *models.LoanPayment) bool {
@@ -156,14 +184,19 @@ func resolveAuctionAfterPayment(ctx context.Context, l *models.Loan, p *models.L
 			} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
-			l.Status = models.StatusActive
+			// Nothing left owed (principal too): the loan is waiting only for the gold hand-over, not back to servicing.
+			if outstanding <= 0.01 {
+				l.Status = models.StatusClosureRequested
+			} else {
+				l.Status = models.StatusActive
+			}
 			if err := tx.Save(l).Error; err != nil {
 				return err
 			}
 			recordAuctionEvent(ctx, tx, rec.ID, "DecisionRemove", nil, "", fmt.Sprintf(
 				"Payment of ₹%.2f cleared all interest and penal interest — auction withdrawn automatically (₹%.2f principal still payable)", p.Amount, outstanding))
 			notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Removed From Auction", brandedMessage(ctx,
-				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Finance",
+				"Dear %s, we have received your payment of ₹%.2f. Loan %s is no longer overdue and has been removed from auction — your pledged gold is no longer at risk. A balance of ₹%.0f remains payable. — CloudHouse Finance",
 				l.Customer.Name, p.Amount, l.LoanNumber, outstanding,
 			), commonModels.TriggerPayment, "loan", l.ID)
 			return nil
@@ -256,8 +289,8 @@ func getAuctionHistory(ctx context.Context, loanID uint, branchID *uint) ([]mode
 	return findAuctionHistoryByLoanID(ctx, loanID)
 }
 
-func listConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
-	return findAllConcluded(ctx, branchID, hasSale, query, limit, offset)
+func listConcludedAuctions(ctx context.Context, branchID *uint, hasSale *bool, stages []string, outcome, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+	return findAllConcluded(ctx, branchID, hasSale, stages, outcome, query, limit, offset)
 }
 
 func listPendingAuctionDecisions(ctx context.Context, branchID *uint) ([]models.AuctionDecisionRequest, error) {
@@ -271,10 +304,30 @@ func getAuctionRecord(ctx context.Context, loanID uint, branchID *uint) (*models
 	return loadAuctionRecord(ctx, loanID)
 }
 
+// requireGoldInHand stops an auction step while any of the loan's gold sits with a
+// bank: the company cannot notify, schedule or sell what it does not hold.
+func requireGoldInHand(ctx context.Context, loanID uint) error {
+	l, err := findLoanByID(ctx, loanID)
+	if err != nil {
+		return common.NewNotFound("loan not found")
+	}
+	active, err := countActivePledgesTx(config.DB.WithContext(ctx), loanID)
+	if err != nil {
+		return err
+	}
+	return goldAtBankRefusal(l.BankPledgeStatus, active, "continuing the auction")
+}
+
 func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can mark loan auction eligible") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can mark loan auction eligible")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can mark loan auction eligible")
 	}
+	return openAuctionEligibility(ctx, loanID, branchID, actorID, actorRole)
+}
+
+// openAuctionEligibility holds the checks and writes of SaveAuctionEligibility without the role check, so the
+// bank-release flow can open the case for a defaulted loan whose gold just came back from the bank.
+func openAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, actorID *uint, actorRole string) (*models.AuctionRecord, error) {
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
 		return nil, common.NewNotFound("loan not found")
@@ -285,8 +338,15 @@ func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, ac
 	accrueAndSave(
 		ctx, l)
 	enrichLoan(ctx, l)
+	active, err := countActivePledgesTx(config.DB.WithContext(ctx), loanID)
+	if err != nil {
+		return nil, err
+	}
+	if err := goldAtBankRefusal(l.BankPledgeStatus, active, "marking it auction-eligible"); err != nil {
+		return nil, err
+	}
 	if !l.IsDefaulted {
-		return nil, common.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
+		return nil, common.NewBadRequest("loan is not defaulted (90+ days overdue)")
 	}
 	// Checks the ACTIVE case only — a concluded one must not block a new attempt.
 	if _, err := findAuctionActiveByLoanID(ctx, loanID); err == nil {
@@ -318,9 +378,12 @@ func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, ac
 
 func SaveAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can issue auction notice") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can issue auction notice")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can issue auction notice")
 	}
 	if err := checkLoanBranch(ctx, loanID, branchID); err != nil {
+		return nil, err
+	}
+	if err := requireGoldInHand(ctx, loanID); err != nil {
 		return nil, err
 	}
 	rec, err := loadAuctionRecord(ctx, loanID)
@@ -365,9 +428,16 @@ func SaveAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks
 
 func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can schedule auction") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can schedule auction")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can schedule auction")
+	}
+	referenceNumber = strings.TrimSpace(referenceNumber)
+	if utf8.RuneCountInString(referenceNumber) > 150 {
+		return nil, common.NewBadRequest("reference number can be at most 150 characters")
 	}
 	if err := checkLoanBranch(ctx, loanID, branchID); err != nil {
+		return nil, err
+	}
+	if err := requireGoldInHand(ctx, loanID); err != nil {
 		return nil, err
 	}
 	rec, err := loadAuctionRecord(ctx, loanID)
@@ -400,7 +470,7 @@ func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date 
 
 func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmount, expenses float64, pay AuctionSalePayment, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can record auction sale") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can record auction sale")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can record auction sale")
 	}
 	if saleAmount <= 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
@@ -410,6 +480,9 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 	}
 	if expenses > saleAmount {
 		return nil, common.NewBadRequest("auction expenses cannot be more than the sale amount")
+	}
+	if err := requireGoldInHand(ctx, loanID); err != nil {
+		return nil, err
 	}
 	rec, err := loadAuctionRecord(ctx, loanID)
 	if err != nil {
@@ -452,6 +525,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 		applied = totalDebt
 	}
 	auctionDate := time.Now()
+	dp, di, dpe, dt := common.RoundMoney(l.OutstandingAmount+l.OutstandingProcessingFee), common.RoundMoney(l.OutstandingInterest), common.RoundMoney(l.OutstandingPenalInterest), totalDebt
 	var payment *models.LoanPayment
 	var appFee, appPenal, appInterest, appPrincipal float64 // what the sale cleared on the loan
 	txErr := config.DB.
@@ -485,7 +559,9 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 				UpiAmount:            appliedUpi,
 				BankTransferAmount:   appliedBank,
 				BankID:               appliedBankID,
-				Reference:            rec.AuctionReferenceNumber,
+				// loan_payments.reference is varchar(80) while the auction reference allows 150 — cap it here
+				// (the full reference stays on the auction record).
+				Reference:            truncateRunes(rec.AuctionReferenceNumber, 80),
 				Description:          fmt.Sprintf("Auction proceeds applied (sale ₹%.2f less expenses ₹%.2f)", saleAmount, expenses),
 				ProcessingFeeApplied: fee,
 				PenalInterestApplied: penal,
@@ -499,6 +575,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 			}
 		}
 		rec.SaleAmount = saleAmount
+		rec.DuePrincipal, rec.DueInterest, rec.DuePenal, rec.DueTotal = &dp, &di, &dpe, &dt
 		rec.AuctionExpenses = expenses
 		rec.SurplusShortfall = common.RoundMoney(netProceeds - totalDebt)
 		rec.SurplusPayableAmount = common.RoundMoney(math.Max(0, netProceeds-totalDebt))
@@ -604,7 +681,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 		recordAuctionEvent(ctx, nil, rec.ID, "DecisionPursue", nil, "System", fmt.Sprintf(
 			"Auction proceeds fell short by ₹%.2f — balance pursued automatically (no shortfall decision stage configured)", shortfall))
 		notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Shortfall", brandedMessage(ctx,
-			"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
+			"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.0f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
 			l.Customer.Name, l.LoanNumber, shortfall,
 		), commonModels.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
@@ -620,7 +697,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 
 func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition, remarks, mode string, bankID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can settle auction") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can settle auction")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can settle auction")
 	}
 	switch disposition {
 	case AuctionSurplusRefundedToCustomer, "RecordedAsIncome":
@@ -629,7 +706,7 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 	}
 	if disposition == "RecordedAsIncome" && strings.TrimSpace(remarks) == "" {
 		// Retaining a customer's surplus is the kind of decision that must carry a stated reason.
-		return nil, common.NewBadRequest("remarks are required when a customer's auction surplus is retained as income")
+		return nil, common.NewBadRequest("remarks are required")
 	}
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
@@ -653,7 +730,7 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 		return nil, common.NewBadRequest("action does not match the auction case's current stage")
 	}
 	if l.Status == models.StatusAuctionedBalanceDue {
-		return nil, common.NewBadRequest("this auction left a balance owing — resolve the shortfall decision instead of settling")
+		return nil, common.NewBadRequest("balance owing — resolve the shortfall first")
 	}
 	if rec.SurplusPayableAmount <= 0.01 {
 		return nil, common.NewBadRequest("this auction left no surplus to dispose of")
@@ -661,12 +738,14 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 	if rec.SurplusDisposition != "" || rec.SurplusPaidOutMovementID != nil {
 		return nil, common.NewConflict("this auction's surplus has already been disposed of")
 	}
+	// Sales recorded before money was kept in whole rupees can carry paise; settle the rounded figure staff see.
+	rec.SurplusPayableAmount = common.RoundMoney(rec.SurplusPayableAmount)
 	now := time.Now()
 	// The refund's cash line and the settled auction record are saved together: a failed refund line
 	// leaves the auction unsettled instead of settled with no money recorded.
 	if err := config.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if disposition == AuctionSurplusRefundedToCustomer {
-			movementID, err := cashbook.RecordAuctionSurplusCashOut(cashbook.WithTx(ctx, tx), loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now, mode, bankID, l.CustomerID)
+			movementID, err := cashbook.RecordAuctionSurplusCashOut(cashbook.WithTx(ctx, tx), loanID, l.LoanNumber, rec.SurplusPayableAmount, l.BranchID, now, mode, bankID, l.CustomerID, remarks)
 			if err != nil {
 				return fmt.Errorf("could not record the surplus refund in Cash-in-Hand, settlement not saved: %w", err)
 			}
@@ -676,16 +755,17 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 			rec.FinalSettlementStatus = "SettledToLoanCo"
 		}
 		rec.SurplusDisposition = disposition
+		rec.SurplusRemarks = strings.TrimSpace(remarks)
 		rec.Stage = models.AuctionStageSettled
 		return tx.Save(rec).Error
 	}); err != nil {
 		return nil, err
 	}
 	recordAuctionEvent(ctx, nil, rec.ID, "Settled", actorID, actorRole, fmt.Sprintf(
-		"Surplus ₹%.2f — %s. %s", rec.SurplusPayableAmount, disposition, remarks))
+		"Surplus ₹%.0f — %s. %s", rec.SurplusPayableAmount, disposition, remarks))
 	if disposition == AuctionSurplusRefundedToCustomer {
 		notifyCustomer(ctx, l.CustomerID, l.Customer.Phone, "Auction Surplus Refund", brandedMessage(ctx,
-			"Dear %s, the surplus of ₹%.2f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — CloudHouse Finance",
+			"Dear %s, the surplus of ₹%.0f from the auction of loan %s is being refunded to you. Please visit the branch to collect it. — CloudHouse Finance",
 			l.Customer.Name, rec.SurplusPayableAmount, l.LoanNumber,
 		), commonModels.TriggerAuctionEvent, "auction_record", rec.ID)
 	} else {
@@ -738,17 +818,20 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 		req.DecidedByRole = actorRole
 		req.DecisionRemarks = remarks
 		req.DecidedAt = &now
+		// Older requests can carry paise; the decision is made on the whole-rupee figures staff see.
+		req.AmountPaid = common.RoundMoney(req.AmountPaid)
+		req.OutstandingAtRequest = common.RoundMoney(req.OutstandingAtRequest)
 		switch req.Kind {
 		case AuctionDecisionKindPartialRepayment:
 			if !canDecideAuction(ctx, actorRoleID, common.FlowAuctionPartialRepayment) {
-				return common.NewForbidden("your role may not decide whether a part-paid loan stays in auction")
+				return common.NewForbidden("your role can't decide this")
 			}
 			switch decision {
 			case "KeepInAuction":
 				recordAuctionEvent(
 					ctx, tx, rec.ID, "DecisionKeep", actorID, actorRole, remarks)
 				notifyMsg = brandedMessage(ctx,
-					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.2f is still outstanding. Please contact the branch urgently. — CloudHouse Finance",
+					"Dear %s, following review of your recent payment, loan %s remains scheduled for auction as a balance of ₹%.0f is still outstanding. Please contact the branch urgently. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			case "RemovedFromAuction":
@@ -762,7 +845,7 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 				}
 				recordAuctionEvent(ctx, tx, rec.ID, "DecisionRemove", actorID, actorRole, remarks)
 				notifyMsg = brandedMessage(ctx,
-					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.2f remains payable. — CloudHouse Finance",
+					"Dear %s, following your recent payment, loan %s has been removed from auction and your pledged gold is no longer at risk. A balance of ₹%.0f remains payable. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			default:
@@ -770,7 +853,7 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 			}
 		case "Shortfall":
 			if !canDecideAuction(ctx, actorRoleID, common.FlowAuctionShortfall) {
-				return common.NewForbidden("only a Branch Manager, Management, or Administrator may decide a post-auction shortfall")
+				return common.NewForbidden("only a manager can decide this")
 			}
 			if strings.TrimSpace(remarks) == "" {
 				return common.NewBadRequest("remarks are required for this decision")
@@ -787,7 +870,7 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 				}
 				recordAuctionEvent(ctx, tx, rec.ID, "DecisionPursue", actorID, actorRole, remarks)
 				notifyMsg = brandedMessage(ctx,
-					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.2f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
+					"Dear %s, the auction of your pledged gold under loan %s did not clear the full amount due. A balance of ₹%.0f remains payable and will continue to accrue interest. Please contact the branch to arrange settlement. — CloudHouse Finance",
 					l.Customer.Name, l.LoanNumber, req.OutstandingAtRequest,
 				)
 			case "WriteOff":
@@ -821,6 +904,10 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 					}
 				}
 				l.Status = models.StatusClosed
+				if l.ClosedAt == nil {
+					closedAt := time.Now()
+					l.ClosedAt = &closedAt
+				}
 				if err := tx.Save(l).Error; err != nil {
 					return err
 				}
@@ -896,13 +983,19 @@ func preloadAuctionDetail(db *gorm.DB) *gorm.DB {
 }
 
 func insertAuction(ctx context.Context, a *models.AuctionRecord) error {
-	return config.DB.
-		WithContext(ctx).Create(a).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func persistAuction(ctx context.Context, a *models.AuctionRecord) error {
-	return config.DB.
-		WithContext(ctx).Save(a).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func findAuctionActiveByLoanID(ctx context.Context, loanID uint) (*models.AuctionRecord, error) {
@@ -942,16 +1035,29 @@ func findAuctionHistoryByLoanID(ctx context.Context, loanID uint) ([]models.Auct
 	return records, err
 }
 
-func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
+func findAllConcluded(ctx context.Context, branchID *uint, hasSale *bool, stages []string, outcome, query string, limit, offset int) ([]ConcludedAuctionRow, int64, error) {
 	var rows []ConcludedAuctionRow
 	q := preloadAuctionDetail(config.DB.
 		WithContext(ctx)).Model(&models.AuctionRecord{}).
 		Select("auction_records.*, loans.loan_number AS loan_number, customers.name AS customer_name").
 		Joins("JOIN loans ON loans.id = auction_records.loan_id").
 		Joins("JOIN customers ON customers.id = loans.customer_id").
-		Where("auction_records.stage IN (?, ?)", models.AuctionStageSettled, models.AuctionStageWithdrawn)
+		// A sale that is recorded but not yet settled (a surplus still to be paid out) is stage Auctioned.
+		// It belongs in the history from the moment the sale is entered, not only once it is settled —
+		// otherwise stepping back from the surplus-settlement step made the record vanish from every list.
+		Where("(auction_records.stage IN (?, ?) OR (auction_records.stage = ? AND auction_records.sale_amount > 0))", models.AuctionStageSettled, models.AuctionStageWithdrawn, models.AuctionStageAuctioned)
 	if branchID != nil {
 		q = q.Where("loans.branch_id = ?", *branchID)
+	}
+	if len(stages) > 0 {
+		q = q.Where("auction_records.stage IN ?", stages)
+	}
+	// outcome narrows a sale to the ones that left a surplus to settle, or fell short of what was owed.
+	switch outcome {
+	case "surplus":
+		q = q.Where("auction_records.surplus_shortfall > 0")
+	case "shortfall":
+		q = q.Where("auction_records.surplus_shortfall < 0")
 	}
 	if hasSale != nil {
 		if *hasSale {
@@ -987,6 +1093,8 @@ func FindScheduledForCalendar(ctx context.Context) ([]ScheduledAuctionCalendarRo
 		Joins("JOIN loans ON loans.id = auction_records.loan_id").
 		Joins("JOIN customers ON customers.id = loans.customer_id").
 		Where("auction_records.stage = ? AND auction_records.auction_date IS NOT NULL", models.AuctionStageScheduled).
+		// gold that has gone to a bank is not going under the hammer on that date
+		Where("loans.bank_pledge_status <> ?", models.BankPledgeStatusPledged).
 		Find(&rows).Error
 	return rows, err
 }
@@ -1000,7 +1108,9 @@ func findAuctionAllByCustomerID(ctx context.Context, customerID uint, from, to *
 		Where("loans.customer_id = ?", customerID)
 	if search != "" {
 		like := "%" + search + "%"
-		q = q.Where("loans.loan_number ILIKE ? OR auction_records.auction_reference_number ILIKE ?", like, like)
+		q = q.Where("loans.loan_number ILIKE ? OR auction_records.auction_reference_number ILIKE ? OR auction_records.stage ILIKE ?"+
+			" OR CAST(auction_records.sale_amount AS TEXT) LIKE ?",
+			like, like, like, "%"+strings.ReplaceAll(search, ",", "")+"%")
 	}
 	if from != nil {
 		q = q.Where("loans.opened_date >= ?", startOfDay(*from))
@@ -1021,12 +1131,19 @@ func findAuctionAllByCustomerID(ctx context.Context, customerID uint, from, to *
 }
 
 func createNotice(ctx context.Context, n *models.AuctionNotice) error {
-	return config.DB.
-		WithContext(ctx).Create(n).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(n).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfAuction(db, n.AuctionRecordID)
 }
 
 func createAuctionEvent(ctx context.Context, tx *gorm.DB, e *models.AuctionEvent) error {
-	return auctionDbOr(ctx, tx).Create(e).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Create(e).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfAuction(db, e.AuctionRecordID)
 }
 
 func auctionDbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
@@ -1038,7 +1155,11 @@ func auctionDbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
 }
 
 func updateAuctionTx(ctx context.Context, tx *gorm.DB, a *models.AuctionRecord) error {
-	return auctionDbOr(ctx, tx).Save(a).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Save(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func findPendingDecision(ctx context.Context, tx *gorm.DB, auctionRecordID uint, kind string) (*models.AuctionDecisionRequest, error) {
@@ -1062,11 +1183,19 @@ func hasAnyPendingDecision(ctx context.Context, auctionRecordID uint) (bool, err
 }
 
 func createDecision(ctx context.Context, tx *gorm.DB, req *models.AuctionDecisionRequest) error {
-	return auctionDbOr(ctx, tx).Create(req).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Create(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func updateDecision(ctx context.Context, tx *gorm.DB, req *models.AuctionDecisionRequest) error {
-	return auctionDbOr(ctx, tx).Save(req).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Save(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func findDecisionByID(ctx context.Context, tx *gorm.DB, id uint) (*models.AuctionDecisionRequest, error) {
@@ -1163,14 +1292,16 @@ func ListConcludedAuctions(c echo.Context) error {
 		b := v == "true"
 		hasSale = &b
 	}
+	stages := splitCSV(c.QueryParam("stage"))
+	outcome := strings.ToLower(strings.TrimSpace(c.QueryParam("outcome")))
 	if limit > 0 {
-		rec, total, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, query, limit, offset)
+		rec, total, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, stages, outcome, query, limit, offset)
 		if err != nil {
 			return common.FailErr(c, err)
 		}
 		return common.SuccessPage(c, page, limit, total, rec)
 	}
-	recs, _, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, query, 0, 0)
+	recs, _, err := listConcludedAuctions(ctx, auth.GetBranchScope(c), hasSale, stages, outcome, query, 0, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1324,4 +1455,13 @@ func (p AuctionSalePayment) proRata(part, whole float64) (cash, upi, bank float6
 		cash = common.RoundMoney(cash + diff)
 	}
 	return cash, upi, bank
+}
+
+// truncateRunes caps s at n characters (not bytes) so multi-byte text is never cut mid-rune.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }

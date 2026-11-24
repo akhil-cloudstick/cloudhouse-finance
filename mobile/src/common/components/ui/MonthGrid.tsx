@@ -10,10 +10,14 @@ type MonthGridProps = {
   month: Date;
   selected?: string;
   onSelect: (iso: string) => void;
-  dots?: Record<string, ("red" | "amber" | "blue")[]>;
+  dots?: Record<string, ("red" | "amber" | "blue" | "green")[]>;
   min?: string;
   max?: string;
   gutter?: number;
+  /** Always render 6 week rows so the height never changes between months (default; pass false to opt out). */
+  fixedRows?: boolean;
+  /** Reports the measured total height of the grid (weekday row + days). */
+  onHeight?: (h: number) => void;
 };
 
 /** .cal-grid — month grid with optional per-day dots (reminders). Leading /
@@ -26,6 +30,8 @@ export function MonthGrid({
   min,
   max,
   gutter = 18,
+  fixedRows = true,
+  onHeight,
 }: MonthGridProps) {
   const cells = useMemo(() => {
     const y = month.getFullYear();
@@ -33,16 +39,17 @@ export function MonthGrid({
     const first = new Date(y, m, 1);
     const start = new Date(y, m, 1 - first.getDay());
     const days = new Date(y, m + 1, 0).getDate();
-    const total = Math.ceil((first.getDay() + days) / 7) * 7;
+    const total = fixedRows ? 42 : Math.ceil((first.getDay() + days) / 7) * 7;
     return Array.from({ length: total }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
-  }, [month]);
+  }, [month, fixedRows]);
   const [w, setW] = useState(0);
-  const cell = w ? (w - 6 * 4) / 7 : 0;
+  // Rounded down so 7 cells + 6 gaps never exceed the row (iOS wraps the 7th cell, Sunday, otherwise).
+  const cell = w ? Math.floor(((w - 6 * 4) / 7) * 100) / 100 : 0;
   return (
-    <View style={{ paddingHorizontal: gutter }}>
-      <View style={[s.calRow, { marginBottom: 6 }]}>
+    <View style={{ paddingHorizontal: gutter }} onLayout={onHeight ? (e) => onHeight(e.nativeEvent.layout.height) : undefined}>
+      <View style={[s.calRow, { marginBottom: 6, gap: 4 }]}>
         {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-          <Txt key={i} style={[s.calDow, { width: cell || undefined, flex: cell ? undefined : 1 }]}>
+          <Txt key={i} style={[s.calDow, { flex: 1 }]}>
             {d}
           </Txt>
         ))}
@@ -66,7 +73,7 @@ export function MonthGrid({
                   {ds && ds.length ? (
                     <View style={s.calDots}>
                       {ds.slice(0, 3).map((c, i) => (
-                        <View key={i} style={[s.calDot, { backgroundColor: c === "red" ? C.red : c === "amber" ? C.amber : C.blue }]} />
+                        <View key={i} style={[s.calDot, { backgroundColor: c === "red" ? C.red : c === "amber" ? C.amber : c === "green" ? C.green : C.blue }]} />
                       ))}
                     </View>
                   ) : null}

@@ -13,7 +13,9 @@ func AuthzRoutes(e *echo.Echo) *echo.Echo {
 	e.PATCH("/api/v1/users/:user_id/employees/:id/permissions/:role_id", common.UpdatePermissions, auth.Staff(auth.RequirePermission("can update role"))...)
 	e.PATCH("/api/v1/users/:user_id/employees/:id/permissions/:role_id/set-all", common.SetAllPermissions, auth.Staff(auth.RequirePermission("can update role"))...)
 	e.GET("/api/v1/users/:user_id/roles", common.ListRoles, auth.Staff(auth.RequirePermission("can view role and permission module"))...)
-	e.POST("/api/v1/users/:user_id/roles", common.CreateRole, auth.Staff(auth.RequirePermission("can create role"))...)
+	e.GET("/api/v1/users/:user_id/roles/list", common.ListRolesPage, auth.Staff(auth.RequirePermission("can view role and permission module"))...)
+	e.GET("/api/v1/users/:user_id/roles/:id/employees", common.ListRoleEmployees, auth.Staff(auth.RequirePermission("can view role and permission module"))...)
+	e.POST("/api/v1/users/:user_id/roles",common.CreateRole, auth.Staff(auth.RequirePermission("can create role"))...)
 	e.PATCH("/api/v1/users/:user_id/roles/:id", common.UpdateRole, auth.Staff(auth.RequirePermission("can update role"))...)
 	e.DELETE("/api/v1/users/:user_id/roles/:id/delete", common.DeleteRole, auth.Staff(auth.RequirePermission("can delete role"))...)
 	return e

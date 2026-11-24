@@ -33,6 +33,9 @@ type paymentPartRequest struct {
 }
 
 type updateEntryRequest struct {
+	// Kind, when it names a different type than the entry has (cash_in, debit or self_transfer), converts the
+	// entry to that type instead of editing it in place.
+	Kind         string               `json:"kind"`
 	Category     string               `json:"category"`
 	Amount       float64              `json:"amount" binding:"required"`
 	OccurredOn   string               `json:"occurred_on"`
@@ -49,6 +52,9 @@ type updateEntryRequest struct {
 	OrnamentType string  `json:"ornament_type"`
 	CostAmount   float64 `json:"cost_amount"`
 	BankID       *uint   `json:"bank_id"`
+	// How the gold sale's cost to acquire was paid.
+	CostMode   string `json:"cost_mode"`
+	CostBankID *uint  `json:"cost_bank_id"`
 }
 
 type entryLine struct {
@@ -81,11 +87,31 @@ type entryInfo struct {
 	Status       string      `json:"status,omitempty"`
 	OrnamentType string      `json:"ornament_type,omitempty"`
 	// A draw on a loan: the loan's number and its principal.
-	LoanNumber      string     `json:"loan_number,omitempty"`
-	PrincipalAmount float64    `json:"principal_amount,omitempty"`
-	CostAmount      float64    `json:"cost_amount,omitempty"`
-	ApprovedBy      string     `json:"approved_by,omitempty"`
-	ApprovedAt      *time.Time `json:"approved_at,omitempty"`
+	LoanNumber      string  `json:"loan_number,omitempty"`
+	PrincipalAmount float64 `json:"principal_amount,omitempty"`
+	CostAmount      float64 `json:"cost_amount,omitempty"`
+	// A gold sale's cost to acquire: how it was paid.
+	CostMode   string     `json:"cost_mode,omitempty"`
+	CostBankID *uint      `json:"cost_bank_id,omitempty"`
+	CostBank   string     `json:"cost_bank,omitempty"`
+	ApprovedBy string     `json:"approved_by,omitempty"`
+	ApprovedAt *time.Time `json:"approved_at,omitempty"`
+	// The gold loan entry a system line belongs to, so the ledger can offer to edit it from the loan's own record:
+	// "disbursement" (the loan's payout) or "top_up", with the loan and, for a top-up, its id.
+	LoanEntry     string `json:"loan_entry,omitempty"`
+	LoanID        uint   `json:"loan_id,omitempty"`
+	LoanTopUpID   uint   `json:"loan_top_up_id,omitempty"`
+	LoanPaymentID uint   `json:"loan_payment_id,omitempty"`
+	// bank_pledge / bank_pledge_release (loan_id is the gold loan, bank_pledge_id the pledge record)
+	BankPledgeID uint `json:"bank_pledge_id,omitempty"`
+	// personal_payment / personal_disbursement (loan_id is the personal loan, loan_payment_id the payment), investment_entry
+	// (loan_id is the investment, investment_entry_id its ledger entry id: tx-N, payout-N, open-N), service_charge /
+	// disbursement_reversal (derived from gold loan loan_id: edited through its sanction).
+	InvestmentEntryID string `json:"investment_entry_id,omitempty"`
+	// Split is what a loan repayment was applied to (processing fee, penal interest, interest, principal), each part
+	// with the mode it was paid by: cash first, then UPI, then bank transfer. Set on the cash line of a gold-loan or
+	// personal-loan repayment, and shows the whole payment even when this line is only one of its modes.
+	Split []LedgerSplitLine `json:"split,omitempty"`
 }
 
 // paymentParts checks a payment breakdown and turns it into split parts: every mode must be Cash, UPI or
@@ -271,10 +297,17 @@ func GetMovementEntry(c echo.Context) error {
 	case entryGoldSale:
 		info.Category = "Gold Sale"
 		var gs models.GoldSale
-		if err := config.DB.WithContext(ctx).Where("cash_movement_id = ?", first.ID).First(&gs).Error; err != nil || gs.CostCashMovementID != nil {
+		if err := config.DB.WithContext(ctx).Where("cash_movement_id = ?", first.ID).First(&gs).Error; err != nil {
 			return common.FailErr(c, common.NewNotFound("this gold sale can't be edited"))
 		}
 		info.OrnamentType, info.CostAmount, info.Remarks, info.ReceiptImage = gs.OrnamentType, gs.CostAmount, gs.Remarks, gs.ReceiptImage
+		info.CostMode, info.CostBankID = gs.CostMode, gs.CostBankID
+		if gs.CostBankID != nil {
+			var b struct{ Name string }
+			if config.DB.WithContext(ctx).Table("banks").Select("name").Where("id = ?", *gs.CostBankID).Scan(&b).Error == nil {
+				info.CostBank = b.Name
+			}
+		}
 	default:
 		info.Category = first.Source
 		if src := findLoanSource(ctx, first.Source); src != nil {
@@ -313,7 +346,86 @@ func systemEntryInfo(c echo.Context, ctx context.Context, m *models.CashMovement
 			info.PrincipalAmount = *src.PrincipalAmount
 		}
 	}
+	attachLoanEntry(ctx, m, &info)
 	return common.Success(c, http.StatusOK, info)
+}
+
+// attachLoanEntry names the gold loan entry (the payout, or a top-up) a system cash line was booked for.
+func attachLoanEntry(ctx context.Context, m *models.CashMovement, info *entryInfo) {
+	if attachOtherEntry(ctx, m, info) {
+		return
+	}
+	switch {
+	case (m.Source == "Collection" || m.Source == "Auction") && m.TransactionGroupID != "":
+		// a repayment's cash line: the loan payment that booked this group of lines
+		var pay struct {
+			ID                                                                            uint
+			LoanID                                                                        uint
+			Type, Method                                                                  string
+			Amount                                                                        float64
+			CashAmount, UpiAmount, BankTransferAmount, ChequeAmount                       float64
+			InterestApplied, PenalInterestApplied, PrincipalApplied, ProcessingFeeApplied float64
+		}
+		if err := config.DB.WithContext(ctx).Table("loan_payments").Select(`id, loan_id, type, method, amount,
+			cash_amount, upi_amount, bank_transfer_amount, cheque_amount,
+			interest_applied, penal_interest_applied, principal_applied, processing_fee_applied`).
+			Where("cash_transaction_group_id = ?", m.TransactionGroupID).Order("id").Limit(1).Scan(&pay).Error; err != nil || pay.ID == 0 {
+			return
+		}
+		if pay.Type == "Auction Sale" {
+			info.LoanEntry, info.LoanID, info.LoanPaymentID = "auction_sale", pay.LoanID, pay.ID
+			return
+		}
+		if pay.Type == "Auction Write-Off" {
+			return
+		}
+		info.LoanEntry, info.LoanID, info.LoanPaymentID = "payment", pay.LoanID, pay.ID
+		info.Split = loanRepaymentSplit(pay.Type, pay.PenalInterestApplied, pay.InterestApplied, pay.PrincipalApplied, pay.ProcessingFeeApplied, pay.Amount,
+			splitParts{pay.CashAmount, pay.UpiAmount, pay.BankTransferAmount, pay.ChequeAmount}, pay.Method)
+	case strings.HasPrefix(m.Purpose, "Auction surplus settlement — "):
+		attachAuctionLoan(ctx, strings.TrimPrefix(m.Purpose, "Auction surplus settlement — "), "auction_surplus", info)
+	case m.ExpenseID != nil && m.Purpose == "Expense — Auction":
+		var exp struct{ Payee string }
+		if err := config.DB.WithContext(ctx).Table("expenses").Select("payee").Where("id = ? AND category = ?", *m.ExpenseID, "Auction").Scan(&exp).Error; err != nil {
+			return
+		}
+		attachAuctionLoan(ctx, strings.TrimPrefix(exp.Payee, "Auction — "), "auction_expense", info)
+	case m.SourceType == SourceLoanDisbursement && m.SourceID != nil:
+		info.LoanEntry, info.LoanID = "disbursement", *m.SourceID
+	case m.TransactionGroupID != "" && (strings.HasPrefix(m.Purpose, "Bank pledge — ") || strings.HasPrefix(m.Purpose, "Bank pledge release — ")):
+		// a bank pledge's cash-in lines, or the cash-out lines of its release (a void's compensating line has its own group)
+		col, link, kind := "cash_transaction_group_id", "cash_movement_id", "bank_pledge"
+		if strings.HasPrefix(m.Purpose, "Bank pledge release — ") {
+			col, link, kind = "release_cash_transaction_group_id", "release_cash_movement_id", "bank_pledge_release"
+		}
+		var pledge struct {
+			ID     uint
+			LoanID uint
+		}
+		if err := config.DB.WithContext(ctx).Table("bank_pledge_records").Select("id, loan_id").
+			Where(col+" = ? OR ("+link+" IN (SELECT id FROM cash_movements WHERE transaction_group_id = ?) AND COALESCE("+col+", '') = '')", m.TransactionGroupID, m.TransactionGroupID).
+			Where("status IN ?", []string{"Active", "Released"}).Order("id desc").Limit(1).Scan(&pledge).Error; err != nil || pledge.ID == 0 {
+			return
+		}
+		info.LoanEntry, info.LoanID, info.BankPledgeID = kind, pledge.LoanID, pledge.ID
+	case strings.HasPrefix(m.Purpose, "Loan top-up — "):
+		number := strings.TrimSpace(strings.TrimPrefix(m.Purpose, "Loan top-up — "))
+		var loan struct{ ID uint }
+		if err := config.DB.WithContext(ctx).Table("loans").Select("id").Where("loan_number = ?", number).Scan(&loan).Error; err != nil || loan.ID == 0 {
+			return
+		}
+		var topUp struct{ ID uint }
+		q := config.DB.WithContext(ctx).Table("loan_top_ups").Select("id").Where("loan_id = ? AND status = ?", loan.ID, "Active")
+		if m.TransactionGroupID != "" {
+			q = q.Where("cash_transaction_group_id = ? OR (COALESCE(cash_transaction_group_id, '') = '' AND occurred_on = ?)", m.TransactionGroupID, m.OccurredOn)
+		} else {
+			q = q.Where("occurred_on = ?", m.OccurredOn)
+		}
+		if err := q.Order("id desc").Limit(1).Scan(&topUp).Error; err != nil || topUp.ID == 0 {
+			return
+		}
+		info.LoanEntry, info.LoanID, info.LoanTopUpID = "top_up", loan.ID, topUp.ID
+	}
 }
 
 // editOccurredOn keeps the recorded time of day when the date was not changed.
@@ -396,6 +508,13 @@ func applyEntryUpdate(c echo.Context, ctx context.Context, m *models.CashMovemen
 	}
 	remarks := strings.TrimSpace(req.Remarks)
 	var newID uint
+	if target := strings.TrimSpace(req.Kind); target != "" && target != kind {
+		newID, err = convertEntry(ctx, old, kind, target, req, occurred, branchID, receipt, remarks)
+		if err != nil {
+			return common.FailErr(c, err)
+		}
+		return common.Success(c, http.StatusOK, echo.Map{"id": newID})
+	}
 	switch kind {
 	case entrySelfTransfer:
 		newID, err = editSelfTransfer(ctx, old, RecordSelfTransferInput{
@@ -413,6 +532,12 @@ func applyEntryUpdate(c echo.Context, ctx context.Context, m *models.CashMovemen
 	if err != nil {
 		return common.FailErr(c, err)
 	}
+	// An auction surplus settlement's remark is shown in Auction History, not the ledger: keep the auction record in step.
+	if p := old[0].Purpose; strings.HasPrefix(p, "Auction surplus settlement — ") {
+		_ = config.DB.WithContext(ctx).Exec(
+			"UPDATE auction_records SET surplus_remarks = ? WHERE loan_id = (SELECT id FROM loans WHERE loan_number = ? LIMIT 1) AND sale_amount > 0",
+			remarks, strings.TrimPrefix(p, "Auction surplus settlement — ")).Error
+	}
 	return common.Success(c, http.StatusOK, echo.Map{"id": newID})
 }
 
@@ -422,6 +547,143 @@ func editParts(req updateEntryRequest, old models.CashMovement) ([]SplitPart, er
 		return paymentParts(req.Payments, req.Amount)
 	}
 	return paymentParts([]paymentPartRequest{{Mode: old.Mode, Amount: req.Amount, BankID: old.BankID}}, req.Amount)
+}
+
+// convertEntry turns a cash-in, a debit or a self transfer into one of the other two: the old entry is removed
+// and the target is recorded from the edited values; if the target is refused the original is put back.
+func convertEntry(ctx context.Context, old []models.CashMovement, from, to string, req updateEntryRequest, occurred time.Time, branchID *uint, receipt, remarks string) (uint, error) {
+	convertible := map[string]bool{entryCashIn: true, entryDebit: true, entrySelfTransfer: true}
+	if !(convertible[from] || from == entryGoldSale) || !convertible[to] {
+		return 0, common.NewConflict("this entry can't be changed to that type")
+	}
+	category := strings.TrimSpace(req.Category)
+	if to != entrySelfTransfer && category == "" {
+		return 0, common.NewBadRequest("category is required")
+	}
+	if to == entryDebit && branchID == nil {
+		return 0, common.NewBadRequest("branch is required")
+	}
+	var oldSale *models.GoldSale
+	if from == entryGoldSale {
+		var gs models.GoldSale
+		if err := config.DB.WithContext(ctx).Where("cash_movement_id = ?", old[0].ID).First(&gs).Error; err != nil {
+			return 0, common.NewConflict("this gold sale can't be changed to another type")
+		}
+		oldSale = &gs
+		// the sale's cost cash-out goes with it
+		if gs.CostCashMovementID != nil {
+			var cost models.CashMovement
+			if err := config.DB.WithContext(ctx).Where("id = ?", *gs.CostCashMovementID).First(&cost).Error; err == nil {
+				old = append(append([]models.CashMovement{}, old...), cost)
+			}
+		}
+	}
+	var oldExpenses []models.Expense
+	if from == entryDebit {
+		expenseIDs := make([]uint, 0, len(old))
+		for _, r := range old {
+			if r.ExpenseID != nil {
+				expenseIDs = append(expenseIDs, *r.ExpenseID)
+			}
+		}
+		if err := config.DB.WithContext(ctx).Where("id IN ?", expenseIDs).Order("id").Find(&oldExpenses).Error; err != nil {
+			return 0, err
+		}
+		if len(oldExpenses) == 0 || oldExpenses[0].Status != "Approved" {
+			return 0, common.NewConflict("only an approved expense can be edited")
+		}
+	}
+	var parts []SplitPart
+	if to != entrySelfTransfer {
+		var err error
+		if parts, err = editParts(req, old[0]); err != nil {
+			return 0, err
+		}
+	}
+	// a draw on a loan is linked to its loan: the link goes with the draw, and is put back if the new type is refused
+	var loanRows []models.LoanCashSource
+	if from == entryCashIn && IsLoanSource(old[0].Source) {
+		oldIDs := make([]uint, 0, len(old))
+		for _, r := range old {
+			oldIDs = append(oldIDs, r.ID)
+		}
+		if err := config.DB.WithContext(ctx).Where("cash_movement_id IN ?", oldIDs).Find(&loanRows).Error; err != nil {
+			return 0, err
+		}
+		if err := config.DB.WithContext(ctx).Where("cash_movement_id IN ?", oldIDs).Delete(&models.LoanCashSource{}).Error; err != nil {
+			return 0, err
+		}
+	}
+	restoreLoan := func() {
+		for i := range loanRows {
+			_ = config.DB.WithContext(ctx).Omit(clause.Associations).Create(&loanRows[i]).Error
+		}
+	}
+	// the sale row points at its cash lines, so it goes first
+	if oldSale != nil {
+		if err := config.DB.WithContext(ctx).Where("id = ?", oldSale.ID).Delete(&models.GoldSale{}).Error; err != nil {
+			restoreLoan()
+			return 0, err
+		}
+	}
+	if err := removeMovementRows(ctx, old); err != nil {
+		if oldSale != nil {
+			_ = config.DB.WithContext(ctx).Omit(clause.Associations).Create(oldSale).Error
+		}
+		restoreLoan()
+		return 0, err
+	}
+	if len(oldExpenses) > 0 {
+		ids := make([]uint, 0, len(oldExpenses))
+		for _, e := range oldExpenses {
+			ids = append(ids, e.ID)
+		}
+		if err := deleteByIDs(ctx, ids); err != nil {
+			restoreEntry(ctx, nil, old)
+			if oldSale != nil {
+				_ = config.DB.WithContext(ctx).Omit(clause.Associations).Create(oldSale).Error
+			}
+			restoreLoan()
+			return 0, err
+		}
+	}
+	fail := func(err error) (uint, error) {
+		restoreEntry(ctx, oldExpenses, old)
+		restoreLoan()
+		if oldSale != nil {
+			_ = config.DB.WithContext(ctx).Omit(clause.Associations).Create(oldSale).Error
+		}
+		return 0, err
+	}
+	switch to {
+	case entrySelfTransfer:
+		rows, err := recordSelfTransfer(ctx, RecordSelfTransferInput{
+			Category: req.Category, Amount: req.Amount, FromBankID: req.FromBankID, FromBank: req.FromBank,
+			ToBankID: req.ToBankID, ToBank: req.ToBank, Mode: req.Mode, ReceiptImage: receipt,
+			BranchID: branchID, OccurredOn: occurred, Remarks: remarks,
+		})
+		if err != nil {
+			return fail(err)
+		}
+		return rows[0].ID, nil
+	case entryDebit:
+		rec, err := SaveExpenseParts(ctx, RecordExpenseInput{
+			OccurredOn: occurred, Category: category, Amount: req.Amount, BranchID: *branchID,
+			Remarks: remarks, ReceiptImage: receipt,
+		}, parts)
+		if err != nil {
+			return fail(err)
+		}
+		return rec.ID, nil
+	}
+	rec, err := SaveMovementParts(ctx, RecordMovementInput{
+		Type: "in", Source: category, Amount: req.Amount, ReceiptImage: receipt, BranchID: branchID,
+		OccurredOn: occurred, Remarks: remarks, Manual: true,
+	}, nil, parts)
+	if err != nil {
+		return fail(err)
+	}
+	return rec.ID, nil
 }
 
 func editSelfTransfer(ctx context.Context, old []models.CashMovement, in RecordSelfTransferInput) (uint, error) {
@@ -556,4 +818,120 @@ func editDebit(ctx context.Context, old []models.CashMovement, req updateEntryRe
 		}
 	}
 	return *created[0].CashMovementID, nil
+}
+
+// DeleteMovement deletes a cash-in, a debit, a self transfer or a gold sale a person keyed into the ledger: every
+// payment part (or both legs of a transfer) goes, and with it what hangs off it — a debit's expense record, a gold
+// sale's record and cost line, a loan draw's link to its loan. System entries (a loan's own payments, top-ups…) are
+// changed from their own record, never from here. If a step is refused, what was already removed is put back.
+func DeleteMovement(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	id, err := common.IDParam(c, "id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	m, err := getMovement(ctx, id, auth.GetBranchScope(c))
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	kind := entryKind(m)
+	if !m.IsManual || kind == "" {
+		return common.FailErr(c, common.NewConflict("this entry can't be deleted from here"))
+	}
+	old, err := entryMovements(ctx, m)
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	var oldSale *models.GoldSale
+	if kind == entryGoldSale {
+		var gs models.GoldSale
+		if err := config.DB.WithContext(ctx).Where("cash_movement_id = ?", old[0].ID).First(&gs).Error; err != nil {
+			return common.FailErr(c, common.NewConflict("this gold sale can't be deleted"))
+		}
+		oldSale = &gs
+		if gs.CostCashMovementID != nil {
+			var cost models.CashMovement
+			if err := config.DB.WithContext(ctx).Where("id = ?", *gs.CostCashMovementID).First(&cost).Error; err == nil {
+				old = append(append([]models.CashMovement{}, old...), cost)
+			}
+		}
+	}
+	var oldExpenses []models.Expense
+	if kind == entryDebit {
+		expenseIDs := make([]uint, 0, len(old))
+		for _, r := range old {
+			if r.ExpenseID != nil {
+				expenseIDs = append(expenseIDs, *r.ExpenseID)
+			}
+		}
+		if len(expenseIDs) > 0 {
+			if err := config.DB.WithContext(ctx).Where("id IN ?", expenseIDs).Order("id").Find(&oldExpenses).Error; err != nil {
+				return common.FailErr(c, err)
+			}
+			if len(oldExpenses) > 0 && oldExpenses[0].Status != "Approved" {
+				return common.FailErr(c, common.NewConflict("only an approved expense can be deleted"))
+			}
+		}
+	}
+	oldIDs := make([]uint, 0, len(old))
+	for _, r := range old {
+		oldIDs = append(oldIDs, r.ID)
+	}
+	var loanRows []models.LoanCashSource
+	if err := config.DB.WithContext(ctx).Where("cash_movement_id IN ?", oldIDs).Find(&loanRows).Error; err != nil {
+		return common.FailErr(c, err)
+	}
+	restore := func() {
+		for i := range loanRows {
+			_ = config.DB.WithContext(ctx).Omit(clause.Associations).Create(&loanRows[i]).Error
+		}
+		if oldSale != nil {
+			_ = config.DB.WithContext(ctx).Omit(clause.Associations).Create(oldSale).Error
+		}
+	}
+	if len(loanRows) > 0 {
+		if err := config.DB.WithContext(ctx).Where("cash_movement_id IN ?", oldIDs).Delete(&models.LoanCashSource{}).Error; err != nil {
+			return common.FailErr(c, err)
+		}
+	}
+	// the sale row points at its cash lines, so it goes first
+	if oldSale != nil {
+		if err := config.DB.WithContext(ctx).Where("id = ?", oldSale.ID).Delete(&models.GoldSale{}).Error; err != nil {
+			restore()
+			return common.FailErr(c, err)
+		}
+	}
+	if err := removeMovementRows(ctx, old); err != nil {
+		restore()
+		return common.FailErr(c, err)
+	}
+	if len(oldExpenses) > 0 {
+		ids := make([]uint, 0, len(oldExpenses))
+		for _, e := range oldExpenses {
+			ids = append(ids, e.ID)
+		}
+		if err := deleteByIDs(ctx, ids); err != nil {
+			restoreEntry(ctx, nil, old)
+			restore()
+			return common.FailErr(c, err)
+		}
+	}
+	return common.Success(c, http.StatusOK, echo.Map{"deleted": len(old)})
+}
+
+// attachAuctionLoan names the loan an auction's expense or surplus-settlement cash line belongs to.
+func attachAuctionLoan(ctx context.Context, loanNumber, kind string, info *entryInfo) {
+	var loan struct{ ID uint }
+	if err := config.DB.WithContext(ctx).Table("loans").Select("id").Where("loan_number = ?", strings.TrimSpace(loanNumber)).Scan(&loan).Error; err != nil || loan.ID == 0 {
+		return
+	}
+	info.LoanEntry, info.LoanID = kind, loan.ID
+	// The remark entered when the auction's surplus was settled belongs to every cash line of that auction.
+	if strings.TrimSpace(info.Remarks) == "" {
+		var rec struct{ SurplusRemarks string }
+		if err := config.DB.WithContext(ctx).Table("auction_records").Select("surplus_remarks").
+			Where("loan_id = ? AND sale_amount > 0 AND COALESCE(surplus_remarks, '') <> ''", loan.ID).Order("id desc").Limit(1).Scan(&rec).Error; err == nil {
+			info.Remarks = rec.SurplusRemarks
+		}
+	}
 }

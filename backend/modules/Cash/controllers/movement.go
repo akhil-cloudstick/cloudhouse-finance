@@ -57,12 +57,18 @@ type movementRequest struct {
 type movementResponse struct {
 	*models.CashMovement
 	LoanSource *models.LoanCashSource `json:"loan_source,omitempty"`
+	// LoanPaymentID is the gold-loan payment a repayment ("Collection") line belongs to. The mode, party and bank
+	// ledgers show that payment as its own entry (ref "lp:<id>") instead of this cash line, so a click on the line
+	// has to name the payment to land on the matching entry there.
+	LoanPaymentID *uint `json:"loan_payment_id,omitempty"`
 }
 
 type MovementFilter struct {
 	BranchIDs   []uint
 	CustomerIDs []uint
 	Categories  []string
+	// CategoryNames narrows the ledger to entries recorded under those Credit / Debit / Self Transfer categories.
+	CategoryNames []string
 	// Modes narrows the ledger to lines paid in Cash, UPI or Bank Transfer.
 	Modes []string
 }
@@ -72,11 +78,11 @@ func listCashMovementsByBank(ctx context.Context, bankID uint, fromDate, toDate 
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	all, _, err := listByBank(ctx, bankID, fromDate, toDate, 0, 0)
+	totals, err := partyTotalsWhere(ctx, "bank_id = ?", bankID, fromDate, toDate)
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	return rows, total, sumPartyTotals(all), nil
+	return rows, total, totals, nil
 }
 
 func listCashMovementsByCustomer(ctx context.Context, customerID uint, fromDate, toDate time.Time, loanNumbers []string, limit, offset int) ([]models.CashMovement, int64, PartyTotals, error) {
@@ -96,11 +102,46 @@ func listCashMovementsByBranch(ctx context.Context, branchID uint, fromDate, toD
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	all, _, err := listByBranch(ctx, branchID, fromDate, toDate, 0, 0)
+	totals, err := partyTotalsWhere(ctx, "branch_id = ?", branchID, fromDate, toDate)
 	if err != nil {
 		return nil, 0, PartyTotals{}, err
 	}
-	return rows, total, sumPartyTotals(all), nil
+	return rows, total, totals, nil
+}
+
+// partyTotalsWhere is sumPartyTotals computed in SQL over the same rows as
+// listByBank / listByBranch, instead of loading every one of them to add up.
+func partyTotalsWhere(ctx context.Context, where string, id uint, fromDate, toDate time.Time) (PartyTotals, error) {
+	q := config.DB.
+		WithContext(ctx).Model(&models.CashMovement{}).
+		Select("type, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS total").
+		Where(where, id)
+	if !fromDate.IsZero() {
+		q = q.Where("occurred_on >= ?", fromDate)
+	}
+	if !toDate.IsZero() {
+		q = q.Where("occurred_on < ?", toDate.AddDate(0, 0, 1))
+	}
+	var rows []struct {
+		Type  string
+		N     int
+		Total float64
+	}
+	if err := q.Group("type").Scan(&rows).Error; err != nil {
+		return PartyTotals{}, err
+	}
+	var t PartyTotals
+	for _, r := range rows {
+		if r.Type == "in" {
+			t.TotalIn += r.Total
+			t.InCount += r.N
+		} else {
+			t.TotalOut += r.Total
+			t.OutCount += r.N
+		}
+	}
+	t.Net = t.TotalIn - t.TotalOut
+	return t, nil
 }
 
 func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amount float64, components []splitComponent) (uint, string, error) {
@@ -112,7 +153,7 @@ func recordSplitCashMovement(ctx context.Context, base models.CashMovement, amou
 			continue
 		}
 		if c.mode == models.CashModeCheque {
-			return 0, "", common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+			return 0, "", common.NewBadRequest("Cheque is not a supported payment mode")
 		}
 		rec := base
 		rec.Mode = c.mode
@@ -155,27 +196,66 @@ func validModes(in []string) []string {
 
 func movementQueryFilter(c echo.Context) MovementFilter {
 	return MovementFilter{
-		BranchIDs:   parseUintCSV(c.QueryParam("branch_ids")),
-		CustomerIDs: parseUintCSV(c.QueryParam("customer_ids")),
-		Categories:  parseStringCSV(c.QueryParam("types")),
-		Modes:       validModes(parseStringCSV(c.QueryParam("modes"))),
+		BranchIDs:     parseUintCSV(c.QueryParam("branch_ids")),
+		CustomerIDs:   parseUintCSV(c.QueryParam("customer_ids")),
+		Categories:    parseStringCSV(c.QueryParam("types")),
+		CategoryNames: parseStringCSV(c.QueryParam("category_names")),
+		Modes:         validModes(parseStringCSV(c.QueryParam("modes"))),
 	}
+}
+
+// bankPledgeBranchClause also matches a bank pledge's cash lines by the branch of the pledged loan: they are booked
+// under Head Office, so a branch scope on branch_id alone hides them from the branch that owns the loan.
+// It is used only where the ledger is narrowed to bank pledge entries, so no branch balance changes.
+func bankPledgeBranchClause(col, groupCol string, branchIDs []uint) (string, []any) {
+	sub := "SELECT bp.cash_transaction_group_id FROM bank_pledge_records bp JOIN loans lo ON lo.id = bp.loan_id WHERE lo.branch_id IN ? AND bp.cash_transaction_group_id <> ''" +
+		" UNION SELECT bp.release_cash_transaction_group_id FROM bank_pledge_records bp JOIN loans lo ON lo.id = bp.loan_id WHERE lo.branch_id IN ? AND bp.release_cash_transaction_group_id <> ''"
+	return "(" + col + " IN ? OR " + groupCol + " IN (" + sub + "))", []any{branchIDs, branchIDs, branchIDs}
+}
+
+func wantsBankPledge(categories []string) bool {
+	for _, c := range categories {
+		if strings.EqualFold(strings.TrimSpace(c), "bank pledge") {
+			return true
+		}
+	}
+	return false
 }
 
 func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate time.Time, filter MovementFilter, search string) *gorm.DB {
 	q := config.DB.
 		WithContext(ctx).Model(&models.CashMovement{})
+	pledgeWide := wantsBankPledge(filter.Categories)
 	if branchID != nil {
+		if pledgeWide {
+			clause, args := bankPledgeBranchClause("branch_id", "transaction_group_id", []uint{*branchID})
+			q = q.Where(clause, args...)
+		} else {
 		q = q.Where("branch_id = ?", *branchID)
 	}
+	}
 	if len(filter.BranchIDs) > 0 {
+		if pledgeWide {
+			clause, args := bankPledgeBranchClause("branch_id", "transaction_group_id", filter.BranchIDs)
+			q = q.Where(clause, args...)
+		} else {
 		q = q.Where("branch_id IN ?", filter.BranchIDs)
+	}
 	}
 	if len(filter.CustomerIDs) > 0 {
 		q = q.Where("party_customer_id IN ?", filter.CustomerIDs)
 	}
 	if len(filter.Modes) > 0 {
 		q = q.Where("mode IN ?", filter.Modes)
+	}
+	if len(filter.CategoryNames) > 0 {
+		// Credit entries keep the category in source; Debit and Self Transfer entries in purpose, prefixed.
+		var names []string
+		for _, n := range filter.CategoryNames {
+			n = strings.ToLower(strings.TrimSpace(n))
+			names = append(names, n, "expense — "+n, "self transfer — "+n)
+		}
+		q = q.Where("lower(source) IN ? OR lower(purpose) IN ?", names, names)
 	}
 	if !fromDate.IsZero() {
 		q = q.Where("occurred_on >= ?", fromDate)
@@ -200,10 +280,29 @@ func filteredMovements(ctx context.Context, branchID *uint, fromDate, toDate tim
 		}
 	}
 	if search != "" {
-		like := "%" + search + "%"
-		q = q.Where("purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ?", like, like, like)
+		clause, args := movementSearchClause(search)
+		q = q.Where(clause, args...)
 	}
 	return q
+}
+
+// movementSearchClause is the ledger search over every column the Ledger tab shows: date, ref no (the loan /
+// investment number inside purpose, a loan-source's bank loan number, the bank), particulars (purpose, source,
+// remarks), mode, bank, party and the amount. cash_movements has no loan_number column of its own: the number
+// lives in purpose, in loan_cash_sources (Add Cash from a loan) and on the loan's category.
+func movementSearchClause(search string) (string, []any) {
+	like := "%" + search + "%"
+	amount := searchAmountLike(search)
+	clause := "purpose ILIKE ? OR source ILIKE ? OR bank ILIKE ? OR mode ILIKE ? OR remarks ILIKE ?" +
+		" OR id IN (SELECT cash_movement_id FROM loan_cash_sources WHERE loan_number ILIKE ?)" +
+		" OR EXISTS (SELECT 1 FROM categories c WHERE c.tenant_id = cash_movements.tenant_id AND c.loan_number ILIKE ?" +
+		" AND (LOWER(cash_movements.source) = LOWER(c.name) OR LOWER(cash_movements.purpose) IN (LOWER('Expense — ' || c.name), LOWER('Self transfer — ' || c.name))))" +
+		" OR bank_id IN (SELECT id FROM banks WHERE name ILIKE ?)" +
+		" OR party_customer_id IN (SELECT id FROM customers WHERE name ILIKE ?)" +
+		" OR party_investor_id IN (SELECT id FROM investors WHERE name ILIKE ?)" +
+		" OR to_char(occurred_on, 'DD-MM-YYYY') LIKE ? OR to_char(occurred_on, 'YYYY-MM-DD') LIKE ?" +
+		" OR CAST(amount AS TEXT) LIKE ?"
+	return clause, []any{like, like, like, like, like, like, like, like, like, like, like, like, amount}
 }
 
 func findByCashMovementIDs(ctx context.Context, ids []uint) map[uint]*models.LoanCashSource {
@@ -283,16 +382,15 @@ func SaveMovement(ctx context.Context, in RecordMovementInput, loanSource *LoanS
 		}
 	}
 	rec := &models.CashMovement{
-		Type:         in.Type,
-		Amount:       in.Amount,
-		Mode:         in.Mode,
-		Bank:         in.Bank,
-		BankID:       in.BankID,
-		ToBankID:     in.ToBankID,
-		BranchID:     in.BranchID,
-		ReceiptImage: in.ReceiptImage,
-		Remarks:      strings.TrimSpace(in.Remarks),
-
+		Type:               in.Type,
+		Amount:             in.Amount,
+		Mode:               in.Mode,
+		Bank:               in.Bank,
+		BankID:             in.BankID,
+		ToBankID:           in.ToBankID,
+		BranchID:           in.BranchID,
+		ReceiptImage:       in.ReceiptImage,
+		Remarks:            strings.TrimSpace(in.Remarks),
 		TransactionGroupID: in.GroupID,
 	}
 	if in.OccurredOn.IsZero() {
@@ -407,7 +505,7 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 			return nil, err
 		}
 		if !hasLoanDetails(src) {
-			return nil, common.NewBadRequest("this loan has no details recorded yet — add cash from it first")
+			return nil, common.NewBadRequest("no loan details yet — add cash first")
 		}
 		toBankID = 0
 		category = src.Name
@@ -415,14 +513,29 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 			return nil, err
 		}
 	}
-	if in.FromBankID == 0 {
-		return nil, common.NewBadRequest("from bank is required")
-	}
-	if !toLender && toBankID == 0 {
-		return nil, common.NewBadRequest("to bank is required")
-	}
-	if in.FromBankID == toBankID {
-		return nil, common.NewBadRequest("from bank and to bank must be different")
+	cashToBank := strings.EqualFold(category, SelfTransferCashToBank)
+	bankToCash := strings.EqualFold(category, SelfTransferBankToCash)
+	switch {
+	case cashToBank:
+		category = SelfTransferCashToBank
+		if toBankID == 0 {
+			return nil, common.NewBadRequest("to bank is required")
+		}
+	case bankToCash:
+		category = SelfTransferBankToCash
+		if in.FromBankID == 0 {
+			return nil, common.NewBadRequest("from bank is required")
+		}
+	default:
+		if in.FromBankID == 0 {
+			return nil, common.NewBadRequest("from bank is required")
+		}
+		if !toLender && toBankID == 0 {
+			return nil, common.NewBadRequest("to bank is required")
+		}
+		if in.FromBankID == toBankID {
+			return nil, common.NewBadRequest("from bank and to bank must be different")
+		}
 	}
 	mode := in.Mode
 	switch mode {
@@ -430,7 +543,7 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 		mode = models.CashModeBankTransfer
 	case models.CashModeBankTransfer, models.CashModeUPI:
 	default:
-		return nil, common.NewBadRequest("mode must be Bank Transfer or UPI for a transfer between banks")
+		return nil, common.NewBadRequest("mode must be Bank Transfer or UPI")
 	}
 	occurred := in.OccurredOn
 	if occurred.IsZero() {
@@ -453,6 +566,16 @@ func recordSelfTransfer(ctx context.Context, in RecordSelfTransferInput) ([]mode
 		Type: "in", Source: SelfTransferSource, Purpose: purpose, Mode: mode, ReceiptImage: in.ReceiptImage,
 		Bank: toBank, BankID: &toID, CounterBankID: &fromID, Amount: in.Amount, BranchID: in.BranchID,
 		OccurredOn: occurred, TransactionGroupID: groupID, Remarks: remarks, IsManual: true,
+	}
+	// Cash to Bank / Bank to Cash: the cash side is a Cash-mode line with no bank (it lands in the cash
+	// ledger), the bank side keeps the chosen bank mode and shows in that bank's ledger. Both are in the main ledger.
+	if cashToBank {
+		debit.Mode, debit.Bank, debit.BankID, debit.CounterBankID = models.CashModeCash, "", nil, &toID
+		credit.CounterBankID = nil
+	}
+	if bankToCash {
+		debit.CounterBankID = nil
+		credit.Mode, credit.Bank, credit.BankID, credit.CounterBankID = models.CashModeCash, "", nil, &fromID
 	}
 	if err := insertMovement(ctx, debit); err != nil {
 		return nil, err
@@ -567,7 +690,7 @@ type SplitPart struct {
 // cheque amount is rejected: the application has no Cheque mode.
 func SplitParts(cash, upi, bankTransfer, cheque float64, bankID *uint) ([]SplitPart, error) {
 	if cheque > 0 {
-		return nil, common.NewBadRequest("Cheque is not a supported payment mode — use Cash, UPI or Bank Transfer")
+		return nil, common.NewBadRequest("Cheque is not a supported payment mode")
 	}
 	var out []SplitPart
 	if cash > 0 {
@@ -837,7 +960,7 @@ func RecordInvestmentDepositCashIn(ctx context.Context, investmentID uint, inves
 		SourceType: "investment_deposit", SourceID: &investmentID,
 	}
 	if customerID != 0 {
-		base.PartyCustomerID = &customerID
+		base.PartyInvestorID = &customerID
 	}
 	if occurredOn.IsZero() {
 		base.OccurredOn = time.Now()
@@ -870,7 +993,7 @@ func RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, inves
 		base.OccurredOn = occurredOn
 	}
 	if customerID != 0 {
-		base.PartyCustomerID = &customerID
+		base.PartyInvestorID = &customerID
 	}
 	return recordSplitCashMovement(ctx, base, amount, []splitComponent{
 		{models.CashModeCash, cashAmount},
@@ -880,10 +1003,11 @@ func RecordInvestmentPayoutCashOut(ctx context.Context, investmentID uint, inves
 	})
 }
 
-func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint) (uint, error) {
+func RecordAuctionSurplusCashOut(ctx context.Context, loanID uint, loanNumber string, amount float64, branchID uint, occurredOn time.Time, mode string, bankID *uint, customerID uint, remarks string) (uint, error) {
 	rec := &models.CashMovement{
 		Type:     "out",
 		Purpose:  "Auction surplus settlement — " + loanNumber,
+		Remarks:  strings.TrimSpace(remarks),
 		Amount:   amount,
 		Mode:     auctionMode(mode),
 		BankID:   bankID,
@@ -1089,7 +1213,7 @@ func netOfNewestRows(ctx context.Context, branchID *uint, fromDate, toDate time.
 
 // narrowsLedger reports whether a filter other than the date range hides rows from the ledger.
 func narrowsLedger(filter MovementFilter, search string) bool {
-	return len(filter.BranchIDs) > 0 || len(filter.CustomerIDs) > 0 || len(filter.Categories) > 0 || len(filter.Modes) > 0 || search != ""
+	return len(filter.BranchIDs) > 0 || len(filter.CustomerIDs) > 0 || len(filter.Categories) > 0 || len(filter.CategoryNames) > 0 || len(filter.Modes) > 0 || search != ""
 }
 
 // fullLedgerBalances is each row's balance in the whole (branch-scoped) ledger — every row booked up
@@ -1564,11 +1688,24 @@ func ListMovements(c echo.Context) error {
 		}
 		return common.SuccessPage(c, page, limit, total, withLoanSources(ctx, rec), extra)
 	}
-	rec, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, search, 0, 0)
+	// Unpaged callers get at most unpagedMovementCap rows: the full cash book of
+	// a long-running business is far too large for one response.
+	rec, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, search, unpagedMovementCap, 0)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessAll(c, withLoanSources(ctx, rec))
+}
+
+const (
+	unpagedMovementCap = 500
+	// exportMaxRows caps a PDF/XLSX export, built whole in memory.
+	exportMaxRows = 20000
+)
+
+// errExportTooLarge asks for a shorter date range instead of building a huge document.
+func errExportTooLarge() error {
+	return common.NewBadRequest(fmt.Sprintf("too many entries to export at once — choose a shorter date range (at most %d entries per export)", exportMaxRows))
 }
 
 func GetCashLedger(c echo.Context) error {
@@ -1584,7 +1721,7 @@ func GetCashLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCashModeLedger(ctx, branchID, branchIDs, fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCashModeLedger(ctx, branchID, branchIDs, strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1598,14 +1735,10 @@ func GetModeLedger(c echo.Context) error {
 	if !modeVocabulary[mode] {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid mode: expected Cash, UPI or Bank Transfer"})
 	}
-	var bankID *uint
-	if raw := c.QueryParam("bank_id"); raw != "" {
-		id, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid bank_id, please pick a bank from the list"})
-		}
-		v := uint(id)
-		bankID = &v
+	// One or more comma-separated bank ids.
+	bankIDs := parseUintCSV(c.QueryParam("bank_id"))
+	if strings.TrimSpace(c.QueryParam("bank_id")) != "" && len(bankIDs) == 0 {
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid bank_id, please pick a bank from the list"})
 	}
 	branchID := auth.GetBranchScope(c)
 	branchIDs := parseUintCSV(c.QueryParam("branch_ids"))
@@ -1618,7 +1751,7 @@ func GetModeLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listModeLedger(ctx, mode, bankID, branchID, branchIDs, parseStringCSV(c.QueryParam("types")), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listModeLedger(ctx, mode, bankIDs, branchID, branchIDs, parseStringCSV(c.QueryParam("types")), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1673,7 +1806,7 @@ func ListMovementsByCustomer(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCombinedLedgerByCustomer(ctx, customerID, loanNumbersFromQuery(c), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCombinedLedgerByCustomer(ctx, customerID, loanNumbersFromQuery(c), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1699,7 +1832,7 @@ func GetBankLedger(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	page, limit, offset, export := ledgerPaging(c)
-	rec, total, totals, err := listCombinedLedgerByBank(ctx, bankID, splitCSV(c.QueryParam("modes")), fromDate, toDate, limit, offset)
+	rec, total, totals, err := listCombinedLedgerByBank(ctx, bankID, splitCSV(c.QueryParam("modes")), strings.TrimSpace(c.QueryParam("search")), fromDate, toDate, limit, offset)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
@@ -1752,9 +1885,12 @@ func ExportMovementsByBank(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
-	rows, _, err := listByBank(ctx, bankID, fromDate, toDate, 0, 0)
+	rows, _, err := listByBank(ctx, bankID, fromDate, toDate, exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	if len(rows) > exportMaxRows {
+		return common.FailErr(c, errExportTooLarge())
 	}
 	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
@@ -1787,9 +1923,12 @@ func ExportMovementsByBranch(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
-	rows, _, err := listByBranch(ctx, branchID, fromDate, toDate, 0, 0)
+	rows, _, err := listByBranch(ctx, branchID, fromDate, toDate, exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	if len(rows) > exportMaxRows {
+		return common.FailErr(c, errExportTooLarge())
 	}
 	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
@@ -1822,9 +1961,12 @@ func ExportMovementsByCustomer(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
-	rows, _, err := listByCustomer(ctx, customerID, fromDate, toDate, loanNumbersFromQuery(c), 0, 0)
+	rows, _, err := listByCustomer(ctx, customerID, fromDate, toDate, loanNumbersFromQuery(c), exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	if len(rows) > exportMaxRows {
+		return common.FailErr(c, errExportTooLarge())
 	}
 	headers, tableRows := branchColumnFor(c, []string{"Date", "Type", "Source", "Purpose", "Mode", "Bank", "Branch", "Amount", "Status"}, partyStatementRows(rows))
 	pdfBytes, err := renderTablePDF(
@@ -1852,9 +1994,12 @@ func ExportMovements(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid to_date, please use the YYYY-MM-DD format"})
 	}
 	filter := movementQueryFilter(c)
-	rows, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, "", 0, 0)
+	rows, _, err := listFiltered(ctx, branchID, fromDate, toDate, filter, strings.TrimSpace(c.QueryParam("search")), exportMaxRows+1, 0)
 	if err != nil {
 		return common.FailErr(c, err)
+	}
+	if len(rows) > exportMaxRows {
+		return common.FailErr(c, errExportTooLarge())
 	}
 	var noteParts []string
 	if !fromDate.IsZero() || !toDate.IsZero() {
@@ -2109,4 +2254,36 @@ func RecordAuctionSaleCashIn(ctx context.Context, loanID uint, loanNumber string
 		return 0, "", common.NewBadRequest("payment breakdown is required")
 	}
 	return firstID, groupID, nil
+}
+
+// DeleteCollectionByGroup removes the Collection cash lines a loan payment booked under groupID, so a corrected
+// payment can book its own (or none, when the payment is deleted).
+func DeleteCollectionByGroup(ctx context.Context, groupID string) error {
+	if groupID == "" {
+		return nil
+	}
+	return cashDB(ctx).Where("transaction_group_id = ? AND source = ?", groupID, "Collection").Delete(&models.CashMovement{}).Error
+}
+
+// CollectedByDate is all the money received on a day: every Cash In record — loan repayments (gold and personal),
+// investment deposits, auction proceeds, gold sales, bank pledges and manually added cash alike, in every mode.
+// A self transfer only moves money between our own accounts, so it is not "collected". branchID nil = every branch.
+func CollectedByDate(ctx context.Context, branchID *uint, date time.Time) (total float64, count int64, err error) {
+	q := config.DB.
+		WithContext(ctx).Model(&models.CashMovement{}).
+		Where("type = ?", "in").
+		Where("expense_id IS NULL").
+		Where("source IS DISTINCT FROM ?", SelfTransferSource).
+		Where("occurred_on >= ? AND occurred_on < ?", startOfDay(date), startOfDay(date).AddDate(0, 0, 1))
+	if branchID != nil {
+		q = q.Where("branch_id = ?", *branchID)
+	}
+	var row struct {
+		Total float64
+		Count int64
+	}
+	if err := q.Select("COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count").Scan(&row).Error; err != nil {
+		return 0, 0, err
+	}
+	return row.Total, row.Count, nil
 }

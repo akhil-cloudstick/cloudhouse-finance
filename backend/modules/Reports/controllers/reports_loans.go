@@ -4,9 +4,17 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Reports/models"
 	"context"
-
-	"gorm.io/gorm"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
 )
+
+// ListLoanStatusRows lists loans the way the Loans page does (same listing, same read-time status). The Loan module
+// sets it at start-up: Loan already depends on Reports through Cash, so Reports cannot import Loan directly.
+var ListLoanStatusRows = func(ctx context.Context, branchIDs, customerIDs []uint, from, to *time.Time) ([]models.LoanStatusRow, error) {
+	return nil, nil
+}
 
 func disbursementReport(ctx context.Context, f models.Filter) ([]models.DisbursementRow, models.DisbursementTotals, error) {
 	from, to := dateRange(f)
@@ -22,8 +30,14 @@ func disbursementReport(ctx context.Context, f models.Filter) ([]models.Disburse
 		Where("l.approval_stage = ?", "Approved").
 		Where("l.deleted_at IS NULL").
 		Order("l.opened_date desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.SchemeIDs) > 0 {
+		q = q.Where("l.scheme_id IN ?", f.SchemeIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.DisbursementTotals{}, err
@@ -36,56 +50,66 @@ func disbursementReport(ctx context.Context, f models.Filter) ([]models.Disburse
 	return rows, totals, nil
 }
 
-func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.LoanStatusRow, models.LoanStatusTotals, error) {
-	from, to := dateRange(f)
-	newBase := func() *gorm.DB {
-		q := config.DB.
-			WithContext(ctx).Table("loans l").
-			Joins("LEFT JOIN branches b ON b.id = l.branch_id").
-			Joins("LEFT JOIN customers c ON c.id = l.customer_id").
-			Where("l.opened_date >= ? AND l.opened_date < ?", from, to).
-			Where("l.deleted_at IS NULL")
-		if f.BranchID != nil {
-			q = q.Where("l.branch_id = ?", *f.BranchID)
+// loanStatusValues are the only statuses the loans-status report lists.
+var loanStatusValues = []string{"Active", "Due Soon", "Overdue", "Defaulted", "Closed"}
+
+// status is one or more comma-separated statuses; empty means every status.
+func containsString(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
 		}
-		return q
+	}
+	return false
+}
+
+func loanStatus(ctx context.Context, f models.Filter, status string) ([]models.LoanStatusRow, models.LoanStatusTotals, error) {
+	var statuses []string
+	for _, st := range strings.Split(status, ",") {
+		if st = strings.TrimSpace(st); st == "" {
+			continue
+		}
+		valid := false
+		for _, s := range loanStatusValues {
+			if s == st {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return nil, models.LoanStatusTotals{}, fmt.Errorf("status must be one of %s", strings.Join(loanStatusValues, ", "))
+		}
+		statuses = append(statuses, st)
+	}
+	// Listed through the Loans page's own listing, so a loan reads as Overdue / Defaulted / … here exactly as it does
+	// there (the status saved on a loan can lag, so it is not used).
+	all, err := ListLoanStatusRows(ctx, f.BranchIDs, f.CustomerIDs, f.From, f.To)
+	if err != nil {
+		return nil, models.LoanStatusTotals{}, err
 	}
 	var totals models.LoanStatusTotals
-	type statusCount struct {
-		Status string
-		Count  int
-	}
-	var counts []statusCount
-	if err := newBase().Select("l.status, count(*) as count").Group("l.status").Scan(&counts).Error; err != nil {
-		return nil, models.LoanStatusTotals{}, err
-	}
-	for _, c := range counts {
-		totals.Count += c.Count
-		switch c.Status {
+	var rows []models.LoanStatusRow
+	for _, r := range all {
+		totals.Count++
+		switch r.Status {
 		case "Active":
-			totals.Active += c.Count
+			totals.Active++
 		case "Closed":
-			totals.Closed += c.Count
+			totals.Closed++
 		case "Due Soon":
-			totals.DueSoon += c.Count
+			totals.DueSoon++
 		case "Overdue":
-			totals.Overdue += c.Count
+			totals.Overdue++
 		case "Defaulted":
-			totals.Defaulted += c.Count
+			totals.Defaulted++
 		default:
-			totals.Other += c.Count
+			totals.Other++
+		}
+		if len(statuses) == 0 || containsString(statuses, r.Status) {
+			rows = append(rows, r)
 		}
 	}
-	q := newBase().Select(`l.id as loan_id, l.loan_number, c.name as customer_name, b.name as branch_name,
-		l.status, l.outstanding_amount as outstanding, l.due_date`).
-		Order("l.due_date asc")
-	if status != "" {
-		q = q.Where("l.status = ?", status)
-	}
-	var rows []models.LoanStatusRow
-	if err := q.Scan(&rows).Error; err != nil {
-		return nil, models.LoanStatusTotals{}, err
-	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].DueDate.Before(rows[j].DueDate) })
 	rows = MatchRows(rows, f.Q)
 	return rows, totals, nil
 }
@@ -101,8 +125,11 @@ func interestCollection(ctx context.Context, f models.Filter) ([]models.Interest
 		Where("p.paid_on >= ? AND p.paid_on < ?", from, to).
 		Where("p.interest_applied > 0 OR p.penal_interest_applied > 0").
 		Order("p.paid_on desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.InterestCollectionTotals{}, err
@@ -114,31 +141,6 @@ func interestCollection(ctx context.Context, f models.Filter) ([]models.Interest
 		totals.TotalPenal += r.PenalApplied
 	}
 	totals.Total = totals.TotalInterest + totals.TotalPenal
-	return rows, totals, nil
-}
-
-func outstandingPrincipal(ctx context.Context, f models.Filter) ([]models.OutstandingPrincipalRow, models.OutstandingPrincipalTotals, error) {
-	openStatuses := []string{"Active", "Due Soon", "Overdue", "Defaulted", "Auction Eligible", "Auctioned - Balance Due"}
-	q := config.DB.
-		WithContext(ctx).Table("loans l").
-		Select(`b.name as branch_name, count(*) as loan_count, COALESCE(sum(l.outstanding_amount), 0) as outstanding`).
-		Joins("LEFT JOIN branches b ON b.id = l.branch_id").
-		Where("l.status IN ?", openStatuses).
-		Where("l.deleted_at IS NULL").
-		Group("b.name")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
-	}
-	var rows []models.OutstandingPrincipalRow
-	if err := q.Scan(&rows).Error; err != nil {
-		return nil, models.OutstandingPrincipalTotals{}, err
-	}
-	rows = MatchRows(rows, f.Q)
-	var totals models.OutstandingPrincipalTotals
-	for _, r := range rows {
-		totals.TotalOutstanding += r.Outstanding
-		totals.TotalLoans += r.LoanCount
-	}
 	return rows, totals, nil
 }
 
@@ -154,8 +156,14 @@ func paymentCollection(ctx context.Context, f models.Filter) ([]models.PaymentCo
 		Joins("LEFT JOIN employees e ON e.id = p.received_by_employee_id").
 		Where("p.paid_on >= ? AND p.paid_on < ?", from, to).
 		Order("p.paid_on desc")
-	if f.BranchID != nil {
-		q = q.Where("l.branch_id = ?", *f.BranchID)
+	if len(f.BranchIDs) > 0 {
+		q = q.Where("l.branch_id IN ?", f.BranchIDs)
+	}
+	if len(f.CustomerIDs) > 0 {
+		q = q.Where("l.customer_id IN ?", f.CustomerIDs)
+	}
+	if len(f.PaymentTypes) > 0 {
+		q = q.Where("p.type IN ?", f.PaymentTypes)
 	}
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, models.PaymentCollectionTotals{}, err

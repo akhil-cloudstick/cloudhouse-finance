@@ -175,19 +175,32 @@ func TestProjectAccrual_FreezesBalanceDueAndAccruesAfterPursueDecision(t *testin
 
 func TestRoundMoney(t *testing.T) {
 	cases := []struct{ in, want float64 }{
-		{0.1 + 0.2, 0.30},
-		{1234.5678, 1234.57},
-		{1234.5641, 1234.56},
-		{-45.678, -45.68},
+		{5.2, 5},
+		{5.5, 6},
+		{5.7, 6},
+		{52345.4, 52345},
+		{52345.5, 52346},
+		{0.1 + 0.2, 0},
+		{-45.678, -46},
+		{-2.5, -3},
 		{0, 0},
+		// a half that float arithmetic lands just under (93478.5 in exact arithmetic) must still round up
+		{93478.49999999999, 93479},
+		{2.4999999999999996, 3},
 	}
 	for _, tc := range cases {
 		if got := common.RoundMoney(tc.in); got != tc.want {
 			t.Errorf("RoundMoney(%v) = %v, want %v", tc.in, got, tc.want)
 		}
 	}
-	if common.RoundMoney(0.1+0.2) != 0.3 {
-		t.Error("0.1+0.2 must round to exactly 0.3")
+}
+
+func TestRoundDecimal2KeepsRates(t *testing.T) {
+	if got := common.RoundDecimal2(8.5); got != 8.5 {
+		t.Errorf("RoundDecimal2(8.5) = %v, want 8.5", got)
+	}
+	if got := common.RoundDecimal2(1234.5678); got != 1234.57 {
+		t.Errorf("RoundDecimal2(1234.5678) = %v, want 1234.57", got)
 	}
 }
 

@@ -69,12 +69,10 @@ func UnlockDevTools(c echo.Context) error {
 	if devToolsLocked(key) {
 		return c.JSON(http.StatusTooManyRequests, echo.Map{"success": false, "error": "too many attempts, try again later"})
 	}
-
 	var req unlockDevToolsRequest
 	if err := BindJSON(c, &req); err != nil || req.Pin == "" {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "pin is required"})
 	}
-
 	var row commonModels.DevToolsAccess
 	err := config.BaseDB.WithContext(c.Request().Context()).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -82,15 +80,13 @@ func UnlockDevTools(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, echo.Map{"success": false, "error": "incorrect pin"})
 	}
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, echo.Map{"success": false, "error": "unable to verify pin"})
+		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Unable to verify the PIN, please try again"})
 	}
-
 	current, err := config.SettingsCipher.Decrypt(row.EncryptedPin)
 	if err != nil || current != req.Pin {
 		devToolsRecordFailure(key)
 		return c.JSON(http.StatusUnauthorized, echo.Map{"success": false, "error": "incorrect pin"})
 	}
-
 	devToolsClearFailures(key)
 	return Success(c, http.StatusOK, echo.Map{"unlocked": true})
 }

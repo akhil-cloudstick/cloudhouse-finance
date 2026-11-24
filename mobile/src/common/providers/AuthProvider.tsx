@@ -8,7 +8,11 @@ import { ApiError, setUnauthorizedHandler } from "@/common/services/httpClient";
 import { fetchMyPermissions } from "@/common/services/permissionService";
 import { type PermissionMap } from "@/common/types/permission-types";
 import { useTheme } from "@/common/theme/ThemeProvider";
+import { queryClient } from "@/common/services/queryClient";
+import { clearPersistedState } from "@/common/hooks/use-persisted-state";
 import { toast } from "@/common/components/ui/ToastHost";
+import { setSelectedBranchId } from "@/common/services/branchSelection";
+import { withPrintProgress } from "@/common/components/ui/PrintProgressHost";
 
 type AuthState = {
   employee: Employee | null;
@@ -38,6 +42,10 @@ type AuthState = {
   // deny (§10). Module/key names use the underscored form the backend
   // derives (e.g. "Loan_Management", "can_view_loan_module").
   can: (moduleKey: string, permissionKey: string) => boolean;
+  // The branch switcher's selection: the branch every list is narrowed to, or null for "All branches".
+  // Session-only (every sign-in starts at all branches) and ignored for a role that can't see every branch.
+  selectedBranchId: number | null;
+  setSelectedBranch: (branchId: number | null) => void;
 };
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -52,6 +60,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [permissionsFailed, setPermissionsFailed] = useState(false);
   const [businessCode, setBusinessCode] = useState("");
+  const [selectedBranchId, setSelectedBranchState] = useState<number | null>(null);
   const employeeRef = useRef<Employee | null>(null);
   useEffect(() => {
     employeeRef.current = employee;
@@ -83,7 +92,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         const token = await getToken();
         if (token) {
-          const emp = await authApi.me();
+          // Only a 401 means a bad session; network/408/5xx are retried with a
+          // short backoff, then the error propagates (and the session is kept).
+          let emp: Employee | null = null;
+          for (let attempt = 0; emp === null; attempt++) {
+            try {
+              emp = await authApi.me();
+            } catch (e) {
+              const transient = e instanceof ApiError && (e.status === 0 || e.status === 408 || e.status >= 500);
+              if (!transient || attempt >= 2) throw e;
+              await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+            }
+          }
           setEmployee(emp);
           await loadPermissions(emp);
         }
@@ -109,9 +129,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       await saveBusinessCode(code);
       if (code) setBusinessCode(code);
       await saveToken(token);
-      setEmployee(emp);
-      setPermissionsLoaded(false);
+      // A fresh sign-in starts at "All branches", not at whatever the last session had picked.
+      setSelectedBranchId(null);
+      setSelectedBranchState(null);
+      // Permissions first, employee last: the root redirect fires on `employee`, and the tabs
+      // would otherwise open on the permissions spinner.
       await loadPermissions(emp);
+      setEmployee(emp);
       // The business code (and therefore its branding) may have just
       // changed, and the theme can now use the authenticated /branding
       // endpoint instead of the public one.
@@ -125,12 +149,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       await saveBusinessCode(code);
       const saved = await getBusinessCode();
       await saveToken(token);
+      setSelectedBranchId(null);
+      setSelectedBranchState(null);
       // Set together (batched) so the root navigator never sees a business
       // with no employee, which would flash the login page before the dashboard.
-      setPermissionsLoaded(false);
+      await loadPermissions(emp);
       setBusinessCode(saved);
       setEmployee(emp);
-      await loadPermissions(emp);
       refreshBranding();
     },
     [loadPermissions, refreshBranding]
@@ -138,6 +163,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signOut = useCallback(async () => {
     await clearToken();
+    setSelectedBranchId(null);
+    setSelectedBranchState(null);
+    queryClient.clear();
+    clearPersistedState();
     setEmployee(null);
     setPermissions({});
     setPermissionsLoaded(false);
@@ -200,9 +229,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [permissions]
   );
 
+  // A role that can't see every branch never has a selection, whatever the state holds.
+  const effectiveSelectedBranchId = can("Branch_Management", "can_view_all_branches") ? selectedBranchId : null;
+
+  const setSelectedBranch = useCallback((branchId: number | null) => {
+    setSelectedBranchId(branchId);
+    setSelectedBranchState(branchId);
+    // Every list is now scoped to another branch (X-Branch-Id): drop what was cached for the old scope and
+    // refetch what is on screen.
+    // Everything except the branch list itself (which must stay instant) and only the screens that are mounted;
+    // the rest are marked stale and load when next opened.
+    // The loading overlay stays up until the screens that are open have their new data (invalidateQueries
+    // resolves when those refetches settle); capped so a dead connection can never leave it covering the app.
+    const reload = queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "branches" || q.queryKey[1] !== "switchable" });
+    withPrintProgress(() => Promise.race([reload, new Promise((r) => setTimeout(r, 15000))]), "Loading branch…").catch(() => {});
+  }, []);
+
   const value = useMemo(
-    () => ({ employee, isLoading, signIn, signOut, businessCode, connectBusiness, signInWithSession, exitBusiness, permissions, permissionsLoaded, permissionsFailed, refetchPermissions, can }),
-    [employee, isLoading, signIn, signOut, businessCode, connectBusiness, signInWithSession, exitBusiness, permissions, permissionsLoaded, permissionsFailed, refetchPermissions, can]
+    () => ({ employee, isLoading, signIn, signOut, businessCode, connectBusiness, signInWithSession, exitBusiness, permissions, permissionsLoaded, permissionsFailed, refetchPermissions, can, selectedBranchId: effectiveSelectedBranchId, setSelectedBranch }),
+    [employee, isLoading, signIn, signOut, businessCode, connectBusiness, signInWithSession, exitBusiness, permissions, permissionsLoaded, permissionsFailed, refetchPermissions, can, effectiveSelectedBranchId, setSelectedBranch]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,5 +1,5 @@
 import { apiRequestEnveloped as apiRequest } from "@/common/services/httpClient";
-import { Investment, InvestmentPlan, InvestmentTransaction, InvestmentPayout, InvestmentStatus, type CreateInvestmentInput, type PaymentMode, type SplitAmounts, type MaturityAction, type CreatePlanInput } from "@/modules/investments/types/investment-types";
+import { Investment, InvestmentPlan, InvestmentTransaction, InvestmentLedgerRow, InvestmentPayout, type CreateInvestmentInput, type PaymentMode, type SplitAmounts, type MaturityAction, type CreatePlanInput } from "@/modules/investments/types/investment-types";
 
 export function listInvestmentPlans(activeOnly?: boolean) {
   return apiRequest<InvestmentPlan[]>("/investment-plans", { params: activeOnly ? { activeOnly: true } : undefined });
@@ -7,8 +7,15 @@ export function listInvestmentPlans(activeOnly?: boolean) {
 
 export function listInvestmentsPage(params: {
   q?: string;
-  status?: InvestmentStatus;
+  status?: string; // one status or a comma-separated list
   customerId?: number;
+  /** Comma-joined investor ids (any of). */
+  customerIds?: string;
+  /** Comma-joined plan ids (any of) — the backend's own name for it. */
+  plan_ids?: string;
+  /** YYYY-MM-DD bounds on the start date (inclusive). */
+  from?: string;
+  to?: string;
   limit: number;
   offset: number;
 }) {
@@ -21,6 +28,11 @@ export function getInvestment(id: number) {
 
 export function createInvestment(input: CreateInvestmentInput) {
   return apiRequest<Investment>("/investments", { method: "POST", body: input });
+}
+
+// Corrects an investment's plan, principal or start date — only before any interest, payout, top-up or withdrawal (the backend answers with the reason otherwise).
+export function editInvestment(id: number, input: Partial<CreateInvestmentInput> & { startDate?: string; reason?: string }) {
+  return apiRequest<Investment>(`/investments/${id}`, { method: "PATCH", body: input });
 }
 
 export function getInvestmentSchedulePage(id: number, limit: number, offset: number) {
@@ -96,4 +108,50 @@ export function payInterestMonths(
   input: { amount: number; cashAmount: number; upiAmount: number; bankTransferAmount: number; chequeAmount: number; bankId?: number }
 ) {
   return apiRequest<{ items: InvestmentPayout[] | null }>(`/investments/${investmentId}/pay-interest`, { method: "POST", body: input }).then((r) => r.items ?? []);
+}
+
+/* --- Ledger entry edit / delete: the investment is recalculated server-side in one transaction; dryRun previews
+ * the before / after figures without saving. entryId is the ledger row id ("tx-5", "payout-3", "open-7"). */
+export type InvestmentLedgerSummary = {
+  invested: number;
+  outstandingPrincipal: number;
+  outstandingInterest: number;
+  totalInterestPaid: number;
+  paidPayouts: number;
+  status: string;
+  startDate: string;
+  maturityDate: string;
+};
+export type InvestmentLedgerEditPreview = { before: InvestmentLedgerSummary; after: InvestmentLedgerSummary; dryRun: boolean };
+
+export function getInvestmentLedgerPage(id: number, limit: number, offset: number) {
+  return apiRequest<{ items: InvestmentLedgerRow[] | null; hasMore: boolean }>(`/investments/${id}/ledger`, { params: { limit, offset } });
+}
+
+export function editInvestmentLedgerEntry(
+  investmentId: number,
+  entryId: string,
+  input: { occurredOn?: string; amount?: number; principalAmount?: number; interestAmount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number; reference?: string; reason?: string },
+  dryRun = false
+) {
+  return apiRequest<InvestmentLedgerEditPreview>(`/investments/${investmentId}/ledger/${encodeURIComponent(entryId)}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+}
+
+export function deleteInvestmentLedgerEntry(investmentId: number, entryId: string, dryRun = false, reason?: string) {
+  return apiRequest<InvestmentLedgerEditPreview>(`/investments/${investmentId}/ledger/${encodeURIComponent(entryId)}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, { method: "DELETE" });
+}
+
+// Closes an Active/Matured investment that owes the investor nothing more — no cash moves; the backend says what is still owed otherwise.
+export function closeInvestment(investmentId: number) {
+  return apiRequest<Investment>(`/investments/${investmentId}/close`, { method: "POST" });
+}
+
+// Deletes an investment at any stage, reversing every cash entry it booked (needs can_delete_investment).
+export function deleteInvestment(investmentId: number) {
+  return apiRequest<void>(`/investments/${investmentId}/delete`, { method: "DELETE" });
+}
+
+// Refused by the server while any investment still uses the plan.
+export function deleteInvestmentPlan(id: number) {
+  return apiRequest<void>(`/investment-plans/${id}/delete`, { method: "DELETE" });
 }

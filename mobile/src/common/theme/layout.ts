@@ -1,4 +1,45 @@
+import { createContext, useContext } from "react";
+import { Dimensions, Platform, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+// Tablets: the shortest side of the physical screen is >= 600dp (the same
+// cut-off Android uses). It never changes with rotation. Phones are locked to
+// portrait (see RootLayout) and lay out exactly as before.
+const SCREEN = Dimensions.get("screen");
+export const IS_TABLET = Math.min(SCREEN.width, SCREEN.height) >= 600;
+// On a tablet the whole app (pages, tab bar, sheets, toasts) lives in one
+// centred column no wider than this, in either orientation, so every phone
+// layout keeps working unchanged inside it.
+export const COLUMN_MAX = 900;
+// The column fills the window (landscape iPads included: tables spread over the
+// full width instead of leaving empty sides) up to this; only bigger windows
+// (desktop browsers) are centred with margins.
+export const COLUMN_HARD_MAX = 1400;
+
+/** Column width for a given window width. Phones/narrow windows: the full window. */
+export function columnWidthFor(w: number) {
+  return Math.min(w, COLUMN_HARD_MAX);
+}
+/** Page offset used by the tab-swipe maths. It is read once, so on a tablet it is the widest the column can get (rotation can only shrink it); a phone is portrait-only. */
+export const PAGE_WIDTH = IS_TABLET ? COLUMN_HARD_MAX : Dimensions.get("window").width;
+
+/** Runs `cb` whenever the window changes size (rotation, split view, browser resize). Module-level
+ * layout caches use it to forget measurements taken in the other orientation. */
+export function onWindowSizeChange(cb: () => void) {
+  return Dimensions.addEventListener("change", cb);
+}
+
+/** The app column's current width: what the root view measured, else derived from the live window. */
+/** The app column's width as actually laid out (set by the root layout). After a rotation the window size
+ * the system reports can lag or stay stale, which left tables laid out for the wrong width and running off
+ * the screen; what the view really measured never does. */
+export const MeasuredColumnWidth = createContext<number | null>(null);
+
+export function useColumnWidth() {
+  const measured = useContext(MeasuredColumnWidth);
+  const win = useWindowDimensions().width;
+  return measured ?? columnWidthFor(win);
+}
 
 // The bottom tab bar floats over every tab screen (see AppTabBar): a fade
 // zone above the white bar, then the bar itself, then the gesture inset.
@@ -52,6 +93,13 @@ export function usePContentBottom(extra = 0) {
  * empty strip under it (and a matching extra gap at every page's end) on
  * exactly the devices with the biggest insets. The bar never goes below the
  * inset, so it still clears the system navigation. */
+// Gap kept between the floating bar and the system navigation (buttons / gesture bar) when there is one.
+const SYSTEM_NAV_GAP = 8;
 export function tabBarLift(insetBottom: number) {
-  return Math.max(insetBottom - PTAB_INSET, 0);
+  // iOS: the home indicator is a thin bar inside the inset, so the floating bar can sit much closer to the screen edge.
+  if (Platform.OS === "ios") return insetBottom > 0 ? Math.max(insetBottom - PTAB_INSET - 12, 0) : 0;
+  return insetBottom > 0 ? Math.max(insetBottom - PTAB_INSET + SYSTEM_NAV_GAP, 0) : 0;
 }
+
+/** From this column width up (iPad mini portrait and bigger) list rows are drawn as a table instead of cards. */
+export const TABLE_MIN_WIDTH = 700;

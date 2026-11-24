@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import { keepPreviousData, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "./use-debounced-value";
 import { useRefetchOnFocus } from "./use-refetch-on-focus";
@@ -16,6 +17,8 @@ export type ServerPage<T> = {
   totalSold?: number;
   totalCost?: number;
   totalProfit?: number;
+  /** Bank Management: net balance over every bank, not just the page. */
+  totalBalance?: number;
 };
 
 export const PAGE_SIZE = 10;
@@ -36,6 +39,7 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   pageSize = PAGE_SIZE,
   fresh = false,
   persistKey,
+  keepSearch = false,
   staleTime,
 }: {
   key: unknown[];
@@ -48,6 +52,8 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   fresh?: boolean;
   /** Keep the search text under this key so it survives leaving the screen. */
   persistKey?: string;
+  /** Keep the search text when the screen loses focus (a report keeps its search like web's ReportView). */
+  keepSearch?: boolean;
   /** How long fetched pages count as fresh (ms). */
   staleTime?: number;
 }) {
@@ -59,9 +65,13 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
   });
   const [search, setSearch] = usePersistedState<string>(persistKey ? `search:${persistKey}` : null, "");
   const q = useDebouncedValue(search.trim());
+  // Search text is not kept across pages: when the screen loses focus (navigating away) it is cleared,
+  // so coming back shows a fresh, refreshed list.
+  useFocusEffect(useCallback(() => () => { if (!keepSearch) setSearch(""); }, [setSearch, keepSearch]));
 
+  const queryKey = [...key, "page", q, filters ?? {}];
   const query = useInfiniteQuery({
-    queryKey: [...key, "page", q, filters ?? {}],
+    queryKey,
     enabled,
     staleTime,
     initialPageParam: 0,
@@ -95,6 +105,14 @@ export function useServerList<T, F extends Record<string, unknown> = Record<stri
       if (query.hasNextPage && !query.isFetchingNextPage) query.fetchNextPage();
     },
     refetch: query.refetch,
+    /** Pull-to-refresh: a pull only happens at the top of the list, so reload just the first page. A plain
+     * refetch re-downloads every page scrolled through, one after another, which kept the spinner up. */
+    refresh: () => {
+      qc.setQueryData<{ pages: ServerPage<T>[]; pageParams: unknown[] }>(queryKey, (d) =>
+        d && d.pages.length > 1 ? { pages: d.pages.slice(0, 1), pageParams: d.pageParams.slice(0, 1) } : d
+      );
+      return query.refetch();
+    },
     error: query.error,
   };
 }

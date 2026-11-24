@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { stripDigits, panLiveError } from "@/common/utils/kyc";
 import { useModal } from "@/common/components/ModalProvider";
 import { Select } from "@/common/components/ui/Select";
-import { createCustomer } from "@/modules/customers/services/customerService";
+import { createInvestor, updateInvestor, getInvestorAadhaarFull, sameIdentityMatches, checkInvestorIdentity } from "@/modules/investments/services/investorService";
+import { getCustomer, getCustomerAadhaarFull } from "@/modules/customers/services/customerService";
+import { SameInvestorModalContent } from "@/modules/investments/components/SameInvestorModalContent";
+import { useToast } from "@/common/components/ToastProvider";
 import { type CustomerView } from "@/modules/customers/types/customer-types";
 import { listActiveBranches } from "@/modules/branches/services/branchService";
 import { type BranchView } from "@/modules/branches/types/branch-types";
@@ -17,7 +21,8 @@ const SERVER_FIELDS: Record<string, RegExp> = {
   name: /name/i, phone: /phone|mobile/i, branch: /branch/i, pan: /\bpan\b/i, aadhaar: /aadhaar/i, bankAccountName: /holder/i, bankAccountNumber: /account/i, bankIfsc: /ifsc/i,
 };
 
-type CreateInvestorModalContentProps = { onCreated: (customer: CustomerView) => void };
+// With `edit`, the form opens filled in with that investor and saves changes instead of creating one.
+type CreateInvestorModalContentProps = { onCreated: (customer: CustomerView) => void; edit?: CustomerView };
 
 /* Inline "+ Add new investor" flow reached from the New Investment picker
  * (NewInvestmentModal.tsx's SearchableSelect, via its onCreateNew prop) —
@@ -28,11 +33,12 @@ type CreateInvestorModalContentProps = { onCreated: (customer: CustomerView) => 
  * the personal-loan-specific fields (FatherName/District/…). PAN and Aadhaar
  * are validated the same way here as on the server (see service.go's
  * validate) so a malformed value is caught before the round trip. */
-export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalContentProps) {
+export function CreateInvestorModalContent({ onCreated, edit }: CreateInvestorModalContentProps) {
   const { closeModal } = useModal();
+  const toast = useToast();
 
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [name, setName] = useState(edit?.name ?? "");
+  const [phone, setPhone] = useState(edit?.phone ?? "");
   const [branches, setBranches] = useState<BranchView[]>([]);
   // Single-branch business: the one branch is preselected and the picker locked.
   const { singleBranch } = useBranding();
@@ -42,13 +48,13 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
   // active, the same way a single-branch business locks it.
   const lockedBranchId = useLockedBranchId();
   const branchLocked = singleBranch || lockedBranchId != null;
-  const [branchId, setBranchId] = useState<number | "">(lockedBranchId || "");
-  const [address, setAddress] = useState("");
-  const [pan, setPan] = useState("");
+  const [branchId, setBranchId] = useState<number | "">(edit?.branchId || lockedBranchId || "");
+  const [address, setAddress] = useState(edit?.address ?? "");
+  const [pan, setPan] = useState(edit?.pan ?? "");
   const [aadhaar, setAadhaar] = useState("");
-  const [bankAccountName, setBankAccountName] = useState("");
-  const [bankAccountNumber, setBankAccountNumber] = useState("");
-  const [bankIfsc, setBankIfsc] = useState("");
+  const [bankAccountName, setBankAccountName] = useState(edit?.bankAccountName ?? "");
+  const [bankAccountNumber, setBankAccountNumber] = useState(edit?.bankAccountNumber ?? "");
+  const [bankIfsc, setBankIfsc] = useState(edit?.bankIfsc ?? "");
 
   const [err, setErr] = useState("");
   // Validation messages, each shown under the field it is about; `err` keeps the ones that fit no field.
@@ -76,23 +82,91 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
       .catch(() => setErr("Could not load branches — try again later."));
   }, []);
 
-  async function save() {
+  // The stored Aadhaar number is fetched to fill the field; if it cannot be, a blank field keeps the one on file.
+  useEffect(() => {
+    if (!edit) return;
+    let live = true;
+    getInvestorAadhaarFull(edit.id).then((a) => { if (live) setAadhaar(a); }).catch(() => {});
+    return () => { live = false; };
+  }, [edit]);
+
+  // Set once the user confirms the person is an existing borrower: the form is then filled from that borrower.
+  const [linkedCustomerId, setLinkedCustomerId] = useState<string | undefined>();
+
+  // Fills the form with what the borrower already has on file; the rest is left for staff to complete.
+  async function prefillFromBorrower(id: string) {
+    try {
+      const c = await getCustomer(id);
+      setLinkedCustomerId(id);
+      setName(c.name || "");
+      setPhone(c.phone || "");
+      if (c.address) setAddress(c.address);
+      if (c.pan) setPan(c.pan);
+      if (c.bankAccountName) setBankAccountName(c.bankAccountName);
+      if (c.bankAccountNumber) setBankAccountNumber(c.bankAccountNumber);
+      if (c.bankIfsc) setBankIfsc(c.bankIfsc);
+      if (c.branchId && !lockedBranchId) setBranchId(c.branchId);
+      getCustomerAadhaarFull(id).then((a) => { if (a) setAadhaar(a); }).catch(() => {});
+      setErr("");
+      setFe({});
+      toast("Borrower details filled in — please complete the remaining fields");
+    } catch {
+      setErr("Could not load the borrower's details.");
+    }
+  }
+
+  // As soon as a complete phone number, PAN or Aadhaar is typed, ask whether it already belongs to a borrower, so the
+  // "same person?" question comes up while filling the form and not only when Create is pressed. Each set of values
+  // is asked about once; answering "no" is remembered until they change.
+  const askedRef = useRef(new Set<string>());
+  // The "same person?" question is shown in place of the form (not as a child modal, which unmounts this form and
+  // loses what was typed, so the borrower's details had nowhere to be filled in).
+  const sameFromSave = useRef(false);
+  const [sameMatches, setSameMatches] = useState<Awaited<ReturnType<typeof checkInvestorIdentity>> | null>(null);
+  useEffect(() => {
+    if (edit || linkedCustomerId) return;
+    const p = phone.trim();
+    const pn = pan.trim().toUpperCase();
+    const a = aadhaar.trim();
+    const phoneOk = /^\d{10}$/.test(p);
+    const panOk = /^[A-Z]{5}\d{4}[A-Z]$/.test(pn);
+    const aadhaarOk = /^\d{12}$/.test(a);
+    if (!phoneOk && !panOk && !aadhaarOk) return;
+    const key = `${phoneOk ? p : ""}|${panOk ? pn : ""}|${aadhaarOk ? a : ""}`;
+    if (askedRef.current.has(key)) return;
+    let live = true;
+    const t = setTimeout(() => {
+      checkInvestorIdentity({ phone: phoneOk ? p : "", pan: panOk ? pn : "", aadhaar: aadhaarOk ? a : "" })
+        .then((matches) => {
+          if (!live) return;
+          askedRef.current.add(key);
+          if (!matches.length) return;
+          sameFromSave.current = false;
+          setSameMatches(matches);
+        })
+        .catch(() => { /* the check is a convenience — Create still makes the same check on the server */ });
+    }, 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [phone, pan, aadhaar, edit, linkedCustomerId]);
+
+  // confirmSamePerson: the user has said the number already on file belongs to this same person.
+  async function save(confirmSamePerson = false) {
     const n = name.trim();
     const p = phone.trim();
-    if (n.length < 3) { fail("name", "Please enter the investor's full name."); return; }
-    if (!/^\d{10}$/.test(p)) { fail("phone", "Please enter a valid 10-digit mobile number."); return; }
-    if (!branchId) { fail("branch", "Please select a branch."); return; }
-    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) { fail("pan", "Please enter a valid PAN (e.g. ABCDE1234F)."); return; }
-    if (!/^\d{12}$/.test(aadhaar.trim())) { fail("aadhaar", "Please enter a valid 12-digit Aadhaar number."); return; }
-    if (!bankAccountName.trim()) { fail("bankAccountName", "Please enter the bank account holder's name."); return; }
-    if (!bankAccountNumber.trim()) { fail("bankAccountNumber", "Please enter the bank account number."); return; }
-    if (!bankIfsc.trim()) { fail("bankIfsc", "Please enter the bank IFSC code."); return; }
+    // Every problem is shown at once, each beside its own field.
+    const errors: Record<string, string> = {};
+    if (n.length < 3) errors["name"] ??= "Please enter the investor's full name.";
+    if (!/^\d{10}$/.test(p)) errors["phone"] ??= "Please enter a valid 10-digit mobile number.";
+    if (!branchId) errors["branch"] ??= "Please select a branch.";
+    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(pan.trim().toUpperCase())) errors["pan"] ??= "Please enter a valid PAN (e.g. ABCDE1234F).";
+    if (!(edit && !aadhaar.trim()) && !/^\d{12}$/.test(aadhaar.trim())) errors["aadhaar"] ??= "Please enter a valid 12-digit Aadhaar number.";
+    if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
     setSaving(true);
     setErr("");
     setFe({});
     try {
-      const c = await createCustomer({
+      const input = {
         name: n,
         phone: p,
         dob: "",
@@ -107,13 +181,23 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
         nomineeName: "",
         nomineeRelation: "",
         nomineePhone: "",
-        customerType: "Investor",
         bankAccountName: bankAccountName.trim(),
         bankAccountNumber: bankAccountNumber.trim(),
         bankIfsc: bankIfsc.trim().toUpperCase(),
-      });
+      };
+      const hint = { branchName: branches.find((b) => b.id === Number(branchId))?.name };
+      const c = edit ? await updateInvestor(edit.id, input, hint) : await createInvestor(input, linkedCustomerId, confirmSamePerson || !!linkedCustomerId, hint);
       onCreated(c);
     } catch (e) {
+      // The phone number, PAN or Aadhaar is on another investor under a different name: nothing is added until
+      // the user confirms they are the same person.
+      const matches = edit ? null : sameIdentityMatches(e);
+      if (matches) {
+        toast("Possible duplicate — please confirm before adding");
+        sameFromSave.current = true;
+        setSameMatches(matches);
+        return;
+      }
       const msg = e instanceof Error ? e.message : "Failed to create investor.";
       const field = fieldForMessage(msg, SERVER_FIELDS);
       if (field) fail(field, msg); else setErr(msg);
@@ -122,12 +206,32 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
     }
   }
 
+  if (sameMatches) {
+    return (
+      <SameInvestorModalContent
+        newName={name.trim() || "this person"}
+        matches={sameMatches}
+        hideNo
+        onClose={() => setSameMatches(null)}
+        onConfirm={async () => {
+          const matches = sameMatches;
+          setSameMatches(null);
+          // An existing borrower: fill the form from them and let staff complete the rest before adding.
+          const borrower = matches.find((m) => m.source === "customer");
+          if (borrower) await prefillFromBorrower(String(borrower.id));
+          // Only a rejected Create is held for this answer; a match found while typing just informs.
+          else if (sameFromSave.current) await save(true);
+        }}
+      />
+    );
+  }
+
   return (
     <>
-      <div className="hd"><h3>Add New Investor</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>{edit ? "Edit Investor" : "Add New Investor"}</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd">
         <div className="frow c2">
-          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Radha Menon" value={name} onChange={(e) => setName(e.target.value)} /><FieldError msg={fe.name} /></div>
+          <div className={fe.name ? "has-err" : undefined}><label className="f">Full Name *</label><input className="inp" placeholder="e.g. Radha Menon" value={name} onChange={(e) => setName(stripDigits(e.target.value))} /><FieldError msg={fe.name} /></div>
           <div className={fe.phone ? "has-err" : undefined}><label className="f">Mobile Number *</label><input className="inp" inputMode="numeric" placeholder="10-digit mobile" maxLength={10} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.phone} /></div>
         </div>
         <div className={showBranch ? "frow c2" : "frow"}>
@@ -145,19 +249,17 @@ export function CreateInvestorModalContent({ onCreated }: CreateInvestorModalCon
           <div><label className="f">Address</label><input className="inp" placeholder="House / street" value={address} onChange={(e) => setAddress(e.target.value)} /></div>
         </div>
         <div className="frow c2">
-          <div className={fe.pan ? "has-err" : undefined}><label className="f">PAN *</label><input className="inp" placeholder="e.g. ABCDE1234F" maxLength={10} value={pan} onChange={(e) => setPan(e.target.value.toUpperCase())} /><FieldError msg={fe.pan} /></div>
+          <div className={fe.pan || panLiveError(pan) ? "has-err" : undefined}><label className="f">PAN *</label><input className="inp" placeholder="e.g. ABCDE1234F" maxLength={10} value={pan} onChange={(e) => { setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setFe((cur) => ({ ...cur, pan: "" })); }} /><FieldError msg={fe.pan || panLiveError(pan)} /></div>
           <div className={fe.aadhaar ? "has-err" : undefined}><label className="f">Aadhaar Number *</label><input className="inp" inputMode="numeric" placeholder="12-digit Aadhaar" maxLength={12} value={aadhaar} onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.aadhaar} /></div>
         </div>
-        <div className="frow"><div className={fe.bankAccountName ? "has-err" : undefined}><label className="f">Bank Account Holder Name *</label><input className="inp" placeholder="As per bank records" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} /><FieldError msg={fe.bankAccountName} /></div></div>
+        <div className="frow"><div className={fe.bankAccountName ? "has-err" : undefined}><label className="f">Bank Account Holder Name</label><input className="inp" placeholder="As per bank records" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} /><FieldError msg={fe.bankAccountName} /></div></div>
         <div className="frow c2">
-          <div className={fe.bankAccountNumber ? "has-err" : undefined}><label className="f">Bank Account Number *</label><input className="inp" placeholder="Account number" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} /><FieldError msg={fe.bankAccountNumber} /></div>
-          <div className={fe.bankIfsc ? "has-err" : undefined}><label className="f">Bank IFSC *</label><input className="inp" placeholder="e.g. SBIN0001234" maxLength={11} value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} /><FieldError msg={fe.bankIfsc} /></div>
+          <div className={fe.bankAccountNumber ? "has-err" : undefined}><label className="f">Bank Account Number</label><input className="inp" placeholder="Account number" inputMode="numeric" maxLength={18} value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value.replace(/\D/g, ""))} /><FieldError msg={fe.bankAccountNumber} /></div>
+          <div className={fe.bankIfsc ? "has-err" : undefined}><label className="f">Bank IFSC</label><input className="inp" placeholder="e.g. SBIN0001234" maxLength={11} value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} /><FieldError msg={fe.bankIfsc} /></div>
         </div>
         {err && <div className="notice" style={{ marginTop: 10 }}>{err}</div>}
       </div>
-      <div className="ft">
-        <button className="btn plain" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase" }} onClick={closeModal}>Cancel</button>
-        <button className="btn" disabled={saving} onClick={save}>{saving ? "Creating…" : "Create Investor"}</button>
+      <div className="ft">        <button className="btn" disabled={saving} onClick={() => save()}>{saving ? (edit ? "Saving…" : "Creating…") : (edit ? "Save Changes" : "Create Investor")}</button>
       </div>
     </>
   );

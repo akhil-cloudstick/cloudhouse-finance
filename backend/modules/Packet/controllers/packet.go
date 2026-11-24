@@ -24,13 +24,29 @@ var loanNoLongerMovableStatuses = map[string]bool{
 	loanModels.StatusRejected:            true,
 }
 
+// pendingLoanBlocksMove returns the reason a packet cannot be put into a locker
+// or pledged to a bank while its loan is still awaiting approval, or "" if the
+// move is fine. Releasing it (e.g. when the loan is rejected) is not a custody
+// move, so it stays allowed.
+func pendingLoanBlocksMove(loanStatus, toStatus string) string {
+	if loanStatus != loanModels.StatusPendingApproval {
+		return ""
+	}
+	if toStatus == models.StatusLockerStored || toStatus == models.StatusBankPledged {
+		return "this loan is still pending approval — its packet can be placed in a locker only after the loan is approved"
+	}
+	return ""
+}
+
 var allowedTransitions = map[string][]string{
-	"Packet Generated":        {models.StatusLockerStored},
+	// Released too: a loan can be released before its packet was ever checked into a locker.
+	"Packet Generated":        {models.StatusLockerStored, models.StatusBankPledged, models.StatusReleased},
 	models.StatusLockerStored: {models.StatusBankPledged, models.StatusReleased},
 	models.StatusBankPledged:  {models.StatusReturned},
-	models.StatusReturned:     {models.StatusLockerStored, models.StatusReleased},
-	"Ready For Release":       {models.StatusReleased},
-	models.StatusReleased:     {},
+	// Back from a bank, the gold can be pledged again straight away.
+	models.StatusReturned: {models.StatusLockerStored, models.StatusBankPledged, models.StatusReleased},
+	"Ready For Release":   {models.StatusReleased},
+	models.StatusReleased: {},
 }
 
 var LockerCapacity func(ctx context.Context, lockerID uint) (capacity int, isActive bool, ok bool, err error)
@@ -88,6 +104,7 @@ func findPacketByID(ctx context.Context, id uint) (*models.Packet, error) {
 		WithContext(ctx)).First(&p, id).Error; err != nil {
 		return nil, err
 	}
+	attachReleasedOrnaments(ctx, &p)
 	return &p, nil
 }
 
@@ -97,7 +114,21 @@ func findByCode(ctx context.Context, code string) (*models.Packet, error) {
 		WithContext(ctx)).Where("code = ?", code).First(&p).Error; err != nil {
 		return nil, err
 	}
+	attachReleasedOrnaments(ctx, &p)
 	return &p, nil
+}
+
+// attachReleasedOrnaments lists the loan's ornaments already handed back to the customer (a partial release), so
+// the packet can show them as released. Loan.Ornaments itself keeps only the ones still in the packet.
+func attachReleasedOrnaments(ctx context.Context, p *models.Packet) {
+	var released []loanModels.Ornament
+	if err := config.DB.WithContext(ctx).
+		Where("loan_id = ? AND released_at IS NOT NULL", p.LoanID).Order("released_at, id").
+		Find(&released).Error; err != nil {
+		log.Printf("packet %d: could not load released ornaments: %v", p.ID, err)
+		return
+	}
+	p.ReleasedOrnaments = released
 }
 
 func FindActiveByLoanID(ctx context.Context, loanID uint) (*models.Packet, error) {
@@ -118,10 +149,39 @@ func findPackets(ctx context.Context, f Filter) ([]models.Packet, int64, error) 
 	if f.LoanID != 0 {
 		q = q.Where("packets.loan_id = ?", f.LoanID)
 	}
-	if len(f.StatusIn) > 0 {
-		q = q.Where("packets.status IN ?", f.StatusIn)
-	} else if f.Status != "" {
-		q = q.Where("packets.status = ?", f.Status)
+	statuses := f.StatusIn
+	if len(statuses) == 0 && f.Status != "" {
+		statuses = []string{f.Status}
+	}
+	if len(statuses) > 0 {
+		// "Auctioned" and "Rejected" are loan statuses, not packet statuses: a packet keeps its own status after the
+		// loan is auctioned, and a rejected loan's packet is simply released. Both are matched through the loan, and
+		// "Released" leaves out rejected loans so those only show under "Rejected".
+		var plain []string
+		var conds []string
+		var args []interface{}
+		for _, st := range statuses {
+			switch st {
+			case "Auctioned":
+				conds = append(conds, "packets.loan_id IN (SELECT id FROM loans WHERE status IN ?)")
+				args = append(args, []string{loanModels.StatusAuctioned, loanModels.StatusAuctionedBalanceDue})
+			case "Rejected":
+				conds = append(conds, "packets.loan_id IN (SELECT id FROM loans WHERE status = ?)")
+				args = append(args, loanModels.StatusRejected)
+			case models.StatusReleased:
+				// Released means handed back to the customer: a rejected loan's packet and a sold (auctioned) loan's
+				// packet each have their own filter and are left out here.
+				conds = append(conds, "(packets.status = ? AND packets.loan_id NOT IN (SELECT id FROM loans WHERE status IN ?))")
+				args = append(args, models.StatusReleased, []string{loanModels.StatusRejected, loanModels.StatusAuctioned, loanModels.StatusAuctionedBalanceDue})
+			default:
+				plain = append(plain, st)
+			}
+		}
+		if len(plain) > 0 {
+			conds = append(conds, "packets.status IN ?")
+			args = append(args, plain)
+		}
+		q = q.Where("("+strings.Join(conds, " OR ")+")", args...)
 	}
 	if f.LockerID != 0 {
 		q = q.Where("packets.current_locker_id = ?", f.LockerID)
@@ -157,17 +217,56 @@ func findPackets(ctx context.Context, f Filter) ([]models.Packet, int64, error) 
 	}
 	var packets []models.Packet
 	err := q.Order("packets.id desc").Find(&packets).Error
+	if err == nil {
+		attachLockerCodes(ctx, packets)
+	}
 	return packets, total, err
 }
 
+// attachLockerCodes fills each packet's LockerCode with one query, independent of any locker filter or permission.
+func attachLockerCodes(ctx context.Context, packets []models.Packet) {
+	ids := make([]uint, 0, len(packets))
+	for _, p := range packets {
+		if p.CurrentLockerID != nil {
+			ids = append(ids, *p.CurrentLockerID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	var rows []struct {
+		ID   uint
+		Code string
+	}
+	if err := config.DB.WithContext(ctx).Table("lockers").Select("id, code").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		log.Printf("packets: could not load locker codes: %v", err)
+		return
+	}
+	codes := make(map[uint]string, len(rows))
+	for _, r := range rows {
+		codes[r.ID] = r.Code
+	}
+	for i := range packets {
+		if packets[i].CurrentLockerID != nil {
+			packets[i].LockerCode = codes[*packets[i].CurrentLockerID]
+		}
+	}
+}
+
 func persistPacket(ctx context.Context, p *models.Packet) error {
-	return config.DB.
-		WithContext(ctx).Save(p).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(p).Error; err != nil {
+		return err
+	}
+	return loanModels.TouchLoan(db, p.LoanID)
 }
 
 func createMovement(ctx context.Context, m *models.PacketMovement) error {
-	return config.DB.
-		WithContext(ctx).Create(m).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(m).Error; err != nil {
+		return err
+	}
+	return loanModels.TouchLoanOfPacket(db, m.PacketID)
 }
 
 func findMovements(ctx context.Context, packetID uint) ([]models.PacketMovement, error) {
@@ -308,12 +407,22 @@ func SavePacketMovement(ctx context.Context, packetID uint, toStatus string, loc
 	if err != nil {
 		return nil, common.NewNotFound("packet not found")
 	}
-	if !isAllowed(p.Status, toStatus) {
+	// Locker Stored -> Locker Stored is the one same-stage move: shifting the packet to a different locker.
+	changingLocker := p.Status == models.StatusLockerStored && toStatus == models.StatusLockerStored
+	if !changingLocker && !isAllowed(p.Status, toStatus) {
 		return nil, common.NewConflict("invalid packet stage transition")
 	}
 	if toStatus == models.StatusLockerStored {
 		if lockerID == nil || *lockerID == 0 {
 			return nil, common.NewBadRequest("locker_id is required for this transition")
+		}
+		if changingLocker {
+			if p.CurrentLockerID != nil && *p.CurrentLockerID == *lockerID {
+				return nil, common.NewBadRequest("the packet is already in this locker")
+			}
+			if remarks == "" {
+				remarks = "Locker changed"
+			}
 		}
 		if err := checkLockerCapacity(ctx, *lockerID); err != nil {
 			return nil, err
@@ -435,12 +544,23 @@ func ListPackets(c echo.Context) error {
 		}
 		return common.SuccessPage(c, page, limit, total, rec)
 	}
+	// Unpaged: a loan's or a locker's packets are bounded; anything wider is
+	// capped instead of loading every packet a long-running business ever made.
+	f.Limit = unpagedPacketCap
+	if f.LoanID != 0 || f.LockerID != 0 {
+		f.Limit = unpagedScopedPacketCap
+	}
 	recs, _, err := listPackets(ctx, f)
 	if err != nil {
 		return common.FailErr(c, err)
 	}
 	return common.SuccessAll(c, recs)
 }
+
+const (
+	unpagedPacketCap       = 500
+	unpagedScopedPacketCap = 5000
+)
 
 func GetPacketById(c echo.Context) error {
 	ctx := auth.RequestContext(c)
@@ -492,7 +612,10 @@ func RecordPacketMovement(c echo.Context) error {
 		return common.FailErr(c, err)
 	}
 	if loanNoLongerMovableStatuses[p.Loan.Status] {
-		return common.FailErr(c, common.NewConflict("this loan's gold has already left custody — no further packet movement is possible"))
+		return common.FailErr(c, common.NewConflict("gold has left custody — no more movements"))
+	}
+	if blocked := pendingLoanBlocksMove(p.Loan.Status, req.ToStatus); blocked != "" {
+		return common.FailErr(c, common.NewConflict(blocked))
 	}
 	rec, err := SavePacketMovement(ctx, id, req.ToStatus, req.LockerID, req.EmployeeID, req.Remarks)
 	if err != nil {

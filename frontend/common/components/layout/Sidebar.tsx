@@ -1,5 +1,6 @@
 "use client";
 
+import { clearAllPersistedFilters } from "@/common/hooks/use-persisted-state";
 import { Icon } from "@/common/components/Icon";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useBranding } from "@/common/providers/BrandingProvider";
@@ -32,7 +33,7 @@ const NAV: [string, NavItem[]][] = [
     { route: "newloan", title: "New Gold Loan", icon: "plus" },
     { route: "schemes", title: "Loan Schemes", icon: "doc" },
     { route: "goldrates", title: "Gold Rates", icon: "coin" },
-    { route: "requests", title: "Extensions & Release", icon: "unlock" },
+    { route: "requests", title: "Extension & Release", icon: "unlock" },
     { route: "loanrisk", title: "Loan Risk", icon: "warning" },
     { route: "personalloans", title: "Personal Loans", icon: "note" },
     { route: "investments", title: "Investments", icon: "coin" },
@@ -146,6 +147,7 @@ export function Sidebar({ route, open, onNavigateSameRoute }: SidebarProps) {
                 const isOn =
                   route === r ||
                   (route === "loan" && r === "loans") ||
+                  (route === "editloan" && r === "loans") ||
                   (route === "customer" && r === "customers") ||
                   (route === "personalloan" && r === "personalloans") ||
                   (route === "investment" && r === "investments");
@@ -162,6 +164,8 @@ export function Sidebar({ route, open, onNavigateSameRoute }: SidebarProps) {
                     href={routeHref(r)}
                     className={isOn ? "on" : ""}
                     onClick={(e) => {
+                      // A sidebar click always opens the page fresh: remembered filters/search/page are for Back navigation only.
+                      clearAllPersistedFilters();
                       // Clicking the item for the page already open leaves
                       // the URL unchanged, so the router has nothing to
                       // react to — the page just silently stays exactly as
@@ -170,7 +174,10 @@ export function Sidebar({ route, open, onNavigateSameRoute }: SidebarProps) {
                       // forces that same "start fresh" reload staff expect
                       // from clicking a nav item, even when it's already
                       // the current page.
-                      if (isExactSameRoute) {
+                      // An open report (/reports/<slug>) has a different URL from the Reports menu, so
+                      // that click is a real move back to the menu, not a same-page reload.
+                      const sameUrl = typeof window === "undefined" || window.location.pathname.replace(/\/+$/, "") === routeHref(r).replace(/\/+$/, "");
+                      if (isExactSameRoute && sameUrl) {
                         e.preventDefault();
                         onNavigateSameRoute?.();
                       }

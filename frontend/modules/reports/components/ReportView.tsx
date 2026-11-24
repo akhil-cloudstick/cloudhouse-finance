@@ -1,8 +1,12 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { ExportMenu } from "@/modules/reports/components/ExportMenu";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { BackLink } from "@/common/components/ui/BackLink";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 import { useEffect, useMemo, useState } from "react";
+import { usePersistedPage, usePersistedState, useResetPageOnChange } from "@/common/hooks/use-persisted-state";
 import { Icon } from "@/common/components/Icon";
 import { FilterPanel, type FilterCategory, type FilterValue } from "@/common/components/ui/FilterPanel";
 import { useToast } from "@/common/components/ToastProvider";
@@ -19,7 +23,20 @@ export type ReportColumn<Row> = {
   key: string;
   label: string;
   numeric?: boolean;
+  // Optional column width (a % number or any CSS width); the rest share what is left.
+  width?: number | string;
   render: (row: Row) => React.ReactNode;
+};
+
+type ReportFilterOption = { value: string; label: string };
+export type ReportFilterGroup = {
+  key: string;
+  label: string;
+  // The ReportFilters field this group's (comma-joined) selection is sent as.
+  param: keyof ReportFilters;
+  singleSelect?: boolean;
+  options?: string[] | ReportFilterOption[];
+  fetchOptions?: (search: string, page: number) => Promise<{ items: ReportFilterOption[]; hasMore: boolean }>;
 };
 
 export type ReportTotalItem = { label: string; value: string };
@@ -40,14 +57,8 @@ export type ReportConfig<Row = any, Totals = any> = {
   columns: ReportColumn<Row>[];
   totals: (t: Totals) => ReportTotalItem[];
   rowKey: (row: Row) => string | number;
-  // Extra filter beyond date range + branch — a single dropdown, either the
-  // loan-status report's `status` param or communication-history's
-  // `triggerType` param (reports.Handler's per-report extra query param).
-  extraFilter?: {
-    field: "status" | "triggerType";
-    label: string;
-    options: string[];
-  };
+  // Extra filter groups beyond date range + branch, each sent as its `param`.
+  filterGroups?: ReportFilterGroup[];
   // Per-report override for the initial "From" date — every report defaults
   // to firstOfMonth() unless it supplies this (Form G is the only one that
   // does, and it renders via its own FormGReportView rather than this
@@ -61,6 +72,9 @@ export type ReportConfig<Row = any, Totals = any> = {
   // exist either (the backend refuses the API calls too — see
   // internal/reports/routes.go).
   tenantModule?: string;
+  // false for the printed statements (Balance Sheet, P&L): dropping rows
+  // from a statement would leave it unbalanced, so they get no search box.
+  searchable?: boolean;
 };
 
 function firstOfMonth(): string {
@@ -84,11 +98,27 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   // Single-branch plan: the Branch column is dropped from every report.
   const showBranch = useShowBranch();
   const columns = showBranch ? config.columns : config.columns.filter((c) => c.key !== "branchName");
-  const [branchId, setBranchId] = useState<number>(0);
-  const [from, setFrom] = useState(config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
-  const [to, setTo] = useState(today());
-  const [extraValue, setExtraValue] = useState("");
-  const [page, setPage] = useState(1);
+  // Each report remembers its filters, search and page, so opening a loan from a row and pressing Back returns to
+  // the same view (ReportsPage keys this component by report, so the keys below are read for the right report).
+  const memo = `reports:${config.id}`;
+  // One branch id or several comma-joined (an older saved value may still be a number).
+  const [branchSel, setBranchSel] = usePersistedState<number | string>(`${memo}:branch`, "");
+  const branchId = branchSel ? String(branchSel) : "";
+  const [from, setFrom] = usePersistedState(`${memo}:from`, config.defaultFromFn ? config.defaultFromFn() : firstOfMonth());
+  const [to, setTo] = usePersistedState(`${memo}:to`, today());
+  // Each filter group's selection (comma-joined), persisted per report as one record.
+  const [groupSel, setGroupSel] = usePersistedState<Record<string, string>>(`${memo}:groups`, {});
+  const groups = config.filterGroups ?? [];
+  const groupsKey = groups.map((g) => groupSel[g.key] ?? "").join("|");
+  const [page, setPage] = usePersistedPage(memo);
+  const [q, setQ] = usePersistedState(`${memo}:q`, "");
+  // The box updates instantly; the server is only asked once typing pauses. Starts at the remembered search, so
+  // reopening the report does not look like a changed search (which would send it back to page 1).
+  const [search, setSearch] = useState(() => q.trim());
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
 
   const [result, setResult] = useState<ReportResult<any, any> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,16 +132,17 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   const filters: ReportFilters = useMemo(() => {
     const f: ReportFilters = { from, to, page, pageSize };
     if (branchId) f.branchId = branchId;
-    if (config.extraFilter && extraValue) {
-      if (config.extraFilter.field === "status") f.status = extraValue;
-      else f.triggerType = extraValue;
+    if (search) f.search = search;
+    for (const g of groups) {
+      const v = groupSel[g.key];
+      if (v) (f as Record<string, unknown>)[g.param] = v;
     }
     return f;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, branchId, extraValue, page, pageSize, config.id]);
+  }, [from, to, branchId, groupsKey, search, page, pageSize, config.id]);
 
   // Reset to page 1 whenever a filter (other than page itself) changes.
-  useEffect(() => { setPage(1); }, [from, to, branchId, extraValue, pageSize, config.id]);
+  useResetPageOnChange(setPage, [from, to, branchId, groupsKey, search, pageSize, config.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,21 +158,24 @@ export function ReportView({ config, onBack }: ReportViewProps) {
   // One grouped filter: Branch, the report's own extra dropdown, and Date.
   // Clearing the date range falls back to the report's default range.
   const filterCategories: FilterCategory[] = [
-    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, singleSelect: true, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
-    ...(config.extraFilter
-      ? [{ key: "extra", label: config.extraFilter.label, kind: "static" as const, singleSelect: true, options: config.extraFilter.options.map((o) => ({ value: o, label: o })) }]
-      : []),
+    ...(!showBranchFilter ? [] : [{ key: "branch", label: "Branch", kind: "static" as const, searchHint: "Searches: branch name", options: branches.map((b) => ({ value: String(b.id), label: b.name })) }]),
+    ...groups.map((g): FilterCategory => {
+      if (g.fetchOptions) return { key: g.key, label: g.label, kind: "async", singleSelect: g.singleSelect, fetchOptions: g.fetchOptions };
+      const options = (g.options ?? []).map((o) => (typeof o === "string" ? { value: o, label: o } : o));
+      return { key: g.key, label: g.label, kind: "static", singleSelect: g.singleSelect, options };
+    }),
     { key: "__date", label: "Date", kind: "date" as const },
   ];
+  // Several picks are kept comma-joined, the form the API takes them in.
   const filterValue: FilterValue = {
-    branch: branchId ? [String(branchId)] : [],
-    extra: extraValue ? [extraValue] : [],
+    branch: branchId ? branchId.split(",") : [],
+    ...Object.fromEntries(groups.map((g) => [g.key, groupSel[g.key] ? groupSel[g.key].split(",") : []])),
     __dateFrom: from || undefined,
     __dateTo: to || undefined,
   };
   function onFilterChange(next: FilterValue) {
-    setBranchId(Array.isArray(next.branch) && next.branch[0] ? Number(next.branch[0]) : 0);
-    setExtraValue(Array.isArray(next.extra) && next.extra[0] ? next.extra[0] : "");
+    setBranchSel(Array.isArray(next.branch) ? next.branch.join(",") : "");
+    setGroupSel(Object.fromEntries(groups.map((g) => [g.key, Array.isArray(next[g.key]) ? (next[g.key] as string[]).join(",") : ""])));
     setFrom(next.__dateFrom || (config.defaultFromFn ? config.defaultFromFn() : firstOfMonth()));
     setTo(next.__dateTo || today());
   }
@@ -213,22 +247,20 @@ export function ReportView({ config, onBack }: ReportViewProps) {
           <h3>{config.title}</h3>
           <div className="sp" />
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {config.searchable !== false && <TableSearch value={q} onChange={setQ} placeholder="Search report…" searches={columns.map((c) => c.label.toLowerCase()).join(", ")} />}
             <FilterPanel categories={filterCategories} value={filterValue} onChange={onFilterChange} hideChips hideClearAll />
-            <button className="btn ghost sm" disabled={exporting !== null} onClick={() => handleExport("xlsx")}>
-              <Icon name="download" /> {exporting === "xlsx" ? "Exporting…" : "Export Excel"}
-            </button>
-            <button className="btn sm" disabled={exporting !== null} onClick={() => handleExport("pdf")}>
-              <Icon name="download" /> {exporting === "pdf" ? "Exporting…" : "Export PDF"}
-            </button>
+            <ExportMenu busy={exporting} onExport={handleExport} />
           </div>
         </div>
         <div className="tbl-wrap">
-          <table className="tbl tbl-cards">
+          <table className="tbl tbl-cards tbl-center">
+            <TableCols widths={columns.map((c) => c.width ?? (c.numeric ? 12 : null))} />
             <thead>
               <tr>{columns.map((c) => <th key={c.key} className={c.numeric ? "num" : undefined}>{c.label}</th>)}</tr>
             </thead>
-            <tbody>
-              {loading && !(cards && rows.length > 0) ? (
+            {/* A reload keeps the current rows (faded) so the page does not collapse and re-scroll. */}
+            <tbody style={loading && rows.length > 0 ? { opacity: 0.55, transition: "opacity .15s" } : undefined}>
+              {loading && rows.length === 0 ? (
                 <tr><td colSpan={columns.length} className="empty">Loading report…</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={columns.length} className="empty">No data for the selected filters.</td></tr>

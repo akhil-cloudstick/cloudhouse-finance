@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -33,7 +34,26 @@ type loanRequest struct {
 type updateLoanRequest struct {
 	SchemeID        *uint    `json:"scheme_id"`
 	PrincipalAmount *float64 `json:"principal_amount"`
+	// the loan's opening date (YYYY-MM-DD); empty leaves it
+	OpenedDate *string `json:"opened_date"`
+	// how the service charge is taken (WithheldFromPayout / AddedToPrincipal); nil leaves it (or the new scheme's own)
+	ServiceChargeMode *string `json:"service_charge_mode"`
 	OverallPhotoURL *string  `json:"overall_photo_url"`
+	// nil leaves the loan's additional information alone; "" clears it
+	AdditionalInfo *string `json:"additional_info"`
+	// the payout's breakdown, for a loan already paid out
+	CashAmount         *float64 `json:"cash_amount"`
+	UpiAmount          *float64 `json:"upi_amount"`
+	BankTransferAmount *float64 `json:"bank_transfer_amount"`
+	BankID             *uint    `json:"bank_id"`
+	// the loan's branch and the locker for its gold (needs the permission to view all branches)
+	BranchID *uint `json:"branch_id"`
+	LockerID *uint `json:"locker_id"`
+	// the amounts chosen for later payments that no longer fit once the loan is recalculated
+	AdjustFollowing []LoanFollowingAdjust `json:"adjust_following"`
+	// what a release did that the edit undoes
+	ReversePacket  bool `json:"reverse_packet"`
+	RestorePartial bool `json:"restore_partial_release"`
 }
 
 type purityTestRequest struct {
@@ -56,8 +76,24 @@ type LoanRequestFilter struct {
 	Type     string
 	Query    string
 	BranchID *uint
-	Limit    int
-	Offset   int
+	// From / To bound requested_at; To is exclusive (the day after the chosen end date).
+	From   *time.Time
+	To     *time.Time
+	Limit  int
+	Offset int
+}
+
+// queryDayRange reads optional from/to YYYY-MM-DD query parameters as a local
+// [from, to) range, the end day inclusive. Either end is nil when absent or malformed.
+func queryDayRange(fromV, toV string) (from, to *time.Time) {
+	if t, err := time.ParseInLocation("2006-01-02", fromV, time.Local); err == nil {
+		from = &t
+	}
+	if t, err := time.ParseInLocation("2006-01-02", toV, time.Local); err == nil {
+		end := t.AddDate(0, 0, 1)
+		to = &end
+	}
+	return from, to
 }
 
 func listRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRequest, int64, error) {
@@ -87,7 +123,7 @@ func decideRequest(ctx context.Context, requestID uint, branchID *uint, approve 
 	if req.Type != models.RequestTypeExtension {
 		return nil, common.NewBadRequest("this request is not an Extension request")
 	}
-	return nil, common.NewBadRequest("extension requests are now decided through the staged approval chain — use POST /loans/requests/:requestId/approve instead")
+	return nil, common.NewBadRequest("decide this through the approval chain")
 }
 
 func findByRequestID(ctx context.Context, requestID uint) ([]models.RequestApproval, error) {
@@ -126,13 +162,19 @@ func (req loanRequest) toInput() (CreateInput, error) {
 }
 
 func insertLoanRequest(ctx context.Context, req *models.LoanRequest) error {
-	return config.DB.
-		WithContext(ctx).Create(req).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func persistLoanRequest(ctx context.Context, req *models.LoanRequest) error {
-	return config.DB.
-		WithContext(ctx).Save(req).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func findLoanRequestByID(ctx context.Context, id uint) (*models.LoanRequest, error) {
@@ -141,12 +183,15 @@ func findLoanRequestByID(ctx context.Context, id uint) (*models.LoanRequest, err
 		WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").First(&req, id).Error; err != nil {
 		return nil, err
 	}
+	one := []models.LoanRequest{req}
+	attachRequestApprovals(ctx, one)
+	req.Approvals = one[0].Approvals
 	return &req, nil
 }
 
 func FindLoanRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRequest, int64, error) {
 	q := config.DB.
-		WithContext(ctx).Preload("Loan.Customer").Model(&models.LoanRequest{}).Order("loan_requests.id desc")
+		WithContext(ctx).Preload("Loan.Customer").Preload("OrnamentSelections").Model(&models.LoanRequest{}).Order("loan_requests.id desc")
 	if f.BranchID != nil || f.Query != "" {
 		q = q.Joins("JOIN loans ON loans.id = loan_requests.loan_id")
 	}
@@ -158,15 +203,22 @@ func FindLoanRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRe
 		q = q.Joins("JOIN customers ON customers.id = loans.customer_id").
 			Where("loans.loan_number ILIKE ? OR customers.name ILIKE ? OR customers.code ILIKE ? OR customers.phone ILIKE ?", like, like, like, like)
 	}
-	if f.Type != "" {
-		q = q.Where("loan_requests.type = ?", f.Type)
+	// Type and Status each hold one value or a comma-separated list.
+	if types := splitCSV(f.Type); len(types) > 0 {
+		q = q.Where("loan_requests.type IN ?", types)
 	}
 	q = q.Where("loan_requests.type NOT IN ?", []string{"Waiver", "Adjustment"})
-	if f.Status != "" {
-		q = q.Where("loan_requests.status = ?", f.Status)
+	if statuses := splitCSV(f.Status); len(statuses) > 0 {
+		q = q.Where("loan_requests.status IN ?", statuses)
 	}
 	if f.LoanID != 0 {
 		q = q.Where("loan_requests.loan_id = ?", f.LoanID)
+	}
+	if f.From != nil {
+		q = q.Where("loan_requests.requested_at >= ?", *f.From)
+	}
+	if f.To != nil {
+		q = q.Where("loan_requests.requested_at < ?", *f.To)
 	}
 	var total int64
 	if f.Limit > 0 {
@@ -180,27 +232,74 @@ func FindLoanRequests(ctx context.Context, f LoanRequestFilter) ([]models.LoanRe
 	}
 	var reqs []models.LoanRequest
 	err := q.Find(&reqs).Error
+	if err == nil {
+		attachRequestApprovals(ctx, reqs)
+	}
 	return reqs, total, err
+}
+
+// attachRequestApprovals fills each request's per-stage approvals (with the approver's name) in one query.
+func attachRequestApprovals(ctx context.Context, reqs []models.LoanRequest) {
+	if len(reqs) == 0 {
+		return
+	}
+	ids := make([]uint, 0, len(reqs))
+	for i := range reqs {
+		ids = append(ids, reqs[i].ID)
+	}
+	var rows []models.RequestApproval
+	if err := config.DB.WithContext(ctx).Where("request_id IN ?", ids).Order("id asc").Find(&rows).Error; err != nil {
+		return
+	}
+	nameIDs := make([]uint, 0, len(rows)+len(reqs))
+	for _, a := range rows {
+		nameIDs = append(nameIDs, a.ActorEmployeeID)
+	}
+	for i := range reqs {
+		if reqs[i].DecidedByEmployeeID != nil {
+			nameIDs = append(nameIDs, *reqs[i].DecidedByEmployeeID)
+		}
+	}
+	names := employeeNames(ctx, nameIDs)
+	byReq := make(map[uint][]models.RequestApproval, len(reqs))
+	for _, a := range rows {
+		a.ActorName = names[a.ActorEmployeeID]
+		byReq[a.RequestID] = append(byReq[a.RequestID], a)
+	}
+	for i := range reqs {
+		reqs[i].Approvals = byReq[reqs[i].ID]
+		if reqs[i].DecidedByEmployeeID != nil {
+			reqs[i].DecidedByName = names[*reqs[i].DecidedByEmployeeID]
+		}
+	}
 }
 
 func ListRequests(c echo.Context) error {
 	ctx := auth.RequestContext(c)
 	page, limit, offset := common.PageParams(c)
-	f := LoanRequestFilter{Status: c.QueryParam("status"), Query: strings.TrimSpace(c.QueryParam("search"))}
-	switch strings.ToLower(strings.TrimSpace(c.QueryParam("type"))) {
-	case "":
-	case "extension":
-		f.Type = models.RequestTypeExtension
-	case "release":
-		f.Type = models.RequestTypeRelease
-	default:
-		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid type: expected extension or release"})
+	search := strings.TrimSpace(c.QueryParam("search"))
+	if search == "" {
+		search = strings.TrimSpace(c.QueryParam("q")) // the Requests page sends q
 	}
+	f := LoanRequestFilter{Status: c.QueryParam("status"), Query: search}
+	var types []string
+	for _, t := range splitCSV(c.QueryParam("type")) {
+		switch strings.ToLower(t) {
+		case "extension":
+			types = append(types, models.RequestTypeExtension)
+		case "release":
+			types = append(types, models.RequestTypeRelease)
+		default:
+			return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "invalid type: expected extension or release"})
+		}
+	}
+	f.Type = strings.Join(types, ",")
 	if v := c.QueryParam("loan_id"); v != "" {
 		if id, err := strconv.ParseUint(v, 10, 64); err == nil {
 			f.LoanID = uint(id)
 		}
 	}
+	f.From, f.To = queryDayRange(c.QueryParam("from"), c.QueryParam("to"))
 	f.BranchID = auth.GetBranchScope(c)
 	if limit > 0 {
 		f.Limit, f.Offset = limit, offset

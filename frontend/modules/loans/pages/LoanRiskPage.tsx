@@ -1,5 +1,6 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
 import { ScrollSentinel } from "@/common/components/ui/ScrollSentinel";
 import { useCallback, useEffect, useState } from "react";
 import { fmt } from "@/common/utils/format";
@@ -10,13 +11,33 @@ import { useScrollPageSize } from "@/common/utils/responsive";
 import { listLoanRiskAssessmentPage, RISK_STATUSES, LOAN_RISK_PAGE_SIZE } from "@/modules/loans/services/loanService";
 import { type LoanRiskRow, type LoanRiskLevel, type LoanRiskCounts } from "@/modules/loans/types/loan-types";
 import { routeHref } from "@/common/services/appRoutes";
+import { TableSearch } from "@/common/components/ui/TableSearch";
 
 const RISK_CHIP: Record<LoanRiskLevel, string> = { Safe: "green", AtRisk: "amber", Loss: "red" };
 const RISK_LABEL: Record<LoanRiskLevel, string> = { Safe: "Safe", AtRisk: "At Risk", Loss: "Loss" };
 // All three levels, in the order the KPI tiles/filter pills display them.
 const RISK_LEVELS: LoanRiskLevel[] = ["Loss", "AtRisk", "Safe"];
 
-// A loan fully covered at disbursement can surface here if the gold price has since fallen.
+/* Gold-value risk assessment — compares each open loan's principal against
+ * what its pledged gold would fetch sold TODAY (backend/internal/loan/
+ * service.go's ListLoanRiskAssessment: today's published rate × each
+ * ornament's own purity/weight), not the value the loan was opened at, so a
+ * loan that looked fully covered at disbursement can still surface here if
+ * the gold price has since fallen.
+ *
+ * Loss: today's gold value is below the principal outright — the gold,
+ * sold today, would not even cover what's lent out.
+ * At Risk: covered today, but by less than the 10% safety margin
+ * (RiskBufferPercent on the backend) — the cushion has eroded.
+ * Safe: comfortably covered.
+ *
+ * Server-side paginated (8/page), with a loan-status filter, a risk-level
+ * filter, and an opened-date range filter — all sent straight to GET
+ * /loans/risk-assessment's `status`/`riskLevel`/`from`/`to` params, same
+ * convention as Loans.tsx and Cash Movements' own date filter. The KPI
+ * tiles come from the same response's `counts`/`total`, which cover every
+ * loan matching status/from/to regardless of the riskLevel filter, not
+ * just the current page. */
 export function LoanRiskPage() {
   const { cards, size: pageSize, more } = useScrollPageSize(LOAN_RISK_PAGE_SIZE);
   const [rows, setRows] = useState<LoanRiskRow[]>([]);
@@ -27,25 +48,35 @@ export function LoanRiskPage() {
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [status, setStatus] = usePersistedState("loanrisk:status", "");
-  const [riskLevel, setRiskLevel] = usePersistedState<LoanRiskLevel | "">("loanrisk:risk", "");
+  const [riskLevel, setRiskLevel] = usePersistedState("loanrisk:risk", "");
   const [fromDate, setFromDate] = usePersistedState("loanrisk:from", "");
   const [toDate, setToDate] = usePersistedState("loanrisk:to", "");
 
+  // One grouped filter: Status, Risk level (single choice each) and the
+  // opened-date range.
   const filterCategories: FilterCategory[] = [
     { key: "status", label: "Status", kind: "static", singleSelect: true, options: RISK_STATUSES.map((st) => ({ value: st, label: st })) },
     { key: "risk", label: "Risk", kind: "static", singleSelect: true, options: RISK_LEVELS.map((l) => ({ value: l, label: RISK_LABEL[l] })) },
     { key: "__date", label: "Opened Date", kind: "date" },
   ];
   const filterValue: FilterValue = {
-    status: status ? [status] : [],
-    risk: riskLevel ? [riskLevel] : [],
+    status: status ? status.split(",") : [],
+    risk: riskLevel ? riskLevel.split(",") : [],
     __dateFrom: fromDate || undefined,
     __dateTo: toDate || undefined,
   };
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  // The typed search, and the value sent to the server once typing pauses.
+  const [q, setQ] = usePersistedState("loan-risk:q", "");
+  const [sentQ, setSentQ] = useState(q);
+  useEffect(() => {
+    const handle = setTimeout(() => setSentQ(q), q === sentQ ? 0 : 300);
+    return () => clearTimeout(handle);
+  }, [q, sentQ]);
 
-  // Reset to page 1 on filter change, or the user could be stranded on a page the new filter doesn't have.
-  useEffect(() => { setPage(1); }, [status, riskLevel, fromDate, toDate]);
+  // Any filter change resets back to page 1 rather than leaving the user
+  // stranded on a page number the new filter may not have.
+  useEffect(() => { setPage(1); }, [status, riskLevel, fromDate, toDate, sentQ]);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -54,6 +85,7 @@ export function LoanRiskPage() {
       riskLevel: riskLevel || undefined,
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
+      q: sentQ,
     })
       .then(({ items, hasMore, total, counts }) => {
         setRows(items);
@@ -67,7 +99,7 @@ export function LoanRiskPage() {
         setError(e instanceof ApiError ? e.message : "Could not load the risk assessment — a gold rate may not be published yet.");
       })
       .finally(() => setLoading(false));
-  }, [page, status, riskLevel, fromDate, toDate, pageSize]);
+  }, [page, status, riskLevel, fromDate, toDate, sentQ, pageSize]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -75,10 +107,18 @@ export function LoanRiskPage() {
     <div className="page-fill loan-risk-page">
       <div className="page-h">
         <div><h1>Loan Risk</h1><p>Outstanding principal vs. today&apos;s gold value for every open loan — flags loans a falling gold price has put at risk or at a loss</p></div>
+        <div className="sp" />
+        <TableSearch value={q} onChange={setQ} placeholder="Search loans…" searches="loan no., customer, status, risk, amounts, weight, gold value" />
       </div>
       <hr className="gold-rule" />
 
-      {/* Each tile is also a one-click filter; clicking the already-selected level clears it back to "All". */}
+      {/* Each tile also acts as a one-click filter for that risk level —
+        * clicking the level already selected clears it back to "All", same
+        * toggle behavior as re-picking a Select's current value would give,
+        * but faster since the count is already right there. Counts
+        * themselves always reflect the full status/date-matched set (see
+        * loanService.ts's LoanRiskCounts doc comment), so the other two
+        * tiles don't collapse to zero while one level is selected. */}
       <div className="loan-risk-bar" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
       <div className="kpis kpis-compact">
         <div className="kpi"><div className="l">Total Open Loans</div><div className="v">{total}</div></div>
@@ -90,7 +130,7 @@ export function LoanRiskPage() {
             style={{
               cursor: "pointer",
               textAlign: "left",
-              border: riskLevel === level ? `1px solid var(--${RISK_CHIP[level]})` : undefined,
+              border: riskLevel.split(",").includes(level) ? `1px solid var(--${RISK_CHIP[level]})` : undefined,
             }}
             onClick={() => setRiskLevel((cur) => (cur === level ? "" : level))}
             title={`Show only ${RISK_LABEL[level]} loans`}
@@ -106,8 +146,8 @@ export function LoanRiskPage() {
         categories={filterCategories}
         value={filterValue}
         onChange={(next) => {
-          setStatus(Array.isArray(next.status) ? next.status[0] || "" : "");
-          setRiskLevel((Array.isArray(next.risk) ? next.risk[0] || "" : "") as LoanRiskLevel | "");
+          setStatus(Array.isArray(next.status) ? next.status.join(",") : "");
+          setRiskLevel(Array.isArray(next.risk) ? next.risk.join(",") : "");
           setFromDate(next.__dateFrom || "");
           setToDate(next.__dateTo || "");
         }}
@@ -121,6 +161,7 @@ export function LoanRiskPage() {
       <div className="card tbl-card tbl-card-fill tbl-rounded">
         <div className="tbl-wrap tbl-scroll">
           <table className="tbl tbl-center tbl-cards">
+            <TableCols widths={[22, 11, 12, 10, 13, 10, 12]} />
             <thead>
               <tr>
                 <th>Loan / Customer</th>
@@ -163,8 +204,10 @@ export function LoanRiskPage() {
         <div className="ft ft-scroll-hide" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button className="btn plain sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Prev</button>
           <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+        <span style={{ fontSize: 12.5, color: "var(--muted)" }}>· {total.toLocaleString("en-IN")} {total === 1 ? "result" : "results"}</span>
           <button className="btn plain sm" disabled={!hasMore} onClick={() => setPage((p) => p + 1)}>Next ›</button>
         </div>
+        {/* <div className="ft">Red = gold, sold today, would not cover the principal · Orange = covered by less than a 10% margin · Green = comfortably covered</div> */}
       </div>
     </div>
   );

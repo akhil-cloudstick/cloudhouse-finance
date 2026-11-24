@@ -11,8 +11,11 @@
     },
     "development": {
       "extends": "base",
-      "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": {
+        "APP_VARIANT": "development"
+      }
     },
     "preview": {
       "extends": "base",
@@ -27,6 +30,22 @@
     }
   },
   "submit": {
-    "production": {}
+    "development": {
+      "ios": {
+        "ascApiKeyPath": "./certs/AuthKey.p8",
+        "ascApiKeyId": "9289TXK48L",
+        "ascApiKeyIssuerId": "204e739c-06da-439b-8cc1-bbaa914fcf38",
+        "appleTeamId": "N7X7Q2H8V8"
+      }
+    },
+    "production": {
+      "ios": {
+        "ascAppId": "6830677656",
+        "ascApiKeyPath": "./certs/AuthKey.p8",
+        "ascApiKeyId": "9289TXK48L",
+        "ascApiKeyIssuerId": "204e739c-06da-439b-8cc1-bbaa914fcf38",
+        "appleTeamId": "N7X7Q2H8V8"
+      }
+    }
   }
 }

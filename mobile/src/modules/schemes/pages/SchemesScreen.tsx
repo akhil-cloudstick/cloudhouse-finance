@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { View } from "react-native";
-import { AccRow, ConfirmSheet, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, emptyGroupedFilter, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
+import { Pressable, View } from "react-native";
+import { AccRow, C, ConfirmSheet, Txt, FabCorner, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, emptyGroupedFilter, gfValues, toast, type GFSection, type GroupedFilterValue } from "@/common/components/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { userMessage } from "@/common/services/apiErrors";
 import { useShowBranch } from "@/common/hooks/use-branch-switch";
@@ -14,7 +14,10 @@ import type { Scheme } from "@/modules/schemes/types/scheme-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 
 const INTEREST_METHODS = ["Monthly simple interest", "Flat monthly", "Quarterly simple", "Compound monthly", "Multiple interest"] as const;
-const FILTER_SECTIONS: GFSection[] = [{ kind: "static", key: "method", label: "Interest method", options: INTEREST_METHODS.map((m) => ({ value: m, label: m })) }];
+const FILTER_SECTIONS: GFSection[] = [
+  { kind: "static", key: "method", label: "Interest method", options: INTEREST_METHODS.filter((m) => m !== "Compound monthly").map((m) => ({ value: m, label: m })) },
+  { kind: "static", key: "status", label: "Status", options: [{ value: "Active", label: "Active" }, { value: "Inactive", label: "Inactive" }] },
+];
 
 function serviceCharge(sc: Scheme) {
   if (!sc.serviceChargeType || sc.serviceChargeType === "None") return null;
@@ -22,13 +25,40 @@ function serviceCharge(sc: Scheme) {
   return `${v} · ${sc.serviceChargeMode === "AddedToPrincipal" ? "added to principal" : "withheld"}`;
 }
 
+/** Two lines with an ellipsis; tap to read the whole condition text (mobile has no hover tooltip). */
+const TEXT = { fontSize: 12.5, fontWeight: "700", color: C.ink } as const;
+
+function ConditionsText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  return (
+    <Pressable onPress={() => (truncated || open) && setOpen((o) => !o)} hitSlop={6}>
+      <Txt numberOfLines={open ? undefined : 2} style={TEXT}>
+        {text}
+      </Txt>
+      {/* Invisible full-length copy: with numberOfLines set, Android only reports the visible lines, so truncation is measured here. */}
+      <Txt
+        pointerEvents="none"
+        onTextLayout={(e) => setTruncated(e.nativeEvent.lines.length > 2)}
+        style={[TEXT, { position: "absolute", left: 0, right: 0, opacity: 0 }]}
+      >
+        {text}
+      </Txt>
+      {truncated || open ? <Txt style={{ fontSize: 11.5, fontWeight: "700", color: C.brandDeep, marginTop: 2 }}>{open ? "Show less" : "Tap to read more"}</Txt> : null}
+    </Pressable>
+  );
+}
+
 export default function SchemesScreen() {
   const [fv, setFv] = usePersistedState<GroupedFilterValue>("schemes:filters", emptyGroupedFilter());
   const methods = gfValues(fv, "method");
-  const list = useServerList<Scheme, { method?: string[] }>({
+  const statuses = gfValues(fv, "status");
+  // Both ticked = no restriction.
+  const status = statuses.length === 1 ? statuses[0] : undefined;
+  const list = useServerList<Scheme, { method?: string[]; status?: string }>({
     key: ["schemes", "list"],
     persistKey: "schemes",
-    filters: { method: methods },
+    filters: { method: methods, status },
     fetchPage: (p) => listSchemesPage(p),
   });
   const [editing, setEditing] = useState<Scheme | null>(null);
@@ -74,17 +104,16 @@ export default function SchemesScreen() {
         ) : undefined
       }
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(sc) => String(sc.id)}
         emptyText={list.search ? "No schemes match your search." : "No schemes yet."}
         header={
             <>
-              <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-                <GroupedFilter title="Filter schemes" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />
+              <View style={{ paddingTop: 12 }}>
+                <SearchFilterRow value={list.search} onChangeText={list.setSearch} placeholder="Search by name, code, LTV % or months" filter={<GroupedFilter title="Filter schemes" sections={FILTER_SECTIONS} value={fv} onChange={setFv} />} />
               </View>
-              <SearchInput value={list.search} onChangeText={list.setSearch} placeholder="Search by name, code, LTV % or months" style={{ paddingTop: 0 }} />
             </>
           }
         renderItem={(sc, i) => {
@@ -96,13 +125,14 @@ export default function SchemesScreen() {
               sub={sc.rateTiers && sc.rateTiers.length > 1 ? `Interest ${sc.rateTiers[0].rate}% → ${sc.rateTiers[sc.rateTiers.length - 1].rate}% p.a.` : `Interest ${sc.interestRate}% p.a.`}
               status={sc.isActive ? "Active" : "Inactive"}
               details={[
-                { k: "LTV", v: `${sc.ltvPercent}%` },
+                { k: "LTV", v: sc.ltvBased === false ? "Not based on LTV" : `${sc.ltvPercent}%` },
                 { k: "Duration", v: `${sc.durationMonths} month${sc.durationMonths === 1 ? "" : "s"}` },
                 { k: "Code", v: sc.code || "—" },
                 ...(showBranch ? [{ k: "Branch", v: sc.branch?.name || "—" }] : []),
                 { k: "Penal rate", v: sc.penalRate != null ? `${sc.penalRate}% p.a.` : "—" },
-                { k: "Conditions", v: sc.conditions || "—" },
+                { k: "Conditions", v: sc.conditions ? <ConditionsText text={sc.conditions} /> : "—" },
                 ...(sc.interestMethod ? [{ k: "Interest method", v: sc.interestMethod }] : []),
+                ...(sc.accrualBasis ? [{ k: "Accrual method", v: sc.accrualBasis === "monthly" ? "Monthly" : "Daily" }] : []),
                 ...(charge ? [{ k: "Service charge", v: charge }] : []),
               ]}
               actions={[

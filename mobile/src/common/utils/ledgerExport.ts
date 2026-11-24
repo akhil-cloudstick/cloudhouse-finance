@@ -1,5 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
+import { safeDownload } from "@/common/utils/safeDownload";
+import { presentFile } from "@/common/utils/presentFile";
 import { API_BASE_URL, apiUrl, ApiError } from "@/common/services/httpClient";
 import { getToken } from "@/common/services/tokenStorage";
 import type { LedgerKind } from "@/modules/cash/types/cash-types";
@@ -70,17 +71,13 @@ const XLSX: FileKind = { ext: "xlsx", mimeType: "application/vnd.openxmlformats-
 async function shareFile(path: string, params: URLSearchParams, fileStem: string, title: string, kind: FileKind = PDF) {
   const token = await getToken();
   const targetUri = `${FileSystem.cacheDirectory}${fileStem}-${Date.now()}.${kind.ext}`;
-  const result = await FileSystem.downloadAsync(apiUrl(`${path}?${params.toString()}`), targetUri, {
+  const result = await safeDownload(apiUrl(`${path}?${params.toString()}`), targetUri, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (result.status < 200 || result.status >= 300) {
     throw new ApiError(result.status, "", undefined);
   }
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(result.uri, { mimeType: kind.mimeType, dialogTitle: title, UTI: kind.UTI });
-  } else {
-    throw new Error(`Saved to ${result.uri} — sharing isn't available on this device.`);
-  }
+  await presentFile(result.uri, { mimeType: kind.mimeType, UTI: kind.UTI, title });
 }
 
 /** Branch ledger Download — web's exportPartyStatementByBranch:

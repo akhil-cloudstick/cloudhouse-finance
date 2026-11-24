@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type UIEvent } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
+import { Select } from "@/common/components/ui/Select";
 import { AddReminderModalContent } from "@/modules/reminders/components/AddReminderModalContent";
 import { completeReminder, deleteReminder, getCalendarEvents } from "@/modules/reminders/services/reminderService";
 import { type CalendarEvent } from "@/modules/reminders/types/reminder-types";
@@ -29,6 +30,8 @@ function evClass(type: CalendarEvent["type"]): string {
     case "PersonalLoanOverdue": return "over";
     case "LoanDue": return "due";
     case "PersonalLoanDue": return "due";
+    case "InvestmentPayoutOverdue": return "over";
+    case "InvestmentPayoutDue": return "pay";
     case "AuctionScheduled": return "due";
     case "InterestDue": return "pay";
     case "PromiseToPay": return "fup";
@@ -36,6 +39,19 @@ function evClass(type: CalendarEvent["type"]): string {
     default: return "fup";
   }
 }
+
+/* The day panel groups a day's events into these segments, each shown as a
+ * coloured count circle (colours match the .ev chips on the grid). */
+const GROUPS: { key: string; label: string; tone: "red" | "amber" | "green" | "info"; types: string[] }[] = [
+  { key: "overdue", label: "Overdue", tone: "red", types: ["Overdue", "PersonalLoanOverdue"] },
+  { key: "due", label: "Loan due", tone: "amber", types: ["LoanDue", "PersonalLoanDue"] },
+  { key: "auction", label: "Auction", tone: "amber", types: ["AuctionScheduled"] },
+  { key: "interest", label: "Interest", tone: "green", types: ["InterestDue"] },
+  { key: "investment", label: "Investment payout", tone: "green", types: ["InvestmentPayoutDue", "InvestmentPayoutOverdue"] },
+  { key: "followup", label: "Follow-up", tone: "info", types: ["FollowUp"] },
+  { key: "promise", label: "Promise to pay", tone: "info", types: ["PromiseToPay"] },
+];
+const GROUPED_TYPES = GROUPS.flatMap((g) => g.types);
 
 function fmtMonthYear(year: number, month: number): string {
   return new Date(year, month, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
@@ -74,9 +90,12 @@ export function CalendarPage() {
   const [err, setErr] = useState("");
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [dayVisible, setDayVisible] = useState(DAY_PAGE_SIZE);
+  // Which segment's events are expanded in the day panel (null = just the circles).
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   // A different day (or month) starts again from the first page.
-  useEffect(() => { setDayVisible(DAY_PAGE_SIZE); }, [selectedDay, year, month]);
+  useEffect(() => { setDayVisible(DAY_PAGE_SIZE); setOpenGroup(null); }, [selectedDay, year, month]);
+  useEffect(() => { setDayVisible(DAY_PAGE_SIZE); }, [openGroup]);
 
   const todayISO = today.toISOString().slice(0, 10);
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
@@ -92,6 +111,15 @@ export function CalendarPage() {
   }, [year, month]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Coming back to this tab (a payment may have been taken in another tab or on another device) refetches, so a
+  // reminder that has since been paid or completed does not linger until a manual refresh.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", onVisible); };
+  }, [load]);
 
   const eventsByDay = useMemo(() => {
     const map = new Map<number, CalendarEvent[]>();
@@ -117,11 +145,16 @@ export function CalendarPage() {
     cells.push(week);
   }
 
-  function goMonth(delta: number) {
-    const d = new Date(year, month + delta, 1);
+  // Jump to any month: used by Prev/Next and by the month / year pickers.
+  function goTo(y: number, m: number) {
+    const d = new Date(y, m, 1);
     setYear(d.getFullYear());
     setMonth(d.getMonth());
     setSelectedDay(null);
+  }
+
+  function goMonth(delta: number) {
+    goTo(year, month + delta);
   }
 
   function goToday() {
@@ -150,7 +183,12 @@ export function CalendarPage() {
     }
   }
 
-  const dayEvents = selectedDay != null ? eventsByDay.get(selectedDay) || [] : [];
+  const allDayEvents = selectedDay != null ? eventsByDay.get(selectedDay) || [] : [];
+  const groupsOfDay = [
+    ...GROUPS.map((g) => ({ ...g, items: allDayEvents.filter((e) => g.types.includes(e.type)) })),
+    { key: "other", label: "Other", tone: "info" as const, types: [], items: allDayEvents.filter((e) => !GROUPED_TYPES.includes(e.type)) },
+  ].filter((g) => g.items.length > 0);
+  const dayEvents = groupsOfDay.find((g) => g.key === openGroup)?.items ?? [];
   function onDayScroll(e: UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     if (dayVisible < dayEvents.length && el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
@@ -172,9 +210,6 @@ export function CalendarPage() {
          * visibly room for it. */}
         <div className="page-h-title"><h1>EMI / Interest Reminder Calendar</h1><p>{fmtMonthYear(year, month)} · due dates, overdue loans, follow-ups &amp; promise-to-pay</p></div>
         <div className="page-h-actions">
-          <button className="btn ghost" onClick={goToday}>Today</button>
-          <button className="btn ghost" onClick={() => goMonth(-1)}>‹ Prev</button>
-          <button className="btn ghost" onClick={() => goMonth(1)}>Next ›</button>
           {canCreateReminders && (
             <button className="btn" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
               <Icon name="plus" /> Add Reminder
@@ -197,8 +232,29 @@ export function CalendarPage() {
         <span className="chip green">Payment</span>
       </div>
       {err && <p style={{ color: "var(--red)", fontSize: 13 }}>{err}</p>}
-      <div className="grid cols21">
+      <div className="grid cols21" style={{ alignItems: "start" }}>
+        <div className="grid">
         <div className="card">
+          {/* Month label with its small prev/next buttons right beside it, directly above the grid. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px 0" }}>
+            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0, height: 31 }} onClick={() => goMonth(-1)} aria-label="Previous month">‹</button>
+            <div style={{ width: 130 }}>
+              <Select
+                value={String(month)}
+                onChange={(v) => goTo(year, +v)}
+                options={Array.from({ length: 12 }, (_, m) => ({ value: String(m), label: new Date(2000, m, 1).toLocaleString("en-US", { month: "long" }) }))}
+              />
+            </div>
+            <div style={{ width: 100 }}>
+              <Select
+                value={String(year)}
+                onChange={(v) => goTo(+v, month)}
+                options={Array.from(new Set([...Array.from({ length: 21 }, (_, i) => today.getFullYear() - 10 + i), year])).sort((a, b) => a - b).map((y) => ({ value: String(y), label: String(y) }))}
+              />
+            </div>
+            <button className="btn ghost sm" style={{ padding: "2px 8px", minWidth: 0, height: 31 }} onClick={() => goMonth(1)} aria-label="Next month">›</button>
+            <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={goToday}>Today</button>
+          </div>
           <div className="bd" style={{ padding: 10, overflowX: "auto" }}>
             {loading ? (
               <p style={{ color: "var(--muted)", fontSize: 13 }}>Loading calendar…</p>
@@ -233,51 +289,10 @@ export function CalendarPage() {
           </div>
           <div className="ft">Click a day to see its full list of events and log a follow-up, promise-to-pay date, or custom reminder.</div>
         </div>
+        </div>
 
         <div className="grid">
-          <div className="card">
-            <div className="hd"><h3>{selectedDay != null ? fmtDate(toISODate(year, month, selectedDay)) : "Select a day"}</h3></div>
-            <div className="bd no-scrollbar" style={{ paddingTop: 6, maxHeight: 420, overflowY: "auto" }} onScroll={onDayScroll}>
-              <ul className="mini-list">
-                {selectedDay == null ? (
-                  <li><span className="tx"><small>Click a day on the calendar to see its events.</small></span></li>
-                ) : dayEvents.length === 0 ? (
-                  <li><span className="tx"><small>No events on this day.</small></span></li>
-                ) : dayEvents.slice(0, dayVisible).map((e, i) => (
-                  <li key={i}>
-                    <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
-                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : "bell"} />
-                    </span>
-                    <span className="tx">
-                      <b>{e.title}</b>
-                      <small>{e.detail}{e.loanNumber ? ` · ${e.loanNumber}` : ""}</small>
-                    </span>
-                    {e.reminderId != null && (
-                      <span className="rt" style={{ display: "flex", gap: 4 }}>
-                        {canUpdateReminders && e.status !== "Done" && (
-                          <button className="btn sm ghost" onClick={() => onComplete(e.reminderId!)}>Done</button>
-                        )}
-                        {canDeleteReminders && <button className="btn sm ghost" onClick={() => onDelete(e.reminderId!)}>Delete</button>}
-                      </span>
-                    )}
-                    {e.personalLoanId != null && canOpen("personalloan") ? (
-                      <span className="rt"><a className="btn sm ghost" href={routeHref(`personalloan/${e.personalLoanId}`)}>Open loan</a></span>
-                    ) : e.loanNumber && canOpen("loan") ? (
-                      <span className="rt"><a className="btn sm ghost" href={routeHref(`loan/${e.loanNumber}`)}>Open loan</a></span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            {selectedDay != null && canCreateReminders && (
-              <div className="ft">
-                <button className="btn ghost" onClick={() => openModal(<AddReminderModalContent initialDate={selectedISO} onSaved={load} />)}>
-                  <Icon name="plus" /> Add Reminder for this day
-                </button>
-              </div>
-            )}
-          </div>
-
+          {selectedDay == null ? (
           <div className="card">
             <div className="hd"><h3>This Month at a Glance</h3></div>
             <div className="bd" style={{ paddingTop: 6 }}>
@@ -285,12 +300,87 @@ export function CalendarPage() {
                 <li><span className="tx"><b>Loan due dates</b><small>{events.filter((e) => e.type === "LoanDue").length} loans due this month</small></span></li>
                 <li><span className="tx"><b>Overdue loans</b><small>{events.filter((e) => e.type === "Overdue").length} loans overdue</small></span></li>
                 <li><span className="tx"><b>Interest reminders</b><small>{events.filter((e) => e.type === "InterestDue").length} scheduled</small></span></li>
+                <li><span className="tx"><b>Investment payouts</b><small>{events.filter((e) => e.type === "InvestmentPayoutDue" || e.type === "InvestmentPayoutOverdue").length} payouts due</small></span></li>
                 <li><span className="tx"><b>Scheduled auctions</b><small>{events.filter((e) => e.type === "AuctionScheduled").length} loans scheduled for auction</small></span></li>
                 <li><span className="tx"><b>Customer follow-ups</b><small>{events.filter((e) => e.type === "FollowUp").length} logged</small></span></li>
                 <li><span className="tx"><b>Promise-to-pay dates</b><small>{events.filter((e) => e.type === "PromiseToPay").length} logged</small></span></li>
               </ul>
             </div>
           </div>
+          ) : (
+          <div className="card">
+            <div className="hd" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3>{fmtDate(toISODate(year, month, selectedDay))}</h3>
+              <button className="btn ghost sm" onClick={() => setSelectedDay(null)}>Month summary</button>
+            </div>
+            <div className="bd no-scrollbar" style={{ paddingTop: 6, maxHeight: 420, overflowY: "auto" }} onScroll={onDayScroll}>
+              {groupsOfDay.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "8px 0 12px" }}>
+                  {groupsOfDay.map((g) => {
+                    const on = openGroup === g.key;
+                    return (
+                      <button
+                        key={g.key}
+                        type="button"
+                        onClick={() => setOpenGroup(on ? null : g.key)}
+                        aria-pressed={on}
+                        title={`${g.label}: ${g.items.length}`}
+                        style={{ background: "none", border: 0, padding: 0, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 64 }}
+                      >
+                        <span style={{ width: 40, height: 40, borderRadius: "50%", display: "grid", placeContent: "center", fontWeight: 700, fontSize: 14, background: `var(--${g.tone}-bg)`, color: `var(--${g.tone})`, border: `2px solid ${on ? `var(--${g.tone})` : "transparent"}` }}>{g.items.length}</span>
+                        <span style={{ fontSize: 10.5, color: on ? "var(--charcoal)" : "var(--muted)", textAlign: "center", lineHeight: 1.2 }}>{g.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <ul className="mini-list">
+                {selectedDay == null ? (
+                  <li><span className="tx"><small>Click a day on the calendar to see its events.</small></span></li>
+                ) : allDayEvents.length === 0 ? (
+                  <li><span className="tx"><small>No events on this day.</small></span></li>
+                ) : openGroup == null ? (
+                  <li><span className="tx"><small>Select a circle to see its events.</small></span></li>
+                ) : dayEvents.slice(0, dayVisible).map((e, i) => {
+                  // The whole entry opens its loan — no separate "Open loan" button.
+                  const loanHref = e.investmentId != null
+                    ? (canOpen("investment") ? routeHref(`investment/${e.investmentId}`) : null)
+                    : e.personalLoanId != null && canOpen("personalloan")
+                      ? routeHref(`personalloan/${e.personalLoanId}`)
+                      : e.loanNumber && canOpen("loan") ? routeHref(`loan/${e.loanNumber}`) : null;
+                  const detailText = `${e.detail}${e.loanNumber ? ` · ${e.loanNumber}` : ""}`;
+                  const ellipsis = { display: "block", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" };
+                  const text = (
+                    <>
+                      <b style={ellipsis}>{e.title}</b>
+                      <small style={ellipsis}>{detailText}</small>
+                    </>
+                  );
+                  return (
+                  <li key={i}>
+                    <span className="ic" style={(e.type === "Overdue" || e.type === "PersonalLoanOverdue" || e.type === "InvestmentPayoutOverdue") ? { background: "var(--red-bg)", color: "var(--red)" } : undefined}>
+                      <Icon name={e.type === "FollowUp" ? "phone" : e.type === "PromiseToPay" ? "clock" : e.type === "AuctionScheduled" ? "gavel" : e.investmentId != null ? "coin" : "bell"} />
+                    </span>
+                    {loanHref ? (
+                      <a className="tx" href={loanHref} title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1, color: "inherit", textDecoration: "none", cursor: "pointer" }}>{text}</a>
+                    ) : (
+                      <span className="tx" title={`${e.title} — ${detailText}`} style={{ minWidth: 0, flex: 1 }}>{text}</span>
+                    )}
+                    {e.reminderId != null && (
+                      <span className="rt" style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        {canUpdateReminders && e.status !== "Done" && (
+                          <button className="btn sm ghost" title="Mark done" aria-label="Mark done" onClick={() => onComplete(e.reminderId!)}><Icon name="check" /></button>
+                        )}
+                        {canDeleteReminders && <button className="btn sm ghost" title="Delete" aria-label="Delete" onClick={() => onDelete(e.reminderId!)}><Icon name="x" /></button>}
+                      </span>
+                    )}
+                  </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+          )}
         </div>
       </div>
     </>

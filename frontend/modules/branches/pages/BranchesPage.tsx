@@ -1,15 +1,22 @@
 "use client";
 
+import { TableCols } from "@/common/components/ui/TableCols";
+import { useErrorToast } from "@/common/hooks/use-error-toast";
 import { useEffect, useState } from "react";
 import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { BranchModalContent } from "@/modules/branches/components/BranchModalContent";
 import { ConfirmModalContent } from "@/common/components/modals/ConfirmModalContent";
-import { deactivateBranch, getBranchQuota, listBranches } from "@/modules/branches/services/branchService";
+import { deactivateBranch, getBranchQuota, listBranches, updateBranch } from "@/modules/branches/services/branchService";
 import { type BranchQuota, type BranchView } from "@/modules/branches/types/branch-types";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { routeHref } from "@/common/services/appRoutes";
+import { TableSearch } from "@/common/components/ui/TableSearch";
+import { usePersistedState } from "@/common/hooks/use-persisted-state";
+import { PageBar } from "@/modules/loans/components/PageBar";
+
+const PAGE_SIZE = 10;
 
 /* Centralized branch management — admin-only. Loads real data from the Go
  * backend (`GET /api/v1/branches`), following the Schemes.tsx pattern. */
@@ -24,11 +31,17 @@ export function BranchesPage() {
   const canViewBranchLedger = can("Branch_Management", "can_view_branch_ledger");
   const [branches, setBranches] = useState<BranchView[] | null>(null);
   const [error, setError] = useState("");
+  const [q, setQ] = usePersistedState("branches:q", "");
   const [quota, setQuota] = useState<BranchQuota | null>(null);
+  const [page, setPage] = useState(1);
+  // Clamp so deactivating/searching down to fewer rows never strands the view on an empty page.
+  const lastPage = Math.max(1, Math.ceil((branches?.length ?? 0) / PAGE_SIZE));
+  const curPage = Math.min(page, lastPage);
+  const pageRows = (branches ?? []).slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
 
   async function load() {
     try {
-      setBranches(await listBranches());
+      setBranches(await listBranches(q));
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load branches.");
@@ -48,10 +61,33 @@ export function BranchesPage() {
     ? `Your current plan (${quota.plan}) allows ${quota.quota} branch${quota.quota === 1 ? "" : "es"}. To add more branches, contact your administrator to upgrade your plan.`
     : "";
 
-  useEffect(() => { load(); }, []);
+  // Typing searches on the server (debounced); the first load is immediate.
+  useEffect(() => { setPage(1); }, [q]);
+  useEffect(() => {
+    const handle = setTimeout(() => { void load(); }, q ? 300 : 0);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   function onSaved() {
     load();
+  }
+
+  function onActivate(b: BranchView) {
+    openModal(
+      <ConfirmModalContent
+        title="Activate Branch"
+        message={`Activate branch "${b.name}"? It will be selectable for new records again.`}
+        confirmLabel="Activate"
+        busyLabel="Activating…"
+        danger={false}
+        onConfirm={async () => {
+          await updateBranch(b.id, { name: b.name, code: b.code, address: b.address, phone: b.phone, isActive: true });
+          toast(`Branch "${b.name}" activated`);
+          load();
+        }}
+      />
+    );
   }
 
   function onDeactivate(b: BranchView) {
@@ -70,6 +106,7 @@ export function BranchesPage() {
     );
   }
 
+  useErrorToast(error);
   return (
     <>
       <div className="page-h">
@@ -87,11 +124,9 @@ export function BranchesPage() {
         )}
       </div>
       <hr className="gold-rule" />
-      {quota && (
+      {quota && !quota.unlimited && (
         <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 10px" }}>
-          {quota.unlimited
-            ? `${quota.used} active branch${quota.used === 1 ? "" : "es"} · ${quota.plan} plan (no branch limit)`
-            : `${quota.used} of ${quota.quota} branch${quota.quota === 1 ? "" : "es"} used · ${quota.plan} plan`}
+          {`${quota.used} of ${quota.quota} branch${quota.quota === 1 ? "" : "es"} used · ${quota.plan} plan`}
         </p>
       )}
       {atLimit && canCreateBranches && (
@@ -110,48 +145,59 @@ export function BranchesPage() {
           {limitMessage}
         </div>
       )}
-      {error && (
-        <p style={{ color: "var(--red)", fontSize: 13.5 }}>
-          Something went wrong. Please try again later.
-        </p>
-      )}
       {!error && branches === null && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>Loading branches…</p>
       )}
-      {branches !== null && branches.length === 0 && !error && (
+      {branches !== null && branches.length === 0 && !error && !q.trim() && (
         <p style={{ color: "var(--muted)", fontSize: 13.5 }}>
           No branches yet. Click &quot;Add Branch&quot; to create one.
         </p>
       )}
-      {branches !== null && branches.length > 0 && (
+      {branches !== null && (branches.length > 0 || !!q.trim()) && (
+        <div style={{ margin: "0 0 12px", display: "flex", justifyContent: "flex-end" }}>
+          <TableSearch value={q} onChange={setQ} placeholder="Search branches…" searches="branch name, code, address, phone, status" />
+        </div>
+      )}
+      {branches !== null && (branches.length > 0 || !!q.trim()) && (
         <div className="card tbl-rounded">
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl tbl-center tbl-cards">
+              <TableCols widths={[16, 10, 24, 12, 10, "200px"]} />
               <thead>
                 <tr><th>Branch</th><th>Code</th><th>Address</th><th>Phone</th><th>Status</th><th></th></tr>
               </thead>
               <tbody>
-                {branches.map((b) => (
+                {pageRows.map((b) => (
                   <tr key={b.id}>
-                    <td><b>{b.name}</b></td>
-                    <td>{b.code || "—"}</td>
-                    <td>{b.address}</td>
-                    <td>{b.phone || "—"}</td>
-                    <td>{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: 12 }}>
-                        {canViewBranchLedger && <a href={routeHref("ledger-branch", b.id)}>Ledger</a>}
-                        {canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}
-                        {canUpdateBranches && b.isActive && (
-                          <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
-                        )}
+                    <td data-label="Branch"><b>{b.name}</b></td>
+                    <td data-label="Code">{b.code || "—"}</td>
+                    <td data-label="Address">{b.address}</td>
+                    <td data-label="Phone">{b.phone || "—"}</td>
+                    <td data-label="Status">{b.isActive ? <span className="chip green">Active</span> : <span className="chip gray">Inactive</span>}</td>
+                    <td className="tbl-acts">
+                      {/* Three fixed slots — Ledger | Edit | Deactivate / Activate — so every action stays in the same
+                          place whatever the branch's status or the role's permissions. */}
+                      <div style={{ display: "inline-grid", gridTemplateColumns: "52px 36px 72px", columnGap: 14, justifyItems: "start", alignItems: "center" }}>
+                        <span>{canViewBranchLedger && <a href={routeHref("ledger-branch", b.id)}>Ledger</a>}</span>
+                        <span>{canUpdateBranches && <a href="#" onClick={(e) => { e.preventDefault(); openModal(<BranchModalContent branch={b} onSaved={onSaved} />); }}>Edit</a>}</span>
+                        <span>
+                          {canUpdateBranches && (b.isActive ? (
+                            <a href="#" style={{ color: "var(--red)" }} onClick={(e) => { e.preventDefault(); onDeactivate(b); }}>Deactivate</a>
+                          ) : (
+                            <a href="#" style={{ color: "var(--green)" }} onClick={(e) => { e.preventDefault(); onActivate(b); }}>Activate</a>
+                          ))}
+                        </span>
                       </div>
                     </td>
                   </tr>
                 ))}
+                {branches.length === 0 && (
+                  <tr><td colSpan={6} className="empty">No branches match “{q.trim()}”.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
+          <PageBar page={curPage} total={branches.length} pageSize={PAGE_SIZE} onChange={setPage} />
         </div>
       )}
     </>

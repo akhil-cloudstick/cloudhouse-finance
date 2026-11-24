@@ -16,6 +16,7 @@ func InvestmentRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(investmentPath, investment.ListInvestments, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/by-number/:number", investment.GetInvestmentByNumber, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/:id", investment.GetInvestmentById, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
+	e.PATCH(investmentPath+"/:id", investment.EditInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.GET(investmentPath+"/:id/ledger", investment.GetInvestmentLedger, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/:id/schedule", investment.GetInvestmentSchedule, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	e.GET(investmentPath+"/:id/bond/pdf", investment.DownloadInvestmentBond, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
@@ -26,12 +27,16 @@ func InvestmentRoutes(e *echo.Echo) *echo.Echo {
 	e.POST(investmentPath+"/:id/mature", investment.MatureInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.POST(investmentPath+"/:id/add-cash", investment.AddInvestmentCash, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
 	e.POST(investmentPath+"/:id/withdraw", investment.WithdrawInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
+	e.POST(investmentPath+"/:id/close", investment.CloseInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Update)...)
+	e.DELETE(investmentPath+"/:id/delete", investment.DeleteInvestment, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Delete)...)
 	e.GET(investmentPath+"/:id/transactions", investment.ListInvestmentTransactions, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
+	e.PATCH(investmentPath+"/:id/ledger/:entry_id", investment.EditInvestmentLedgerEntry, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read, auth.RequirePermission("can edit ledger entry"))...)
+	e.DELETE(investmentPath+"/:id/ledger/:entry_id", investment.DeleteInvestmentLedgerEntry, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read, auth.RequirePermission("can delete ledger entry"))...)
 	return e
 }
 
 func InvestmentCustomerRoutes(e *echo.Echo) *echo.Echo {
 	perms := auth.CRUDPermissions("investments")
-	e.GET("/api/v1/users/:user_id/customers/:id/investments", investment.ListInvestmentsForCustomer, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
+	e.GET("/api/v1/users/:user_id/investors/:id/investments", investment.ListInvestmentsForCustomer, auth.Staff(auth.RequireTenantModule(commonModels.ModuleInvestments), perms.Read)...)
 	return e
 }

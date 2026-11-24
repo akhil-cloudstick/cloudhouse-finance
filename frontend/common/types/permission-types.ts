@@ -8,10 +8,10 @@ export type PermissionMap = Record<string, Record<string, boolean>>;
  * and whether the role holds it — label is the short name used in messages,
  * e.g. "Scheme module". */
 export type PermissionRef = {
-  permissionId: number;
-  name: string;
-  label: string;
-  granted: boolean;
+	permissionId: number;
+	name: string;
+	label: string;
+	granted: boolean;
 };
 /* Admin matrix shapes — see backend/internal/authz.Repository.AdminMatrix.
  * parents must all be on before this one can be; dependents are switched off
@@ -23,20 +23,41 @@ export type PermissionRow = {
   permission: boolean;
   permissions: { id: number; name: string; description: string; moduleName: string; isActive: boolean };
   parents: PermissionRef[];
+  /* Every permission this one needs, directly or further up the chain — all switched on with it. */
+  all_parents?: PermissionRef[];
   soft_parents: PermissionRef[];
   dependents: PermissionRef[];
 };
 export type Role = {
+	id: number;
+	name: string;
+	description: string;
+	isActive: boolean;
+	isSystem: boolean;
+	createdAt: string;
+	updatedAt: string;
+};
+/* Longest role description the backend accepts (RoleDescriptionMax). */
+export const ROLE_DESCRIPTION_MAX = 150;
+/* One row of GET /roles/list (paginated). */
+export type RoleListRow = {
   id: number;
   name: string;
   description: string;
   isActive: boolean;
   isSystem: boolean;
-  createdAt: string;
-  updatedAt: string;
+  employee_count: number;
 };
+/* One employee holding a role — GET /roles/:id/employees (paginated). */
+export type RoleEmployeeRow = {
+  id: number;
+  code: string;
+  name: string;
+  branchName: string;
+};
+export type PagedResult<T> = { items: T[]; hasMore: boolean; total: number };
 export type MatrixResponse = {
-  success: boolean;
-  role: Role;
-  data: Record<string, PermissionRow[]>;
+	success: boolean;
+	role: Role;
+	data: Record<string, PermissionRow[]>;
 };

@@ -6,7 +6,7 @@ import { useModal } from "@/common/components/ModalProvider";
 import { useToast } from "@/common/components/ToastProvider";
 import { Icon } from "@/common/components/Icon";
 import { publishGoldRates } from "@/modules/gold-rates/services/goldRateService";
-import { finenessFromRate, rateForFineness, FINENESS_24K } from "@/common/utils/purity";
+import { rateForFineness, FINENESS_24K } from "@/common/utils/purity";
 import { ApiError } from "@/common/services/httpClient";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { singleFlight } from "@/common/utils/singleFlight";
@@ -22,16 +22,16 @@ type Mode = "auto" | "manual";
  * with an unchanged class). Cleared again via onAnimationEnd, same
  * pattern as that banner. */
 function useShake(invalid: boolean) {
-  const [shaking, setShaking] = useState(false);
-  const wasInvalid = useRef(false);
-  useEffect(() => {
-    if (invalid && !wasInvalid.current) {
-      setShaking(false);
-      requestAnimationFrame(() => setShaking(true));
-    }
-    wasInvalid.current = invalid;
-  }, [invalid]);
-  return shaking;
+	const [shaking, setShaking] = useState(false);
+	const wasInvalid = useRef(false);
+	useEffect(() => {
+		if (invalid && !wasInvalid.current) {
+			setShaking(false);
+			requestAnimationFrame(() => setShaking(true));
+		}
+		wasInvalid.current = invalid;
+	}, [invalid]);
+	return shaking;
 }
 
 /* Ported from legacy/app.js's `openRateModal()` / `saveRate()`, then
@@ -62,173 +62,178 @@ function useShake(invalid: boolean) {
  * backend PublishInput's doc comment) always carries the row this same
  * click just published, not a stale one. */
 export function RateModalContent() {
-  const { latest, refresh } = useGoldRates();
-  const { employee } = useAuth();
-  const { closeModal } = useModal();
-  const toast = useToast();
+	const { latest, refresh } = useGoldRates();
+	const { employee } = useAuth();
+	const { closeModal } = useModal();
+	const toast = useToast();
 
-  // Frozen at open — the "999 reference" Auto falls back to when no rate
-  // has been typed yet (see setAuto).
-  const [ref24] = useState(latest.k24 || 0);
+	// Frozen at open — the "999 reference" Auto falls back to when no rate
+	// has been typed yet (see setAuto).
+	const [ref24] = useState(latest.k24 || 0);
 
-  const [mode, setMode] = useState<Mode>("auto");
+	const [mode, setMode] = useState<Mode>("auto");
 
-  const [rate24, setRate24] = useState(String(latest.k24 || ""));
+  // The day the rate is published for — today unless another day is picked; the same rate may be saved for any day.
+  const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  // Rates are always published for today — there is no date picker.
+  const rateDate = todayStr();
 
-  const [rate22, setRate22] = useState(String(latest.k22 || ""));
-  // Fineness isn't stored — restore what the last published rates imply
-  // (rate ÷ 24K) rather than the standard ratio, so a custom fineness set
-  // earlier is still showing when the modal is reopened.
-  const [fineness22, setFineness22] = useState(String(finenessFromRate(latest.k24, latest.k22, 22)));
+	const [rate24, setRate24] = useState(String(latest.k24 || ""));
 
-  const [rate18, setRate18] = useState(String(latest.k18 || ""));
-  const [fineness18, setFineness18] = useState(String(finenessFromRate(latest.k24, latest.k18, 18)));
+	const [rate22, setRate22] = useState(String(latest.k22 || ""));
+	// The fineness last set in Auto mode is stored with the rate, so a custom
+	// fineness is still showing when the modal is reopened.
+	const [fineness22, setFineness22] = useState(String(latest.fineness22));
 
-  const [remarks, setRemarks] = useState("");
+	const [rate18, setRate18] = useState(String(latest.k18 || ""));
+	const [fineness18, setFineness18] = useState(String(latest.fineness18));
+
   const [err, setErr] = useState("");
   // Validation messages, each shown under the rate it is about; `err` keeps the ones that fit no field.
   const [fe, setFe] = useState<Record<string, string>>({});
-  const fail = (field: string, msg: string) => { setErr(""); setFe({ [field]: msg }); };
   const clearFe = (field: string) => setFe((cur) => (cur[field] ? { ...cur, [field]: "" } : cur));
   const [saving, setSaving] = useState(false);
 
-  // Which karat's rate field staff last actually typed into — the
-  // hierarchy warning below only ever flags THIS one, never whichever
-  // other karat it happens to be compared against, so editing 18K to
-  // something too high never lights up 22K/24K (which nobody touched),
-  // and vice versa.
-  type Karat = 24 | 22 | 18 | null;
-  const [lastEdited, setLastEdited] = useState<Karat>(null);
+	// Which karat's rate field staff last actually typed into — the
+	// hierarchy warning below only ever flags THIS one, never whichever
+	// other karat it happens to be compared against, so editing 18K to
+	// something too high never lights up 22K/24K (which nobody touched),
+	// and vice versa.
+	type Karat = 24 | 22 | 18 | null;
+	const [lastEdited, setLastEdited] = useState<Karat>(null);
 
-  function setAuto() {
-    setMode("auto");
-    const f22 = finenessFromRate(latest.k24, latest.k22, 22);
-    const f18 = finenessFromRate(latest.k24, latest.k18, 18);
-    setFineness22(String(f22));
-    setFineness18(String(f18));
+	function setAuto() {
+    // Coming from Manual, whatever was typed there was never published — drop it
+    // and restart from the last published 24K rate instead of carrying it into Auto.
+    const wasManual = mode === "manual";
+		setMode("auto");
+		const f22 = latest.fineness22;
+		const f18 = latest.fineness18;
+		setFineness22(String(f22));
+		setFineness18(String(f18));
 
-    let base24 = +rate24;
-    if (!(base24 > 0) && +rate22 > 0) {
-      base24 = Math.round((+rate22 / f22) * 100);
-    }
-    if (!(base24 > 0) && +rate18 > 0) {
-      base24 = Math.round((+rate18 / f18) * 100);
-    }
-    if (!(base24 > 0)) {
-      base24 = ref24;
-    }
+		let base24 = wasManual ? latest.k24 || 0 : +rate24;
+		if (!(base24 > 0) && +rate22 > 0) {
+			base24 = Math.round((+rate22 / f22) * FINENESS_24K);
+		}
+		if (!(base24 > 0) && +rate18 > 0) {
+			base24 = Math.round((+rate18 / f18) * FINENESS_24K);
+		}
+		if (!(base24 > 0)) {
+			base24 = ref24;
+		}
 
-    if (base24 > 0) {
-      setRate24(String(base24));
-      setRate22(String(rateForFineness(base24, f22)));
-      setRate18(String(rateForFineness(base24, f18)));
-    }
-    setLastEdited(null);
-    setErr(""); setFe({});
-  }
-  function setManual() {
-    setMode("manual");
-    setLastEdited(null);
-    setErr(""); setFe({});
-  }
+		if (base24 > 0) {
+			setRate24(String(base24));
+			setRate22(String(rateForFineness(base24, f22)));
+			setRate18(String(rateForFineness(base24, f18)));
+		}
+		setLastEdited(null);
+		setErr(""); setFe({});
+	}
+	function setManual() {
+		setMode("manual");
+		setLastEdited(null);
+		setErr(""); setFe({});
+	}
 
-  function editRate24(v: string) {
-    setRate24(v); // never switches mode — see file doc comment
-    clearFe("rate24");
-    setLastEdited(24);
-    // 22K/18K keep tracking 24K live while they're still in Auto.
-    const k24 = +v;
-    if (mode === "auto" && k24 > 0) {
-      if (+fineness22 > 0) setRate22(String(rateForFineness(k24, +fineness22)));
-      if (+fineness18 > 0) setRate18(String(rateForFineness(k24, +fineness18)));
-      clearFe("rate22"); clearFe("rate18");
-    }
-  }
-  function editRate22(v: string) {
-    setMode("manual"); // any direct 22K/18K rate edit is all-or-nothing
-    setLastEdited(22);
-    setRate22(v);
-    clearFe("rate22");
-  }
-  function editRate18(v: string) {
-    setMode("manual");
-    setLastEdited(18);
-    setRate18(v);
-    clearFe("rate18");
-  }
-  // Fineness is a purity percentage — never meaningfully above 100%
-  // (pure gold itself). Clamped, not rejected: typing "150" just settles
-  // at "100" rather than blocking the keystroke or showing an error.
-  function clampFineness(v: string): string {
-    return v !== "" && +v > 100 ? "100" : v;
-  }
-  function editFineness22(v: string) {
-    const c = clampFineness(v);
-    setFineness22(c);
-    // Off the LIVE 24K rate, not the frozen ref24 — tracks whatever's
-    // currently typed in the 24K field, not just today's opening reference.
-    if (+rate24 > 0 && +c > 0) { setRate22(String(rateForFineness(+rate24, +c))); clearFe("rate22"); }
-  }
-  function editFineness18(v: string) {
-    const c = clampFineness(v);
-    setFineness18(c);
-    if (+rate24 > 0 && +c > 0) { setRate18(String(rateForFineness(+rate24, +c))); clearFe("rate18"); }
-  }
+	function editRate24(v: string) {
+		setRate24(v); // never switches mode — see file doc comment
+		clearFe("rate24");
+		setLastEdited(24);
+		// 22K/18K keep tracking 24K live while they're still in Auto.
+		const k24 = +v;
+		if (mode === "auto" && k24 > 0) {
+			if (+fineness22 > 0) setRate22(String(rateForFineness(k24, +fineness22)));
+			if (+fineness18 > 0) setRate18(String(rateForFineness(k24, +fineness18)));
+			clearFe("rate22"); clearFe("rate18");
+    } else if (mode === "auto" && !(k24 > 0)) {
+      setRate22(""); setRate18("");
+		}
+	}
+	function editRate22(v: string) {
+		setMode("manual"); // any direct 22K/18K rate edit is all-or-nothing
+		setLastEdited(22);
+		setRate22(v);
+		clearFe("rate22");
+	}
+	function editRate18(v: string) {
+		setMode("manual");
+		setLastEdited(18);
+		setRate18(v);
+		clearFe("rate18");
+	}
+	// Fineness is a purity percentage — never meaningfully above 100%
+	// (pure gold itself). Clamped, not rejected: typing "150" just settles
+	// at "100" rather than blocking the keystroke or showing an error.
+	function clampFineness(v: string): string {
+		return v !== "" && +v > 100 ? "100" : v;
+	}
+	function editFineness22(v: string) {
+		const c = clampFineness(v);
+		setFineness22(c);
+		// Off the LIVE 24K rate, not the frozen ref24 — tracks whatever's
+		// currently typed in the 24K field, not just today's opening reference.
+		if (+rate24 > 0 && +c > 0) { setRate22(String(rateForFineness(+rate24, +c))); clearFe("rate22"); }
+	}
+	function editFineness18(v: string) {
+		const c = clampFineness(v);
+		setFineness18(c);
+		if (+rate24 > 0 && +c > 0) { setRate18(String(rateForFineness(+rate24, +c))); clearFe("rate18"); }
+	}
 
-  // Non-blocking sanity check on Manual entries — 22K/18K priced above a
-  // purer karat inverts the usual purity hierarchy (less pure gold should
-  // never cost more per gram). Flagged, never prevented: a real market
-  // anomaly can legitimately happen and staff may need to publish it
-  // anyway.
-  const violation22vs24 = mode === "manual" && +rate22 > 0 && +rate24 > 0 && +rate22 > +rate24;
-  const violation18vs22 = mode === "manual" && +rate18 > 0 && +rate22 > 0 && +rate18 > +rate22;
-  const violation18vs24 = mode === "manual" && +rate18 > 0 && +rate24 > 0 && +rate18 > +rate24;
-  // Only the karat actually being edited gets flagged, never whichever
-  // other one it's compared against — typing 18K too high never lights
-  // up 22K/24K, and vice versa.
-  const invalid24 = lastEdited === 24 && (violation22vs24 || violation18vs24);
-  const invalid22 = lastEdited === 22 && violation22vs24;
-  const invalid18 = lastEdited === 18 && (violation18vs22 || violation18vs24);
-  // A brighter, more saturated red than the app's usual --red (#c21725,
-  // deliberately muted for everyday error text) — this needs to read as
-  // an alarm, not just a validation note.
-  const BRIGHT_RED = "#ef4444";
-  const invalidInputStyle = { borderColor: BRIGHT_RED, boxShadow: `0 0 0 1px ${BRIGHT_RED}` };
+	// Non-blocking sanity check on Manual entries — 22K/18K priced above a
+	// purer karat inverts the usual purity hierarchy (less pure gold should
+	// never cost more per gram). Flagged, never prevented: a real market
+	// anomaly can legitimately happen and staff may need to publish it
+	// anyway.
+	const violation22vs24 = mode === "manual" && +rate22 > 0 && +rate24 > 0 && +rate22 > +rate24;
+	const violation18vs22 = mode === "manual" && +rate18 > 0 && +rate22 > 0 && +rate18 > +rate22;
+	const violation18vs24 = mode === "manual" && +rate18 > 0 && +rate24 > 0 && +rate18 > +rate24;
+	// Only the karat actually being edited gets flagged, never whichever
+	// other one it's compared against — typing 18K too high never lights
+	// up 22K/24K, and vice versa.
+	const invalid24 = lastEdited === 24 && (violation22vs24 || violation18vs24);
+	const invalid22 = lastEdited === 22 && violation22vs24;
+	const invalid18 = lastEdited === 18 && (violation18vs22 || violation18vs24);
+	// A brighter, more saturated red than the app's usual --red (#c21725,
+	// deliberately muted for everyday error text) — this needs to read as
+	// an alarm, not just a validation note.
+	const BRIGHT_RED = "#ef4444";
+	const invalidInputStyle = { borderColor: BRIGHT_RED, boxShadow: `0 0 0 1px ${BRIGHT_RED}` };
 
-  const shaking24 = useShake(invalid24);
-  const shaking22 = useShake(invalid22);
-  const shaking18 = useShake(invalid18);
+	const shaking24 = useShake(invalid24);
+	const shaking22 = useShake(invalid22);
+	const shaking18 = useShake(invalid18);
 
-  async function save() { return singleFlight("modal:rate:save", async () => {
-    // The logged-in employee is who set this rate — never the previous
-    // row's setBy (that was e.g. "Auto (GoldAPI)" from the background sync).
-    const setBy = employee?.name || employee?.username || "Admin";
-    setErr(""); setFe({});
-    if (!(+rate24 > 0)) { fail("rate24", "The 24K rate must be greater than zero."); return; }
-    if (!(+rate22 > 0)) { fail("rate22", "The 22K rate must be greater than zero."); return; }
-    if (!(+rate18 > 0)) { fail("rate18", "The 18K rate must be greater than zero."); return; }
+	async function save() { return singleFlight("modal:rate:save", async () => {
+		// The logged-in employee is who set this rate — never the previous
+		// row's setBy (that was e.g. "Auto (GoldAPI)" from the background sync).
+		const setBy = employee?.name || employee?.username || "Admin";
+		setErr(""); setFe({});
+		// Every problem is shown at once, each beside its own field.
+		const errors: Record<string, string> = {};
+		if (!(+rate24 > 0)) errors["rate24"] ??= "The 24K rate must be greater than zero.";
+		if (!(+rate22 > 0)) errors["rate22"] ??= "The 22K rate must be greater than zero.";
+		if (!(+rate18 > 0)) errors["rate18"] ??= "The 18K rate must be greater than zero.";
+		if (Object.keys(errors).length) { setErr(""); setFe(errors); return; }
 
-    // Only karats that actually changed from the latest published row get
-    // published — publishing an untouched karat would still be harmless
-    // (the backend carries it forward unchanged either way) but would
-    // create a needless extra history row for a value that didn't move.
-    const jobs: { karat: 24 | 22 | 18; rate: number }[] = [];
-    if (Math.round(+rate24) !== Math.round(latest.k24 || 0)) jobs.push({ karat: 24, rate: +rate24 });
-    if (Math.round(+rate22) !== Math.round(latest.k22 || 0)) jobs.push({ karat: 22, rate: +rate22 });
-    if (Math.round(+rate18) !== Math.round(latest.k18 || 0)) jobs.push({ karat: 18, rate: +rate18 });
-
-    if (jobs.length === 0) {
-      setErr("Nothing has changed from today's published rates.");
-      return;
-    }
+    // Auto mode saves its fineness so a 24K-only publish (New Gold Loan page) derives 22K/18K the same way.
+    const fineness = mode === "auto" && +fineness22 > 0 && +fineness18 > 0 ? { 22: +fineness22, 18: +fineness18 } : undefined;
+    // All three rates are published for the chosen day, even when they equal the latest row.
+    const jobs: { karat: 24 | 22 | 18; rate: number }[] = [
+      { karat: 24, rate: +rate24 },
+      { karat: 22, rate: +rate22 },
+      { karat: 18, rate: +rate18 },
+    ];
 
     setErr("");
     setSaving(true);
     try {
-      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy);
+      await publishGoldRates(Object.fromEntries(jobs.map((j) => [j.karat, j.rate])), setBy, fineness, rateDate);
       refresh();
       closeModal();
-      toast(`${jobs.map((j) => `${j.karat}K`).join(", ")} rate${jobs.length > 1 ? "s" : ""} published for today`);
+      toast("Gold rates published for today");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not publish rate — try again");
     } finally {
@@ -238,87 +243,83 @@ export function RateModalContent() {
 
   return (
     <>
-      <div className="hd"><h3>Set Today&apos;s Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
+      <div className="hd"><h3>Set Gold Rate</h3><button className="x" onClick={closeModal}>×</button></div>
       <div className="bd bd-scroll">
         <div className="tabs" style={{ marginBottom: 14 }}>
           <button className={mode === "auto" ? "on" : ""} onClick={setAuto}>Auto</button>
           <button className={mode === "manual" ? "on" : ""} onClick={setManual}>Manual</button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 13 }}>
-          <div>
-            {mode === "auto" && (
-              <div style={{ marginTop: 8, marginBottom: 12 }}>
-                <label className="f" style={{ marginBottom: 2 }}>Fineness ({FINENESS_24K}%)</label>
-                <input className="inp" type="number" style={{ width: 140, background: "var(--brand-faint)", cursor: "not-allowed" }} value={FINENESS_24K} disabled readOnly title="24K is fixed at 99.9% (999)" />
-              </div>
-            )}
-            <div className={fe.rate24 ? "has-err" : undefined}>
-            <label className="f">24K · 999 (₹/g)</label>
-            <input
-              className={`inp${shaking24 ? " shake-attention" : ""}`} type="number" value={rate24}
-              onChange={(e) => editRate24(e.target.value)} style={{ width: 140, ...(invalid24 ? invalidInputStyle : {}) }}
-            />
-            <FieldError msg={fe.rate24} />
-            </div>
-            {invalid24 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
-            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
-              {mode === "manual" ? "set directly" : "22K/18K follow this rate"}
-            </p>
-          </div>
+				<div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 13 }}>
+					<div>
+						{mode === "auto" && (
+							<div style={{ marginTop: 8, marginBottom: 12 }}>
+								<label className="f" style={{ marginBottom: 2 }}>Fineness ({FINENESS_24K}%)</label>
+								<input className="inp" type="number" style={{ width: 140, background: "var(--brand-faint)", cursor: "not-allowed" }} value={FINENESS_24K} disabled readOnly title="24K is fixed at 99.9% (999)" />
+							</div>
+						)}
+						<div className={fe.rate24 ? "has-err" : undefined}>
+						<label className="f">24K · 999 (₹/g)</label>
+						<input
+							className={`inp${shaking24 ? " shake-attention" : ""}`} type="number" value={rate24}
+							onChange={(e) => editRate24(e.target.value)} style={{ width: 140, ...(invalid24 ? invalidInputStyle : {}) }}
+						/>
+						<FieldError msg={fe.rate24} />
+						</div>
+						{invalid24 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
+						<p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
+							{mode === "manual" ? "set directly" : "22K/18K follow this rate"}
+						</p>
+					</div>
 
-          <div>
-            {mode === "auto" && (
-              <div style={{ marginTop: 8, marginBottom: 12 }}>
-                <label className="f" style={{ marginBottom: 2 }}>Fineness (91.7%)</label>
-                <input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness22} onChange={(e) => editFineness22(e.target.value)} />
-              </div>
-            )}
-            <div className={fe.rate22 ? "has-err" : undefined}>
-            <label className="f">22K (₹/g)</label>
-            <input
-              className={`inp${shaking22 ? " shake-attention" : ""}`} type="number" value={rate22}
-              onChange={(e) => editRate22(e.target.value)} style={{ width: 140, ...(invalid22 ? invalidInputStyle : {}) }}
-            />
-            <FieldError msg={fe.rate22} />
-            </div>
-            {invalid22 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
-            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
-              {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
-            </p>
-          </div>
+					<div>
+						{mode === "auto" && (
+							<div style={{ marginTop: 8, marginBottom: 12 }}>
+								<label className="f" style={{ marginBottom: 2 }}>Fineness (91.7%)</label>
+								<input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness22} onChange={(e) => editFineness22(e.target.value)} />
+							</div>
+						)}
+						<div className={fe.rate22 ? "has-err" : undefined}>
+						<label className="f">22K (₹/g)</label>
+						<input
+							className={`inp${shaking22 ? " shake-attention" : ""}`} type="number" value={rate22}
+							onChange={(e) => editRate22(e.target.value)} style={{ width: 140, ...(invalid22 ? invalidInputStyle : {}) }}
+						/>
+						<FieldError msg={fe.rate22} />
+						</div>
+						{invalid22 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
+						<p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
+							{mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
+						</p>
+					</div>
 
-          <div>
-            {mode === "auto" && (
-              <div style={{ marginTop: 8, marginBottom: 12 }}>
-                <label className="f" style={{ marginBottom: 2 }}>Fineness (75%)</label>
-                <input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness18} onChange={(e) => editFineness18(e.target.value)} />
-              </div>
-            )}
-            <div className={fe.rate18 ? "has-err" : undefined}>
-            <label className="f">18K (₹/g)</label>
-            <input
-              className={`inp${shaking18 ? " shake-attention" : ""}`} type="number" value={rate18}
-              onChange={(e) => editRate18(e.target.value)} style={{ width: 140, ...(invalid18 ? invalidInputStyle : {}) }}
-            />
-            <FieldError msg={fe.rate18} />
-            </div>
-            {invalid18 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
-            <p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
-              {mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
-            </p>
-          </div>
-        </div>
+					<div>
+						{mode === "auto" && (
+							<div style={{ marginTop: 8, marginBottom: 12 }}>
+								<label className="f" style={{ marginBottom: 2 }}>Fineness (75%)</label>
+								<input className="inp" type="number" max={100} style={{ width: 140 }} value={fineness18} onChange={(e) => editFineness18(e.target.value)} />
+							</div>
+						)}
+						<div className={fe.rate18 ? "has-err" : undefined}>
+						<label className="f">18K (₹/g)</label>
+						<input
+							className={`inp${shaking18 ? " shake-attention" : ""}`} type="number" value={rate18}
+							onChange={(e) => editRate18(e.target.value)} style={{ width: 140, ...(invalid18 ? invalidInputStyle : {}) }}
+						/>
+						<FieldError msg={fe.rate18} />
+						</div>
+						{invalid18 && <p style={{ fontSize: 11, color: BRIGHT_RED, margin: "5px 0 0" }}>⚠ Price hierarchy is wrong.</p>}
+						<p style={{ fontSize: 11, color: "var(--muted)", margin: "5px 0 0" }}>
+							{mode === "manual" ? "set independently of 24K" : "editing this switches to Manual "}
+						</p>
+					</div>
+				</div>
 
-        <div className="frow" style={{ marginTop: 10 }}>
-          <div><label className="f">Remarks (optional)</label><input className="inp" placeholder="e.g. MCX morning reference" value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
-        </div>
-        <p style={{ color: "var(--red)", fontSize: 12.5, minHeight: 16, marginTop: 8 }}>{err}</p>
-      </div>
-      <div className="ft">
-        <button className="btn ghost" onClick={closeModal}>Cancel</button>
-        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Publishing…" : "Publish Rate"}</button>
-      </div>
-    </>
-  );
+			</div>
+			<div className="ft">
+				{err && <span className="ft-err" role="alert">{err}</span>}
+				<button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Publishing…" : "Publish Rate"}</button>
+			</div>
+		</>
+	);
 }

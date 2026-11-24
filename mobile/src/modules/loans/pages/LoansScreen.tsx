@@ -1,8 +1,9 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AccRow, C, FabCorner, FlatHeader, GroupedFilter, Screen, SearchInput, ServerFlatList, gfValues, useShell } from "@/common/components/ui";
+import { AccRow, C, FabMenu, FlatHeader, GroupedFilter, Screen, SearchFilterRow, ServerFlatList, gfValues, useShell } from "@/common/components/ui";
+import { LoanDraftsSheet } from "@/common/components/LoanDraftsSheet";
 import { useShowBranchFilter } from "@/common/hooks/use-branch-switch";
 import {
   EMPTY_LOAN_FILTERS,
@@ -14,7 +15,7 @@ import {
 import { useServerList } from "@/common/hooks/use-server-list";
 import { usePersistedState } from "@/common/hooks/use-persisted-state";
 import { useAuth } from "@/common/providers/AuthProvider";
-import { listLoansPage } from "@/modules/loans/services/loanService";
+import { listLoansPage, loanDisplayStatus } from "@/modules/loans/services/loanService";
 import { dmy, inr, todayISO } from "@/common/utils/format";
 import type { Loan } from "@/modules/loans/types/loan-types";
 
@@ -59,7 +60,7 @@ export function loanRowDetails(l: Loan) {
   return [
     { k: "Gold weight", v: weight },
     { k: "Opened on", v: dmy(l.openedDate) },
-    { k: "Next due", v: due === today ? "Today" : dmy(l.dueDate) },
+    { k: "End date", v: dmy(l.dueDate) },
     ...common,
   ];
 }
@@ -67,6 +68,7 @@ export function loanRowDetails(l: Loan) {
 export default function LoansScreen() {
   const router = useRouter();
   const shell = useShell();
+  const [draftsOpen, setDraftsOpen] = useState(false);
   const { can } = useAuth();
   const params = useLocalSearchParams<{ schemeId?: string; status?: string }>();
 
@@ -80,9 +82,10 @@ export default function LoansScreen() {
   }, [params.status, setFilters]);
 
   const showBranchFilter = useShowBranchFilter();
-  const apiFilters = { ...loanFilterParams(filters, showBranchFilter), schemeId };
+  const base = loanFilterParams(filters, showBranchFilter);
+  const apiFilters = { ...base, schemeId: schemeId ?? base.schemeId };
   const list = useServerList<Loan, typeof apiFilters>({ key: ["loans", "list"], persistKey: "loans", filters: apiFilters, fetchPage: (p) => listLoansPage(p) });
-  const overdue = useQuery({ queryKey: ["loans", "overdue-count"], queryFn: () => listLoansPage({ status: "Overdue", limit: 1, offset: 0 }) });
+  const overdue = useQuery({ queryKey: ["loans", "overdue-count"], queryFn: () => listLoansPage({ servicing: "overdue", limit: 1, offset: 0 }) });
 
   const overdueTotal = (overdue.data as { total?: number } | undefined)?.total;
 
@@ -94,36 +97,47 @@ export default function LoansScreen() {
           subtitle={list.total != null ? `${list.total} total${overdueTotal != null ? ` · ${overdueTotal} overdue` : ""}` : undefined}
         />
       }
-      floating={can("Loan_Management", "can_create_loan") ? <FabCorner onPress={shell.openNewLoan} label="New loan" /> : undefined}
+      // One corner button that opens upward into both actions, like Bank Pledges.
+      floating={can("Loan_Management", "can_create_loan") ? <FabMenu label="Loan actions" actions={[{ label: "New Loan", icon: "plus", onPress: shell.openNewLoan }, { label: "Draft loans", icon: "doc", onPress: () => setDraftsOpen(true) }]} /> : undefined}
     >
-      <ServerFlatList
+      <ServerFlatList stickyHeader
         list={list}
         items={list.items}
         keyOf={(l) => String(l.id)}
         emptyText={list.search ? "No loans match your search." : "No loans found."}
         header={
           <>
-            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16 }}>
-              <GroupedFilter title="Filter loans" sections={loanFilterSections(showBranchFilter, showBranchFilter ? gfValues(filters, "branch") : [])} value={filters} onChange={setFilters} />
+            <View style={{ paddingTop: 12 }}>
+              <SearchFilterRow
+                value={list.search}
+                onChangeText={list.setSearch}
+                placeholder="Search this list by loan ID or customer name"
+                filter={<GroupedFilter title="Filter loans" sections={loanFilterSections(showBranchFilter, showBranchFilter ? gfValues(filters, "branch") : [])} value={filters} onChange={setFilters} />}
+              />
             </View>
-            <SearchInput
-              value={list.search}
-              onChangeText={list.setSearch}
-              placeholder="Search this list by loan ID or customer name"
-            />
           </>
         }
         contentStyle={{ paddingTop: 0 }}
         renderItem={(l, i) => {
-          const closed = /closed|released/i.test(l.status ?? "");
+          const closed = /closed|released|rejected|pending approval/i.test(l.status ?? "");
           return (
             <AccRow
               defaultOpen={i === 0}
+              // iPad and bigger: the same columns as the web Loans table.
+              cells={[
+                { h: "Loan / Customer", v: l.loanNumber, sub: l.customer?.name ?? `Customer #${l.customerId}`, flex: 2 },
+                { h: "Scheme", v: l.scheme?.name || "—", drop: 1, covers: [] },
+                { h: "Opened / Due", v: dmy(l.openedDate), sub: l.dueDate ? `due ${dmy(l.dueDate)}` : undefined, covers: ["Opened on", "Due date", "Due on"], min: 112, drop: 4 },
+                { h: "Principal", v: inr(l.principalAmount), num: true, drop: 5 },
+                { h: "Outstanding", v: inr(l.totalOutstandingBalance ?? l.outstandingAmount ?? 0), num: true, drop: 3 },
+                { h: "Pledge", v: l.bankPledgeStatus || "—", chip: !!l.bankPledgeStatus, drop: 2 },
+                { h: "Status", v: loanDisplayStatus(l), chip: true },
+              ]}
               id={l.loanNumber}
               name={l.customer?.name ?? `Customer #${l.customerId}`}
               sub={l.scheme?.name || undefined}
               amount={inr(l.principalAmount)}
-              status={l.status}
+              status={loanDisplayStatus(l)}
               details={loanRowDetails(l)}
               actions={[
                 ...(can("Loan_Management", "can_update_loan") ? [{ label: "Collect Payment", disabled: closed, onPress: () => shell.openCollect(l.id) }] : []),
@@ -134,6 +148,7 @@ export default function LoansScreen() {
         }}
       />
 
+      <LoanDraftsSheet visible={draftsOpen} onClose={() => setDraftsOpen(false)} onOpen={shell.openNewLoanDraft} />
     </Screen>
   );
 }
