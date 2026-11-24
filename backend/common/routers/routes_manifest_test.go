@@ -336,6 +336,7 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/customers/:customer_id/profile/aadhaar/start":                           cexternal("starts a live Setu DigiLocker/OKYC session"),
 	"GET /api/v1/customer/ws":                                                             global("WebSocket upgrade; the hub is in-memory and keyed by globally unique customer id, so it has no query to filter"),
 	"POST /api/v1/superadmin/login":                                                       public("pre-session; establishes the superadmin's own session, a scheme with no tenant at all"),
+	"POST /api/v1/superadmin/erp-session":                                                 public("pre-session; exchanges a 60s ERP-signed ES256 console token for a superadmin session, no tenant at all; 404 unless ERP_CONSOLE_PUBLIC_KEY is set"),
 	"POST /api/v1/superadmin/users/:user_id/businesses":                                   superAdminRoute("creates a business; every field validated in superadmin.Service"),
 	"GET /api/v1/superadmin/users/:user_id/businesses":                                    superAdminRoute("every business on the deployment, by design"),
 	"GET /api/v1/superadmin/users/:user_id/businesses/:id":                                superAdminRoute("one business's admin-facing detail"),

@@ -11,6 +11,7 @@ var superAdminPath = "/api/v1/superadmin"
 
 func SuperAdminRoutes(e *echo.Echo) *echo.Echo {
 	e.POST(superAdminPath+"/login", superAdmin.SuperAdminLogin)
+	e.POST(superAdminPath+"/erp-session", superAdmin.ERPSession)
 	e.POST(superAdminPath+"/users/:user_id/businesses", superAdmin.CreateBusiness, auth.SuperAdmin()...)
 	e.GET(superAdminPath+"/users/:user_id/businesses", superAdmin.ListBusinesses, auth.SuperAdmin()...)
 	e.GET(superAdminPath+"/users/:user_id/businesses/:id", superAdmin.GetBusiness, auth.SuperAdmin()...)
