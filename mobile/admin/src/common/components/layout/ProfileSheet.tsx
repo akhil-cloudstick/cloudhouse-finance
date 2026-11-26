@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { View } from "react-native";
 import { C, ConfirmSheet, Sheet, SheetListItem, Txt, Avatar } from "@/common/components/ui";
@@ -6,6 +6,7 @@ import { ThemeDropdown } from "@/common/components/ui/ThemeDropdown";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { useTheme } from "@/common/theme/ThemeProvider";
 import { SWITCHABLE_BRANCHES_KEY, useBranchSwitch } from "@/common/hooks/use-branch-switch";
+import { getAppUpdate, openUpdateSheet, subscribeAppUpdate } from "@/common/utils/app-update";
 
 type ProfileSheetProps = { visible: boolean; onClose: () => void };
 
@@ -25,6 +26,7 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   // Confirmed in the app's own sheet, not a native Alert.
   const [confirmExit, setConfirmExit] = useState(false);
   const branchSwitch = useBranchSwitch();
+  const update = useSyncExternalStore(subscribeAppUpdate, getAppUpdate);
   // Branches can be added or changed elsewhere (the web app, another device): ask the backend for the current list
   // every time the sheet opens, so the dropdown never shows a stale one.
   const qc = useQueryClient();
@@ -65,6 +67,16 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
             />
           </View>
         ) : null}
+        {/* Close first and open the update sheet once this one has slid away, so the two never animate together. */}
+        <SheetListItem
+          icon="download"
+          title="App update"
+          sub={update.status === "install" && update.latestVersion ? `v${update.latestVersion} is available · you're on v${update.currentVersion}` : `Version ${update.currentVersion}`}
+          onPress={() => {
+            onClose();
+            setTimeout(openUpdateSheet, 300);
+          }}
+        />
         <SheetListItem
           icon="logout"
           title="Sign out"

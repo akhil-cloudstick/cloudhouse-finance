@@ -120,7 +120,7 @@ export default function LoansScreen() {
             )
           }
           ListFooterComponent={
-            loadingMore ? <ActivityIndicator color={colors.brand} style={{ marginVertical: 12 }} /> : null
+            loadingMore ? <ActivityIndicator color={colors.brand} style={{ marginVertical: 12 }} /> : undefined
           }
           renderItem={({ item }) => {
             const tone = statusColors(toneForStatus(item.status));

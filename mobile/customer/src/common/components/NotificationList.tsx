@@ -54,7 +54,7 @@ export function NotificationList() {
         onEndReached={() => loadMore()}
         // Android's default true causes the list to go unresponsive after content changes + remount.
         removeClippedSubviews={false}
-        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.brandDeep} style={{ marginVertical: 12 }} /> : null}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.brandDeep} style={{ marginVertical: 12 }} /> : undefined}
         ListEmptyComponent={
           <ThemedText variant="small" color={colors.muted}>
             No notifications yet.

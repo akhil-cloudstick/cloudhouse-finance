@@ -13,16 +13,17 @@ const TABS: [string, string, string][] = [
   ["more", "Profile", "user"],
 ];
 
-export function AppTabBar({ state, navigation, insets }: BottomTabBarProps) {
+// Expo Router 58 gives the tab bar an emitter and navigateToTab(routeKey) in place of `navigation`.
+export function AppTabBar({ state, emitter, navigateToTab, insets }: BottomTabBarProps) {
   const activeRouteName = state.routes[state.index]?.name;
 
   function onTabPress(name: string) {
     const route = state.routes.find((r) => r.name === name);
     if (!route) return;
-    const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+    const event = emitter.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
     if (event.defaultPrevented) return;
     if (route.name !== activeRouteName) {
-      navigation.navigate(route.name);
+      navigateToTab(route.key);
     }
   }
 

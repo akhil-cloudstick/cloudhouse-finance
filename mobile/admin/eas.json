@@ -11,39 +11,58 @@
     },
     "development": {
       "extends": "base",
-      "distribution": "store",
+      "developmentClient": true,
+      "distribution": "internal",
       "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "APP_VARIANT": "development"
       }
     },
+    "development-testflight": {
+      "extends": "development",
+      "distribution": "store",
+      "autoIncrement": true
+    },
     "preview": {
       "extends": "base",
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
       }
     },
+    "preview-testflight": {
+      "extends": "preview",
+      "distribution": "store",
+      "autoIncrement": true
+    },
     "production": {
       "extends": "base",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   },
   "submit": {
-    "development": {
+    "development-testflight": {
       "ios": {
-        "ascApiKeyPath": "./certs/AuthKey.p8",
-        "ascApiKeyId": "9289TXK48L",
-        "ascApiKeyIssuerId": "204e739c-06da-439b-8cc1-bbaa914fcf38",
+        "appleTeamId": "N7X7Q2H8V8",
+        "ascAppId": "6839530879"
+      }
+    },
+    "preview-testflight": {
+      "ios": {
+        "ascAppId": "6830677656",
         "appleTeamId": "N7X7Q2H8V8"
       }
     },
     "production": {
       "ios": {
         "ascAppId": "6830677656",
-        "ascApiKeyPath": "./certs/AuthKey.p8",
-        "ascApiKeyId": "9289TXK48L",
-        "ascApiKeyIssuerId": "204e739c-06da-439b-8cc1-bbaa914fcf38",
         "appleTeamId": "N7X7Q2H8V8"
       }
     }

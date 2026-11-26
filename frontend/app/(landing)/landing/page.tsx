@@ -1,43 +1,50 @@
 /* Public landing page for CloudHouse Finance, served at "/" on the apex host
- * only (see backend webstatic's isLandingHost). Pure static markup: no client
- * JS, no fetches, no backend. Copy is deliberately about SOFTWARE sold to
- * licensed lenders — CloudHouse does not lend, and nothing here invites the
- * public to apply for a loan (App Store guideline 3.2.1(viii)). */
+ * only (see backend webstatic's isLandingHost). Static markup; the only client
+ * code is LandingMotion's small scroll effects. No fetches, no backend. Copy is
+ * deliberately about SOFTWARE sold to licensed lenders — CloudHouse does not
+ * lend, and nothing here invites the public to apply for a loan (App Store
+ * guideline 3.2.1(viii)).
+ *
+ * Header, footer, contact, buttons and type are the landing kit shared with
+ * the CloudHouse POS site (modules/legal/styles/landing-kit.css). */
 
-import Link from "next/link";
+import type { CSSProperties, ReactNode } from "react";
 // Imported, not linked from /public: bundled files are served from /_next/static on every host.
-import markImg from "@/modules/legal/assets/cloudhouse-app-logo.png";
 import heroImg from "@/modules/legal/assets/hero-phone.png";
-import { CONTACT_ADDRESS_LINES, CONTACT_EMAIL, CONTACT_LEGAL_NAME, CONTACT_PHONE_DISPLAY, CONTACT_PHONE_TEL } from "@/modules/legal/content/legalConfig";
+import { ContactSection, LandingFooter, LandingHeader, MAIL_ENQUIRY, SectionHead } from "@/modules/legal/components/LandingChrome";
+import { LandingMotion } from "@/modules/legal/components/LandingMotion";
+import "@/modules/legal/styles/landing-finance.css";
 
-const SUPPORT_EMAIL = CONTACT_EMAIL;
-const PHONE_DISPLAY = CONTACT_PHONE_DISPLAY;
-const PHONE_TEL = CONTACT_PHONE_TEL;
-
-const FEATURES = [
+const FEATURES: { title: string; text: string; icon: ReactNode }[] = [
   {
     title: "Customer onboarding & KYC",
     text: "Capture customer details, ID documents and photos once, and keep each customer's full history in one record.",
+    icon: <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6" />,
   },
   {
     title: "Gold appraisal & valuation",
     text: "Record weight and purity, apply the day's rate and your own policy, and see the eligible loan amount before you sanction.",
+    icon: <path d="M6 3h12l4 6-10 12L2 9l4-6ZM2 9h20M12 21 8 9l4-6 4 6-4 12" />,
   },
   {
     title: "Loans, schemes & repayments",
     text: "Set up your own schemes, track interest and part payments, and give staff a clear view of what each loan owes today.",
+    icon: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6ZM14 2v6h6M8 13h8M8 17h5" />,
   },
   {
     title: "Vault & packet tracking",
     text: "Tag each packet with a QR code, log where it sits, and reconcile the vault against the register at any time.",
+    icon: <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM20 14v.01M14 20v.01M17 20h4v-3" />,
   },
   {
     title: "Overdue follow-up & auctions",
     text: "Spot overdue loans early, send reminders and run the auction steps with every action logged.",
+    icon: <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0" />,
   },
   {
     title: "Branches, roles & reports",
     text: "Run several branches with role-based access, and export portfolio, cash and ledger reports when you need them.",
+    icon: <path d="M3 3v18h18M7 15l4-6 4 3 4-8" />,
   },
 ];
 
@@ -93,81 +100,73 @@ const FAQ = [
   },
 ];
 
+const CHIPS = ["Multi-branch", "Role-based access", "QR vault tracking"];
+
+// A short stagger for cards revealed together.
+const delay = (index: number) => ({ "--lp-delay": `${index * 70}ms` }) as CSSProperties;
+
 export default function LandingPage() {
   return (
-    <>
-      <header className="lp-header">
-        <div className="lp-wrap lp-header-row">
-          <Link className="lp-brand" href="/" aria-label="CloudHouse Finance home">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={markImg.src} alt="" width={32} height={32} />
-            <span>CloudHouse Finance</span>
-          </Link>
-          <nav className="lp-nav" aria-label="Main">
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How it works</a>
-            <a href="#faq">FAQ</a>
-            <a href="#contact" className="lp-btn lp-btn-small">
-              Contact
-            </a>
-          </nav>
-        </div>
-      </header>
+    <div className="lp">
+      <LandingMotion />
+      <LandingHeader onLanding />
 
       <main>
-        <section className="lp-hero">
+        {/* The finance hero keeps its own dark maroon look (landing-finance.css); the rest of the page is the kit. */}
+        <section className="lp-hero lp-hero-fin">
           <div className="lp-hero-glow lp-hero-glow-a" aria-hidden="true" />
           <div className="lp-hero-glow lp-hero-glow-b" aria-hidden="true" />
-          <div className="lp-wrap lp-hero-row">
-            <div className="lp-hero-copy">
-              <p className="lp-eyebrow">Software for licensed gold lenders</p>
+          <div className="lp-wrap lp-hero-grid">
+            <div>
+              <span className="lp-eyebrow">Software for licensed gold lenders</span>
               <h1>
                 Run your gold lending business from <span className="lp-grad-text">one app.</span>
               </h1>
               <p className="lp-lead">
-                CloudHouse Finance gives lenders a staff app and a back office for customer KYC, gold
-                appraisal, loan records, vault tracking and reports, so branches stay organised and
-                nothing lives in a register.
+                CloudHouse Finance gives lenders a staff app and a back office for customer KYC, gold appraisal, loan
+                records, vault tracking and reports, so branches stay organised and nothing lives in a register.
               </p>
               <div className="lp-actions">
-                <a className="lp-btn lp-btn-light" href={`mailto:${SUPPORT_EMAIL}?subject=CloudHouse%20Finance%20enquiry`}>
+                <a className="lp-btn lp-btn-light" href={MAIL_ENQUIRY}>
                   Talk to us
                 </a>
-                <a className="lp-btn lp-btn-outline" href="#how-it-works">
+                <a className="lp-btn lp-btn-ghost-light" href="#how-it-works">
                   See how it works
                 </a>
               </div>
-              <ul className="lp-hero-chips" aria-label="Highlights">
-                <li>Multi-branch</li>
-                <li>Role-based access</li>
-                <li>QR vault tracking</li>
+              <ul className="lp-chips" aria-label="Highlights">
+                {CHIPS.map((chip) => (
+                  <li key={chip}>{chip}</li>
+                ))}
               </ul>
               <p className="lp-note">
-                This app is for lenders&rsquo; staff. CloudHouse does not make loans and is not open to
-                loan applicants.
+                This app is for lenders&rsquo; staff. CloudHouse does not make loans and is not open to loan applicants.
               </p>
             </div>
 
-            <div className="lp-hero-visual" aria-hidden="true">
-              <div className="lp-float lp-float-a">
+            <div className="lp-hero-visual lp-hero-visual-fin" aria-hidden="true">
+              <div className="lp-float">
                 <span className="lp-float-label">Gold rate today</span>
                 <strong>24K &middot; &#8377;7,420/g</strong>
                 <em>&#9650; 0.4%</em>
               </div>
-
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="lp-hero-phone" src={heroImg.src} alt="" width={926} height={1699} />
+              <img className="lp-hero-shot" src={heroImg.src} alt="" width={926} height={1699} />
             </div>
           </div>
         </section>
 
-        <section id="features" className="lp-section">
+        <section id="features" className="lp-section lp-soft">
           <div className="lp-wrap">
-            <h2>Everything a branch does in a day</h2>
-            <p className="lp-sub">One system for the front counter, the vault and the back office.</p>
+            <SectionHead eyebrow="Features" title="Everything a branch does in a day" text="One system for the front counter, the vault and the back office." />
             <div className="lp-grid">
-              {FEATURES.map((f) => (
-                <article className="lp-card" key={f.title}>
+              {FEATURES.map((f, i) => (
+                <article className="lp-card" key={f.title} data-reveal style={delay(i % 3)}>
+                  <span className="lp-card-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      {f.icon}
+                    </svg>
+                  </span>
                   <h3>{f.title}</h3>
                   <p>{f.text}</p>
                 </article>
@@ -176,32 +175,29 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section id="how-it-works" className="lp-section lp-tint">
+        <section id="how-it-works" className="lp-section">
           <div className="lp-wrap">
-            <h2>How a lender gets started</h2>
-            <p className="lp-sub">Each lender has its own workspace. Staff sign in to the app by scanning a QR code.</p>
+            <SectionHead eyebrow="Getting started" title="How a lender gets started" text="Each lender has its own workspace. Staff sign in to the app by scanning a QR code." />
             <ol className="lp-steps">
               {STEPS.map((s, i) => (
-                <li key={s.title}>
+                <li className="lp-card" key={s.title} data-reveal style={delay(i)}>
                   <span className="lp-step-no" aria-hidden="true">
                     {i + 1}
                   </span>
-                  <div>
-                    <h3>{s.title}</h3>
-                    <p>{s.text}</p>
-                  </div>
+                  <h3>{s.title}</h3>
+                  <p>{s.text}</p>
                 </li>
               ))}
             </ol>
           </div>
         </section>
 
-        <section className="lp-section">
+        <section className="lp-section lp-soft">
           <div className="lp-wrap">
-            <h2>Built for gold-backed lenders</h2>
-            <div className="lp-grid lp-grid-3">
-              {AUDIENCE.map((a) => (
-                <article className="lp-card" key={a.title}>
+            <SectionHead eyebrow="Built for" title="Built for gold-backed lenders" />
+            <div className="lp-grid">
+              {AUDIENCE.map((a, i) => (
+                <article className="lp-card" key={a.title} data-reveal style={delay(i)}>
                   <h3>{a.title}</h3>
                   <p>{a.text}</p>
                 </article>
@@ -210,10 +206,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section id="faq" className="lp-section lp-tint">
+        <section id="faq" className="lp-section">
           <div className="lp-wrap lp-narrow">
-            <h2>Questions</h2>
-            <div className="lp-faq">
+            <SectionHead eyebrow="FAQ" title="Questions" />
+            <div className="lp-faq" data-reveal>
               {FAQ.map((item) => (
                 <details key={item.q}>
                   <summary>{item.q}</summary>
@@ -224,54 +220,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section id="contact" className="lp-section">
-          <div className="lp-wrap lp-contact">
-            <div>
-              <h2>Get in touch</h2>
-              <p className="lp-sub">
-                Lenders who want to use CloudHouse Finance, and anyone who needs support, can reach
-                us here.
-              </p>
-              <p className="lp-actions">
-                <a className="lp-btn" href={`mailto:${SUPPORT_EMAIL}`}>
-                  {SUPPORT_EMAIL}
-                </a>
-                <a className="lp-btn lp-btn-ghost" href={`tel:${PHONE_TEL}`}>
-                  {PHONE_DISPLAY}
-                </a>
-              </p>
-            </div>
-            <address className="lp-address">
-              <strong>{CONTACT_LEGAL_NAME}</strong>
-              {CONTACT_ADDRESS_LINES.map((line) => (
-                <span key={line}>
-                  <br />
-                  {line}
-                </span>
-              ))}
-            </address>
-          </div>
-        </section>
+        <ContactSection />
       </main>
 
-      <footer className="lp-footer">
-        <div className="lp-wrap">
-          <nav className="lp-footer-links" aria-label="Legal and support">
-            <a href="/privacy-policy">Privacy policy</a>
-            <a href="/terms-and-conditions">Terms &amp; conditions</a>
-            <a href="/account-deletion">Account deletion</a>
-            <a href="/data-safety">Data safety</a>
-            <a href="/disclaimer">Disclaimer</a>
-            <a href="/contact">Support</a>
-          </nav>
-          <p className="lp-powered">
-            Powered by{" "}
-            <a href="https://cloudhousetechnologies.com" target="_blank" rel="noopener">
-              <span>CloudHouse</span>
-            </a>
-          </p>
-        </div>
-      </footer>
-    </>
+      <LandingFooter />
+    </div>
   );
 }

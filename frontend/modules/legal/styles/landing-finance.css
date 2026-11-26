@@ -1,0 +1,144 @@
+/* CloudHouse Finance landing page only: the hero, which keeps the site's original dark maroon look (gradient,
+ * gold glows, gold eyebrow and chips, light + outline buttons, glass rate card, app screenshot). Everything
+ * else (header, sections, cards, contact, footer, legal pages) is the shared landing-kit.css. */
+
+.lp-hero-fin {
+	position: relative;
+	overflow: hidden;
+	padding: 84px 0 96px;
+	color: #fff;
+	background: linear-gradient(135deg, #3f061c 0%, #47041f 55%, #3a0519 100%);
+}
+
+.lp-hero-glow {
+	position: absolute;
+	border-radius: 50%;
+	filter: blur(90px);
+	pointer-events: none;
+}
+
+.lp-hero-glow-a {
+	width: 520px;
+	height: 520px;
+	top: -160px;
+	right: -80px;
+	background: rgba(201, 162, 75, 0.35);
+}
+
+.lp-hero-glow-b {
+	width: 460px;
+	height: 460px;
+	bottom: -200px;
+	left: -120px;
+	background: rgba(168, 71, 90, 0.5);
+}
+
+.lp-hero-fin .lp-hero-grid {
+	position: relative;
+	grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+	gap: 40px;
+}
+
+.lp-hero-fin h1 {
+	max-width: 600px;
+	color: #fff;
+	font-size: clamp(34px, 5.2vw, 56px);
+}
+
+.lp-hero-fin .lp-grad-text {
+	background: linear-gradient(90deg, #e6c878, #c9a24b);
+	-webkit-background-clip: text;
+	background-clip: text;
+}
+
+.lp-hero-fin .lp-eyebrow {
+	border-color: rgba(255, 255, 255, 0.2);
+	background: rgba(255, 255, 255, 0.1);
+	color: #e6c878;
+}
+
+.lp-hero-fin .lp-lead,
+.lp-hero-fin .lp-note {
+	color: rgba(255, 255, 255, 0.72);
+}
+
+.lp-hero-fin .lp-btn-light {
+	color: #3b0d14 !important;
+}
+
+.lp-hero-fin .lp-btn-light:hover {
+	background: #f7eed8;
+	border-color: #f7eed8;
+}
+
+.lp-hero-fin .lp-btn-ghost-light {
+	border-color: rgba(255, 255, 255, 0.45);
+}
+
+.lp-hero-fin .lp-chips li {
+	padding: 6px 14px;
+	border: 1px solid rgba(201, 162, 75, 0.45);
+	background: rgba(201, 162, 75, 0.1);
+	color: #e6c878;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+/* Hero visual: the app screenshot and the glass rate card. */
+
+.lp-hero-visual-fin {
+	padding: 10px 0;
+}
+
+.lp-hero-shot {
+	display: block;
+	width: min(100%, 400px);
+	height: auto;
+	filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.35));
+}
+
+.lp-hero-fin .lp-float {
+	top: 30px;
+	left: -40px;
+	gap: 2px;
+	padding: 12px 16px;
+	border: 1px solid rgba(255, 255, 255, 0.22);
+	background: rgba(255, 255, 255, 0.12);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+	font-size: 14px;
+}
+
+.lp-hero-fin .lp-float-label {
+	font-size: 12px;
+	color: rgba(255, 255, 255, 0.7);
+}
+
+.lp-hero-fin .lp-float strong {
+	font-family: var(--lp-font-sans);
+	font-size: 14px;
+	font-weight: 700;
+	color: #fff;
+}
+
+.lp-hero-fin .lp-float em {
+	font-size: 12px;
+	font-weight: 400;
+	color: #7be0a4;
+}
+
+@media (max-width: 880px) {
+	.lp-hero-fin {
+		padding: 48px 0 56px;
+	}
+
+	.lp-hero-fin .lp-hero-grid {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 36px;
+	}
+
+	.lp-hero-fin .lp-float {
+		left: 0;
+	}
+}

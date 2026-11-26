@@ -7,13 +7,15 @@ import { NunitoSans_800ExtraBold } from "@expo-google-fonts/nunito-sans";
 import * as SplashScreen from "expo-splash-screen";
 import { Asset } from "expo-asset";
 import * as LocalAuthentication from "expo-local-authentication";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, AppState } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { ThemeProvider } from "@/common/theme/ThemeProvider";
 import { SheetHost } from "@/common/components/ui/SheetHost";
+import { UpdateSheet } from "@/common/components/ui/UpdateSheet";
+import { checkForUpdate } from "@/common/utils/app-update";
 import { AuthProvider, useAuth } from "@/common/providers/AuthProvider";
 import { NotificationsProvider } from "@/common/providers/NotificationsProvider";
 import { colors } from "@/common/theme/colors";
@@ -23,6 +25,25 @@ import * as authApi from "@/modules/auth/services/authService";
 import { ApiError } from "@/common/services/httpClient";
 
 SplashScreen.preventAutoHideAsync();
+
+// How long after the last new-version check coming back to the app checks again (src/common/utils/app-update.ts).
+const UPDATE_RECHECK_MS = 30 * 60 * 1000;
+
+// A newer build published by the GitHub build opens the update sheet by itself: checked at start-up and again when
+// the app comes back to the front after a while. Quiet when offline.
+function useNewVersionCheck() {
+  useEffect(() => {
+    let lastCheck = Date.now();
+    checkForUpdate({ silent: true });
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active" && Date.now() - lastCheck > UPDATE_RECHECK_MS) {
+        lastCheck = Date.now();
+        checkForUpdate({ silent: true });
+      }
+    });
+    return () => sub.remove();
+  }, []);
+}
 
 // Paints the status-bar strip explicitly for Android edge-to-edge (SDK 57+).
 function StatusBarBackdrop() {
@@ -93,6 +114,7 @@ function RootNavigation() {
   const segments = useSegments();
   const router = useRouter();
   const [bootstrapped, setBootstrapped] = useState(false);
+  useNewVersionCheck();
 
   useEffect(() => {
     (async () => {
@@ -128,6 +150,7 @@ function RootNavigation() {
       <StatusBar style="dark" />
       {/* Real Stack, not <Slot/>: keeps (tabs) mounted underneath pushed siblings so its active tab survives. */}
       <Stack screenOptions={{ headerShown: false }} />
+      <UpdateSheet />
       <SheetHost />
       <StatusBarBackdrop />
     </View>

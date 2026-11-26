@@ -24,6 +24,8 @@ import { CameraPermissionHost } from "@/common/components/ui/CameraPermission";
 import { FilePromptHost } from "@/common/components/ui/FilePrompt";
 import { KeyboardDoneBar } from "@/common/components/ui/KeyboardDoneBar";
 import { AnimatedSplash } from "@/common/components/ui/AnimatedSplash";
+import { UpdateSheet } from "@/common/components/ui/UpdateSheet";
+import { checkForUpdate } from "@/common/utils/app-update";
 import { AuthProvider, useAuth } from "@/common/providers/AuthProvider";
 import { colors } from "@/common/theme/colors";
 import * as ScreenOrientation from "expo-screen-orientation";
@@ -65,6 +67,25 @@ AppState.addEventListener("change", (status: AppStateStatus) => {
   focusManager.setFocused(status === "active");
 });
 
+// How long after the last new-version check coming back to the app checks again (src/common/utils/app-update.ts).
+const UPDATE_RECHECK_MS = 30 * 60 * 1000;
+
+// A newer build published by the GitHub build opens the update sheet by itself: checked at start-up and again when
+// the app comes back to the front after a while. Quiet when offline.
+function useNewVersionCheck() {
+  useEffect(() => {
+    let lastCheck = Date.now();
+    checkForUpdate({ silent: true });
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active" && Date.now() - lastCheck > UPDATE_RECHECK_MS) {
+        lastCheck = Date.now();
+        checkForUpdate({ silent: true });
+      }
+    });
+    return () => sub.remove();
+  }, []);
+}
+
 // The strip behind the Android status bar was grey, not ivory: the app draws
 // edge-to-edge (SDK 57+ enforces it) so that strip shows whatever view sits
 // under it, and the navigator's own container paints React Navigation's
@@ -94,6 +115,7 @@ function RootNavigation() {
   const dismissKeyboard = useDismissKeyboardOnOutsideTouch();
   // The column's real width, measured from the layout (not the reported window size, which can lag a rotation).
   const [columnWidth, setColumnWidth] = useState<number | null>(null);
+  useNewVersionCheck();
 
   // Signed out with no business yet → the scanner (connect); signed out with
   // a business → that business's login; signed in → the dashboard. Connecting
@@ -150,6 +172,7 @@ function RootNavigation() {
       </NavThemeProvider>
       {/* Bottom sheets render here — above every screen, laid out against
           the real screen bounds. See src/common/components/ui/SheetHost.tsx. */}
+      <UpdateSheet />
       <SheetHost />
       <ToastHost />
       <TipHost />

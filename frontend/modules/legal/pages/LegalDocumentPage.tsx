@@ -1,41 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { LegalLayout } from "@/modules/legal/components/LegalLayout";
 import { buildDocument } from "@/modules/legal/content";
-import { fetchProvider } from "@/modules/legal/services/legalService";
-import type { LegalAudience, LegalDoc, Provider } from "@/modules/legal/types/legal-types";
+import { PROVIDER } from "@/modules/legal/services/legalService";
+import type { LegalAudience, LegalDoc } from "@/modules/legal/types/legal-types";
 
 type Props = { doc: LegalDoc; audience: LegalAudience };
 
-const MESSAGE = { maxWidth: 760, margin: "0 auto", padding: "48px 16px", lineHeight: 1.6 } as const;
-
 /* A public page for app-store reviewers and customers: no session, no
- * AuthGuard. It waits for the provider's details rather than showing a
- * placeholder company, and says so plainly if they cannot be loaded. */
+ * AuthGuard. The provider is static, so the document renders straight away:
+ * the exported HTML already holds the full text, and moving between legal
+ * pages never flashes a loading state. */
 export default function LegalDocumentPage({ doc, audience }: Props) {
-	const [provider, setProvider] = useState<Provider | null>(null);
-	const [failed, setFailed] = useState(false);
+	const content = useMemo(() => buildDocument(doc, audience, PROVIDER), [doc, audience]);
 
 	useEffect(() => {
-		let live = true;
-		fetchProvider().then((p) => {
-			if (!live) return;
-			if (p) setProvider(p);
-			else setFailed(true);
-		});
-		return () => {
-			live = false;
-		};
-	}, []);
+		window.document.title = `${content.title} – ${PROVIDER.name}`;
+	}, [content]);
 
-	const content = useMemo(() => (provider ? buildDocument(doc, audience, provider) : null), [doc, audience, provider]);
-
-	useEffect(() => {
-		if (content && provider) window.document.title = `${content.title} – ${provider.name}`;
-	}, [content, provider]);
-
-	if (failed) return <main style={MESSAGE}>This page could not be loaded. Please refresh, or try again in a few minutes.</main>;
-	if (!provider || !content) return <main style={MESSAGE}>Loading…</main>;
-	return <LegalLayout doc={doc} audience={audience} provider={provider} document={content} />;
+	return <LegalLayout doc={doc} audience={audience} provider={PROVIDER} document={content} />;
 }

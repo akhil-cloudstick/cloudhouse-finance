@@ -1,15 +1,23 @@
 {
   "expo": {
-    "name": "CloudHouse",
+    "name": "CloudHouse Finance Customer",
     "slug": "cloudhousecustomer",
-    "owner": "cloudhouse-team",
+    "owner": "cloudhouse-production",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/cloudhouse.png",
     "userInterfaceStyle": "light",
     "platforms": [
-      "android"
+      "android",
+      "ios"
     ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.cloudhouse.customer",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "android": {
       "package": "com.cloudhouse.customer",
       "adaptiveIcon": {
@@ -18,7 +26,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ]
     },
     "scheme": "cloudhousecustomer",
     "plugins": [
@@ -56,7 +67,15 @@
     },
     "extra": {
       "eas": {
-        "projectId": "1fb4bd03-4939-4a9e-9142-c26294cdedbb"
+        "projectId": "e9464d29-8cf4-4537-b7cd-9564a0971fb3"
+      },
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "expo-status-bar": {
+        "style": "dark"
       }
     }
   }

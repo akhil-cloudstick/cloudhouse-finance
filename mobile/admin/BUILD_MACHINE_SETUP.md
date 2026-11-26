@@ -44,8 +44,8 @@ Get these from the account owner over a private channel (never in git, never in 
 6. Note the **Key ID** and **Issuer ID**.
 
 **A2. Put the Expo projects in a shared Expo organization**
-1. On https://expo.dev, make sure the organization `cloudhouse-team` exists (the customer app already uses it).
-2. The staff app (`mobile/admin/app.json`, slug `ambikagold`) has no `owner` field, so it belongs to a personal account. Transfer it to `cloudhouse-team` from the project's settings page on expo.dev, then add `"owner": "cloudhouse-team"` to `mobile/admin/app.json`.
+1. Every CloudHouse app (Finance admin and customer, POS, ERP) belongs to the organization `cloudhouse-production` (`"owner": "cloudhouse-production"` in each `app.json`).
+2. A developer who builds from their own PC must be a member of `cloudhouse-production`. CI builds use one robot token from it (see `../MOBILE-BUILDS.md`).
 3. Invite each developer under **Organization → Members** with the **Developer** role.
 4. For a shared/CI build PC with no personal login: **Organization → Access tokens → create robot user token** (role Developer). That token is the machine's `EXPO_TOKEN`.
 
@@ -141,7 +141,7 @@ only if the lines are not already present:
   export EXPO_APPLE_TEAM_TYPE="<TEAM_TYPE>"
 
 STEP 5 — Expo login (ask me which option applies)
-Option A — I have my own Expo account that was invited to the `cloudhouse-team`
+Option A — I have my own Expo account that was invited to the `cloudhouse-production`
 organization:
   Run: eas login   (I will type my own Expo email/password interactively)
 Option B — this is a shared/CI build PC and I was given a robot access token:

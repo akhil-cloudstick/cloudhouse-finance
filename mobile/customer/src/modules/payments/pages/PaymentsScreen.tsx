@@ -167,7 +167,7 @@ export default function PaymentsScreen() {
             )
           }
           ListFooterComponent={
-            loadingMore ? <ActivityIndicator color={colors.brand} style={{ marginVertical: 12 }} /> : null
+            loadingMore ? <ActivityIndicator color={colors.brand} style={{ marginVertical: 12 }} /> : undefined
           }
           renderItem={({ item }) => (
             <Card blur>

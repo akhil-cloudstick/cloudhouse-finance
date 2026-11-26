@@ -57,6 +57,8 @@ func ERPSession(c echo.Context) error {
 		"token":            token,
 		"expires_in":       int(config.Env.ERPConsoleExpiry.Seconds()),
 		"super_admin_user": echo.Map{"id": u.ID, "name": u.Name, "username": u.Username},
+		// Which console API this product speaks; the ERP picks its screens and paths by it.
+		"console": "gold",
 	})
 }
 
