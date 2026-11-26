@@ -116,7 +116,7 @@ func deleteOrnament(ctx context.Context, ornamentID uint) (*models.Loan, error) 
 	}
 	switch l.Status {
 	case models.StatusClosed, models.StatusRejected, models.StatusAuctioned, models.StatusAuctionedBalanceDue:
-		return nil, common.NewBadRequest("loan is already Closed, Auctioned, or Defaulted — nothing left to extend")
+		return nil, common.NewBadRequest("loan is closed — nothing to extend")
 	}
 	existing, err := FindByLoanID(ctx, l.ID)
 	if err != nil {
@@ -322,13 +322,19 @@ func findOrnamentByCustomerID(ctx context.Context, customerID uint, from, to *ti
 }
 
 func insertPurityTest(ctx context.Context, t *models.OrnamentPurityTest) error {
-	return config.DB.
-		WithContext(ctx).Save(t).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(t).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfOrnament(db, t.OrnamentID)
 }
 
 func addImage(ctx context.Context, img *models.OrnamentImage) error {
-	return config.DB.
-		WithContext(ctx).Create(img).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(img).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfOrnament(db, img.OrnamentID)
 }
 
 func AddOrnament(c echo.Context) error {

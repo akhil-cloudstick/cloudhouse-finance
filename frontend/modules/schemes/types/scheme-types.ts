@@ -11,76 +11,78 @@ export type RateTier = { days: number; rate: number };
  * per month, and rate ÷ 12 ÷ 30 per leftover day. */
 export type AccrualBasis = "daily" | "monthly";
 export type BackendScheme = {
-  id: number;
-  code: string;
-  name: string;
-  interestRate: number;
-  rateTiers?: RateTier[] | null;
-  minimumDays?: number;
-  durationMonths: number;
-  ltvPercent: number;
+	id: number;
+	// The id the PC gave a scheme made while the server was unreachable.
+	uuid?: string;
+	code: string;
+	name: string;
+	interestRate: number;
+	rateTiers?: RateTier[] | null;
+	minimumDays?: number;
+	durationMonths: number;
+	ltvPercent: number;
   // false: loans on this scheme are not limited by gold value (ltvPercent is 0).
   ltvBased?: boolean;
-  interestMethod: string;
-  penalRate: number;
-  accrualBasis?: AccrualBasis;
-  conditions: string;
-  isActive: boolean;
-  branchId: number;
-  branch?: { id: number; name: string; code?: string };
-  // Optional charge applied to every loan opened under this scheme — see
-  // backend/internal/scheme/model.go's ServiceChargeType*/ServiceChargeMode*
-  // constants. serviceChargeValue is a flat rupee amount when Type is
-  // "Flat", or a percentage of principal when Type is "Percent"; ignored
-  // when Type is "None".
-  serviceChargeType?: ServiceChargeType;
-  serviceChargeValue?: number;
-  serviceChargeMode?: ServiceChargeMode;
+	interestMethod: string;
+	penalRate: number;
+	accrualBasis?: AccrualBasis;
+	conditions: string;
+	isActive: boolean;
+	branchId: number;
+	branch?: { id: number; name: string; code?: string };
+	// Optional charge applied to every loan opened under this scheme — see
+	// backend/internal/scheme/model.go's ServiceChargeType*/ServiceChargeMode*
+	// constants. serviceChargeValue is a flat rupee amount when Type is
+	// "Flat", or a percentage of principal when Type is "Percent"; ignored
+	// when Type is "None".
+	serviceChargeType?: ServiceChargeType;
+	serviceChargeValue?: number;
+	serviceChargeMode?: ServiceChargeMode;
 };
 /* Shape the Schemes UI renders — closer to how a scheme is described on
  * screen (a tenure in months rather than a start/end validity window). */
 export type SchemeView = {
-  id: string; // backend numeric id, stringified — used for update/delete/toggle
-  code: string;
-  name: string;
-  rate: number;
-  rateTiers: RateTier[];
-  minimumDays: number;
-  durationMonths: number;
-  ltv: number;
+	id: string; // backend numeric id, stringified — used for update/delete/toggle
+	code: string;
+	name: string;
+	rate: number;
+	rateTiers: RateTier[];
+	minimumDays: number;
+	durationMonths: number;
+	ltv: number;
   ltvBased: boolean;
-  method: string;
-  penal: number;
-  accrualBasis: AccrualBasis;
-  cond: string;
-  active: boolean;
-  branchId: number;
-  branchName: string;
-  serviceChargeType: ServiceChargeType;
-  serviceChargeValue: number;
-  serviceChargeMode: ServiceChargeMode;
+	method: string;
+	penal: number;
+	accrualBasis: AccrualBasis;
+	cond: string;
+	active: boolean;
+	branchId: number;
+	branchName: string;
+	serviceChargeType: ServiceChargeType;
+	serviceChargeValue: number;
+	serviceChargeMode: ServiceChargeMode;
 };
 export type SchemeFormInput = {
-  name: string;
-  rate: number;
-  rateTiers: RateTier[];
-  minimumDays: number;
-  durationMonths: number;
-  ltv: number;
+	name: string;
+	rate: number;
+	rateTiers: RateTier[];
+	minimumDays: number;
+	durationMonths: number;
+	ltv: number;
   ltvBased: boolean;
-  method: string;
-  penal: number;
-  accrualBasis: AccrualBasis;
-  cond: string;
-  active: boolean;
-  branchId: number;
-  serviceChargeType: ServiceChargeType;
-  serviceChargeValue: number;
-  /** Legacy — chosen per loan now; the scheme form no longer sends it. */
-  serviceChargeMode?: ServiceChargeMode;
+	method: string;
+	penal: number;
+	accrualBasis: AccrualBasis;
+	cond: string;
+	active: boolean;
+	branchId: number;
+	serviceChargeType: ServiceChargeType;
+	serviceChargeValue: number;
+	/** Legacy — chosen per loan now; the scheme form no longer sends it. */
+	serviceChargeMode?: ServiceChargeMode;
 };
 export type SchemeStatementFilters = {
-  from?: string; // YYYY-MM-DD
-  to?: string; // YYYY-MM-DD
-  loanIds?: number[]; // narrows to specific loans; omitted/empty = every loan in range
+	from?: string; // YYYY-MM-DD
+	to?: string; // YYYY-MM-DD
+	loanIds?: number[]; // narrows to specific loans; omitted/empty = every loan in range
 };

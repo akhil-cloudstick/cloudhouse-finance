@@ -488,7 +488,6 @@ func editPersonalPayment(ctx context.Context, loanID, paymentID uint, branchID *
 			return err
 		}
 		originalStatus := l.Status
-
 		edited := append([]models.PersonalLoanPayment{}, pays...)
 		from := idx
 		if in == nil {
@@ -572,7 +571,6 @@ func editPersonalPayment(ctx context.Context, loanID, paymentID uint, branchID *
 		if dryRun {
 			return errEditDryRun
 		}
-
 		byID := map[uint]models.PersonalLoanPayment{}
 		for _, p := range pays {
 			byID[p.ID] = p

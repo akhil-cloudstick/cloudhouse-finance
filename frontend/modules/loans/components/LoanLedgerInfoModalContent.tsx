@@ -4,20 +4,20 @@ import { useModal } from "@/common/components/ModalProvider";
 import { Icon } from "@/common/components/Icon";
 
 export type LedgerInfoAction = {
-  label: string;
-  icon: "edit" | "trash";
-  danger?: boolean;
-  run: () => void; // opens the editor on top of this popup (useModal().openChildModal)
+	label: string;
+	icon: "edit" | "trash";
+	danger?: boolean;
+	run: () => void; // opens the editor on top of this popup (useModal().openChildModal)
 };
 
 type Props = {
-  title: string;
-  // e.g. "Credit · Partial" — the small heading above the details
-  kind: string;
-  rows: [string, React.ReactNode][];
-  // What the entry's Particulars cell says, in full: "Interest ₹335.32 · Principal ₹94,147.20", the fee charged, …
-  description: React.ReactNode;
-  actions: LedgerInfoAction[];
+	title: string;
+	// e.g. "Credit · Partial" — the small heading above the details
+	kind: string;
+	rows: [string, React.ReactNode][];
+	// What the entry's Particulars cell says, in full: "Interest ₹335.32 · Principal ₹94,147.20", the fee charged, …
+	description: React.ReactNode;
+	actions: LedgerInfoAction[];
 };
 
 /* The info popup for one entry of a loan's Payment Ledger. Edit and Delete live here, not in the table: the editor

@@ -320,7 +320,7 @@ func requireGoldInHand(ctx context.Context, loanID uint) error {
 
 func SaveAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can mark loan auction eligible") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can mark loan auction eligible")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can mark loan auction eligible")
 	}
 	return openAuctionEligibility(ctx, loanID, branchID, actorID, actorRole)
 }
@@ -346,7 +346,7 @@ func openAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, ac
 		return nil, err
 	}
 	if !l.IsDefaulted {
-		return nil, common.NewBadRequest("loan must be Defaulted (overdue by more than 90 days) before it can be marked auction-eligible")
+		return nil, common.NewBadRequest("loan is not defaulted (90+ days overdue)")
 	}
 	// Checks the ACTIVE case only — a concluded one must not block a new attempt.
 	if _, err := findAuctionActiveByLoanID(ctx, loanID); err == nil {
@@ -378,7 +378,7 @@ func openAuctionEligibility(ctx context.Context, loanID uint, branchID *uint, ac
 
 func SaveAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks string, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can issue auction notice") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can issue auction notice")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can issue auction notice")
 	}
 	if err := checkLoanBranch(ctx, loanID, branchID); err != nil {
 		return nil, err
@@ -428,7 +428,7 @@ func SaveAuctionNotice(ctx context.Context, loanID uint, branchID *uint, remarks
 
 func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date time.Time, referenceNumber string, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can schedule auction") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can schedule auction")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can schedule auction")
 	}
 	referenceNumber = strings.TrimSpace(referenceNumber)
 	if utf8.RuneCountInString(referenceNumber) > 150 {
@@ -470,7 +470,7 @@ func SaveAuctionSchedule(ctx context.Context, loanID uint, branchID *uint, date 
 
 func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmount, expenses float64, pay AuctionSalePayment, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can record auction sale") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can record auction sale")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can record auction sale")
 	}
 	if saleAmount <= 0 {
 		return nil, common.NewBadRequest("amount must be greater than zero")
@@ -697,7 +697,7 @@ func SaveAuctionSale(ctx context.Context, loanID uint, branchID *uint, saleAmoun
 
 func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition, remarks, mode string, bankID *uint, actorID *uint, actorRole string, actorRoleID uint) (*models.AuctionRecord, error) {
 	if !checkStagePermission(ctx, actorRoleID, "can settle auction") {
-		return nil, common.NewPermissionDenied("your role does not have permission to perform this auction step", "can settle auction")
+		return nil, common.NewPermissionDenied("your role can't do this auction step", "can settle auction")
 	}
 	switch disposition {
 	case AuctionSurplusRefundedToCustomer, "RecordedAsIncome":
@@ -706,7 +706,7 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 	}
 	if disposition == "RecordedAsIncome" && strings.TrimSpace(remarks) == "" {
 		// Retaining a customer's surplus is the kind of decision that must carry a stated reason.
-		return nil, common.NewBadRequest("remarks are required when a customer's auction surplus is retained as income")
+		return nil, common.NewBadRequest("remarks are required")
 	}
 	l, err := findLoanByID(ctx, loanID)
 	if err != nil {
@@ -730,7 +730,7 @@ func settleAuction(ctx context.Context, loanID uint, branchID *uint, disposition
 		return nil, common.NewBadRequest("action does not match the auction case's current stage")
 	}
 	if l.Status == models.StatusAuctionedBalanceDue {
-		return nil, common.NewBadRequest("this auction left a balance owing — resolve the shortfall decision instead of settling")
+		return nil, common.NewBadRequest("balance owing — resolve the shortfall first")
 	}
 	if rec.SurplusPayableAmount <= 0.01 {
 		return nil, common.NewBadRequest("this auction left no surplus to dispose of")
@@ -824,7 +824,7 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 		switch req.Kind {
 		case AuctionDecisionKindPartialRepayment:
 			if !canDecideAuction(ctx, actorRoleID, common.FlowAuctionPartialRepayment) {
-				return common.NewForbidden("your role may not decide whether a part-paid loan stays in auction")
+				return common.NewForbidden("your role can't decide this")
 			}
 			switch decision {
 			case "KeepInAuction":
@@ -853,7 +853,7 @@ func resolveAuctionDecision(ctx context.Context, loanID, requestID uint, branchI
 			}
 		case "Shortfall":
 			if !canDecideAuction(ctx, actorRoleID, common.FlowAuctionShortfall) {
-				return common.NewForbidden("only a Branch Manager, Management, or Administrator may decide a post-auction shortfall")
+				return common.NewForbidden("only a manager can decide this")
 			}
 			if strings.TrimSpace(remarks) == "" {
 				return common.NewBadRequest("remarks are required for this decision")
@@ -983,13 +983,19 @@ func preloadAuctionDetail(db *gorm.DB) *gorm.DB {
 }
 
 func insertAuction(ctx context.Context, a *models.AuctionRecord) error {
-	return config.DB.
-		WithContext(ctx).Create(a).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func persistAuction(ctx context.Context, a *models.AuctionRecord) error {
-	return config.DB.
-		WithContext(ctx).Save(a).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func findAuctionActiveByLoanID(ctx context.Context, loanID uint) (*models.AuctionRecord, error) {
@@ -1125,12 +1131,19 @@ func findAuctionAllByCustomerID(ctx context.Context, customerID uint, from, to *
 }
 
 func createNotice(ctx context.Context, n *models.AuctionNotice) error {
-	return config.DB.
-		WithContext(ctx).Create(n).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(n).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfAuction(db, n.AuctionRecordID)
 }
 
 func createAuctionEvent(ctx context.Context, tx *gorm.DB, e *models.AuctionEvent) error {
-	return auctionDbOr(ctx, tx).Create(e).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Create(e).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfAuction(db, e.AuctionRecordID)
 }
 
 func auctionDbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
@@ -1142,7 +1155,11 @@ func auctionDbOr(ctx context.Context, tx *gorm.DB) *gorm.DB {
 }
 
 func updateAuctionTx(ctx context.Context, tx *gorm.DB, a *models.AuctionRecord) error {
-	return auctionDbOr(ctx, tx).Save(a).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Save(a).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, a.LoanID)
 }
 
 func findPendingDecision(ctx context.Context, tx *gorm.DB, auctionRecordID uint, kind string) (*models.AuctionDecisionRequest, error) {
@@ -1166,11 +1183,19 @@ func hasAnyPendingDecision(ctx context.Context, auctionRecordID uint) (bool, err
 }
 
 func createDecision(ctx context.Context, tx *gorm.DB, req *models.AuctionDecisionRequest) error {
-	return auctionDbOr(ctx, tx).Create(req).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Create(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func updateDecision(ctx context.Context, tx *gorm.DB, req *models.AuctionDecisionRequest) error {
-	return auctionDbOr(ctx, tx).Save(req).Error
+	db := auctionDbOr(ctx, tx)
+	if err := db.Save(req).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, req.LoanID)
 }
 
 func findDecisionByID(ctx context.Context, tx *gorm.DB, id uint) (*models.AuctionDecisionRequest, error) {

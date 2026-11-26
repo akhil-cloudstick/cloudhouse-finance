@@ -5,8 +5,8 @@ import type { BackendEmployee } from "@/modules/employees/types/employee-types";
  * `json:"-"`). Reuses BackendEmployee since it's the same struct. */
 export type AuthEmployee = BackendEmployee & { isSystem: boolean };
 export type LoginResponse = {
-  token: string;
-  employee: AuthEmployee;
+	token: string;
+	employee: AuthEmployee;
 };
 /* QR sign-in of the mobile app (backend/internal/auth/qr.go). The "Connect
  * mobile app" modal asks for a one-time login token bound to the employee

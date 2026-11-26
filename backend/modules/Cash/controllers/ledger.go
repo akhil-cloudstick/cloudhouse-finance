@@ -82,8 +82,8 @@ type ledgerSourceRow struct {
 	// PartyView: the row belongs to a category (party) ledger, which reads from the party's side — an expense is
 	// a Credit and cash received from the category a Debit, the opposite of the daybook.
 	PartyView bool
-	Memo      bool
-	Split     []LedgerSplitLine
+	Memo           bool
+	Split          []LedgerSplitLine
 }
 
 type splitParts struct {
@@ -375,7 +375,7 @@ func scanCashMovementsForLedger(db *gorm.DB, whereCol string, whereArg uint, fro
 		Joins("LEFT JOIN investors inv ON inv.id = m.party_investor_id").
 		Joins("LEFT JOIN loan_cash_sources lcs ON lcs.cash_movement_id = m.id").
 		Where("m."+whereCol, whereArg).
-		Where("m.source IS DISTINCT FROM ?", "Collection").
+		Where(movementNotShownByPaymentSQL).
 		Where("m.source IS DISTINCT FROM ?", "GoldSale")
 	if !fromDate.IsZero() {
 		q = q.Where("m.occurred_on >= ?", fromDate)
@@ -987,6 +987,15 @@ func applyBranchScope(q *gorm.DB, col string, branchID *uint, branchIDs []uint) 
 	return q
 }
 
+// A repayment is listed from its loan payment row (which carries the mode split and what it was applied to), so its cash
+// movement is left out of the ledger. Only when a payment row really stands for that movement, though: an older repayment
+// has a payment row with no mode split and no link to its movement, and a movement of that kind is listed as it is, so the
+// ledger adds up to the same cash in hand the summary reports. Personal-loan collections are listed from their own table.
+const movementNotShownByPaymentSQL = `(m.source IS DISTINCT FROM 'Collection' OR (m.purpose NOT LIKE '%PL-%' AND NOT EXISTS (
+	SELECT 1 FROM loan_payments lp
+	WHERE m.transaction_group_id <> '' AND lp.cash_transaction_group_id = m.transaction_group_id
+	AND lp.cash_amount + lp.upi_amount + lp.bank_transfer_amount + lp.cheque_amount > 0)))`
+
 func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, branchID *uint, branchIDs []uint, pledgeWide bool, fromDate, toDate time.Time) ([]ledgerSourceRow, error) {
 	type row struct {
 		ID              uint
@@ -1011,7 +1020,7 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, br
 		Joins("LEFT JOIN investors inv ON inv.id = m.party_investor_id").
 		Joins("LEFT JOIN loan_cash_sources lcs ON lcs.cash_movement_id = m.id").
 		Where("m.mode = ?", mode).
-		Where("m.source IS DISTINCT FROM ?", "Collection").
+		Where(movementNotShownByPaymentSQL).
 		Where("m.source IS DISTINCT FROM ?", "GoldSale")
 	if len(bankIDs) > 0 {
 		q = q.Where("m.bank_id IN ?", bankIDs)
@@ -1026,7 +1035,7 @@ func scanCashMovementsForModeLedger(db *gorm.DB, mode string, bankIDs []uint, br
 		clause, args := bankPledgeBranchClause("m.branch_id", "m.transaction_group_id", scope)
 		q = q.Where(clause, args...)
 	} else {
-		q = applyBranchScope(q, "m.branch_id", branchID, branchIDs)
+	q = applyBranchScope(q, "m.branch_id", branchID, branchIDs)
 	}
 	if !fromDate.IsZero() {
 		q = q.Where("m.occurred_on >= ?", fromDate)
@@ -1296,7 +1305,7 @@ func expenseLedgerByCategory(ctx context.Context, categoryName string, branchID 
 		// the release expense is booked under Head Office: match it by the pledged loan's branch too
 		q = q.Where("(e.branch_id = ? OR e.id IN (SELECT bp.release_expense_id FROM bank_pledge_records bp JOIN loans lo ON lo.id = bp.loan_id WHERE lo.branch_id = ? AND bp.release_expense_id IS NOT NULL))", *branchID, *branchID)
 	} else {
-		q = applyBranchScope(q, "e.branch_id", branchID, nil)
+	q = applyBranchScope(q, "e.branch_id", branchID, nil)
 	}
 	if !fromDate.IsZero() {
 		q = q.Where("e.occurred_on >= ?", fromDate)

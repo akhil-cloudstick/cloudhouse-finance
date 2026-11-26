@@ -234,7 +234,7 @@ func releaseBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uin
 	}
 	// A pledge that is already released or voided must not pay out (or book its expense) a second time.
 	if p.Status != models.BankPledgeStatusRecordActive {
-		return nil, common.NewConflict("only an active bank pledge can be released — this one is already released or voided")
+		return nil, common.NewConflict("pledge is already released or voided")
 	}
 	var relCash, relUpi, relBankTransfer, relCheque float64
 	var relBankID *uint
@@ -328,7 +328,7 @@ func voidBankPledge(ctx context.Context, loanID, pledgeID uint, branchID *uint, 
 		return nil, common.NewNotFound("bank pledge record not found")
 	}
 	if p.Status != models.BankPledgeStatusRecordActive {
-		return nil, common.NewConflict("only an active bank pledge can be voided — this one is already released or voided")
+		return nil, common.NewConflict("pledge is already released or voided")
 	}
 	if strings.TrimSpace(reason) == "" {
 		return nil, common.NewBadRequest("a reason is required when voiding a bank pledge")
@@ -400,10 +400,10 @@ func CanAcceptBankPledge(status string) bool {
 
 func bankPledgeRefusal(status, bankPledgeStatus string) error {
 	if !CanAcceptBankPledge(status) {
-		return common.NewBadRequest("this loan's gold is no longer held by the branch (closed, released or auctioned), so it cannot be re-pledged to a bank")
+		return common.NewBadRequest("gold is no longer held — can't re-pledge")
 	}
 	if bankPledgeStatus == models.BankPledgeStatusPledged {
-		return common.NewBadRequest("gold is still pledged to a bank — release the bank pledge before releasing it to the customer")
+		return common.NewBadRequest("release the bank pledge first")
 	}
 	return nil
 }
@@ -429,13 +429,19 @@ func recordPledgeEvent(ctx context.Context, p *models.BankPledgeRecord, action s
 }
 
 func insertBankPledge(ctx context.Context, p *models.BankPledgeRecord) error {
-	return config.DB.
-		WithContext(ctx).Create(p).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(p).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, p.LoanID)
 }
 
 func persistBankPledge(ctx context.Context, p *models.BankPledgeRecord) error {
-	return config.DB.
-		WithContext(ctx).Save(p).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Save(p).Error; err != nil {
+		return err
+	}
+	return models.TouchLoan(db, p.LoanID)
 }
 
 func findBankPledgeByID(ctx context.Context, id uint) (*models.BankPledgeRecord, error) {
@@ -610,8 +616,11 @@ func findBankPledgeAllByCustomerID(ctx context.Context, customerID uint, from, t
 }
 
 func createBankPledgeEvent(ctx context.Context, e *models.BankPledgeEvent) error {
-	return config.DB.
-		WithContext(ctx).Create(e).Error
+	db := config.DB.WithContext(ctx)
+	if err := db.Create(e).Error; err != nil {
+		return err
+	}
+	return models.TouchLoanOfPledge(db, e.BankPledgeRecordID)
 }
 
 func ListBankPledgesForCustomer(c echo.Context) error {
