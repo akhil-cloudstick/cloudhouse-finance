@@ -24,7 +24,7 @@ table{max-width:100%}
 .total td{background:var(--tint);font-weight:700;font-size:13.5px}
 .empty{font-style:italic;color:#62626f}
 .foot{margin-top:22px;font-size:10.5px;font-style:italic;color:#6e6e6e;line-height:1.45}
-</style></head><body>
+{{.DocPhotosStyle}}</style></head><body>
 <header class="head">
   <div class="name">{{.Business}}</div>
   <div class="title">Gold Loan Statement</div>
@@ -33,6 +33,7 @@ table{max-width:100%}
 </header>
 
 <h3>Loan Details</h3>
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <table class="kv">
   <tr><td>Loan Number</td><td>{{.LoanNumber}}</td></tr>
   <tr><td>Status</td><td>{{.Status}}</td></tr>
@@ -43,6 +44,7 @@ table{max-width:100%}
   <tr><td>Opened On</td><td>{{.Opened}}</td></tr>
   <tr><td>Due On</td><td>{{.Due}}</td></tr>
 </table>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 
 <h3>Pledged Ornaments</h3>
 {{if .Ornaments}}<table>

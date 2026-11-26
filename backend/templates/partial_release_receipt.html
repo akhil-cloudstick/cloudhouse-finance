@@ -12,6 +12,7 @@
     </td>
   </tr>
 </table>
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <p><b>Loan No.</b> {{.LoanNumber}}{{if .BranchName}} &nbsp; <b>Branch:</b> {{.BranchName}}{{end}}</p>
 <p><b>Customer:</b> {{.CustomerName}}<br>{{.CustomerAddress}}</p>
 
@@ -24,6 +25,7 @@
 <table class="amt-table">
   <tr><td><b>SETTLEMENT AMOUNT COLLECTED:</b></td><td class="num">{{.SettlementAmount}}/-</td></tr>
 </table>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 
 <h3>Released This Transaction</h3>
 <table>

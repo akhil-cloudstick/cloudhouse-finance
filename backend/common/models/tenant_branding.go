@@ -14,6 +14,9 @@ const (
 	ModuleWhatsApp      = "whatsapp"
 	// Gates the "Multiple interest" scheme method (a rate ladder by days unpaid).
 	ModuleMultipleInterest = "multiple_interest"
+	// Prints the customer photo and ornament photos on the business's documents (bond, slip,
+	// release, statement…), only where an image exists and never adding a page.
+	ModulePrintImages = "print_images"
 )
 
 // Dashboard quick actions. New Loan is always offered; each of these adds one more entry to the
@@ -27,7 +30,7 @@ const (
 	ModuleQuickDayBook = "quick_day_book"
 )
 
-var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp, ModuleMultipleInterest, ModuleQuickPay, ModuleQuickExtension, ModuleQuickRelease, ModuleQuickDayBook}
+var KnownModules = []string{ModuleSettings, ModuleBranches, "demo_reset", ModulePersonalLoans, ModuleInvestments, ModuleWhatsApp, ModuleMultipleInterest, ModulePrintImages, ModuleQuickPay, ModuleQuickExtension, ModuleQuickRelease, ModuleQuickDayBook}
 
 const (
 	LangEnglish = "en"

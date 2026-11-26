@@ -225,7 +225,32 @@ type BondData struct {
 	CustomerPhoto template.URL
 	OverallPhoto  template.URL
 	Logo          template.URL
+	// Images on documents (module print_images): ShowImages drops the TML photo placeholders;
+	// DocPhotos is the side photo column for the KML/GML deeds ("" = print nothing).
+	ShowImages bool
+	DocPhotos  template.HTML
+	// KML bond only: OrnPage adds a last page listing every ornament with its photos (and the
+	// overall jewel photo) — set only when at least one of those photos exists.
+	OrnPage bool
+	OrnRows []bondOrnPhotoRow
 }
+
+type bondOrnPhotoRow struct {
+	Name, Purity, Gross, Net, Value string
+	Quantity                        int
+	Photos                          []template.URL
+}
+
+// ornPageMarker marks the appended ornament-photo page; the eSign slot finder ignores that page.
+const ornPageMarker = `class="orn-page"`
+
+const ornPageStyle = `
+.orn-page{break-before:page;page-break-before:always}
+.orn-page h3{text-align:center;margin:0 0 10px}
+.orn-page td.ph{white-space:nowrap}
+.orn-page td.ph img{width:72px;height:72px;object-fit:cover;border:1px solid #999;margin:2px;vertical-align:middle}
+.orn-page .overall img{max-width:260px;max-height:200px;object-fit:contain;border:1px solid #999;margin-top:4px}
+`
 
 type tmlBondItem struct {
 	Name string
@@ -510,7 +535,7 @@ func renderBondHTML(data BondData, lang string) (string, error) {
 	}
 	td := bondTemplateData{
 		BondData:           data,
-		Style:              template.CSS(":root{--brand:" + string(brandColor(data.Brand)) + "}" + style + tmlZoomCSS(len(data.Ornaments), data.Policy)),
+		Style:              template.CSS(":root{--brand:" + string(brandColor(data.Brand)) + "}" + style + common.DocPhotosStyle + ornPageStyle + tmlZoomCSS(len(data.Ornaments), data.Policy)),
 		Blank:              blank,
 		LenderName:         firstNonEmpty(data.LegalName, data.BusinessName, "CloudHouse Finance"),
 		LenderRegNo:        firstNonEmpty(data.KMLRegNo, "DEMO-0000000000"),

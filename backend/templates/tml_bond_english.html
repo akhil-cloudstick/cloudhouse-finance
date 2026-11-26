@@ -15,10 +15,10 @@
     <tr><td>Phone No :</td><td>{{.Mobile}}</td></tr>
   </table>
   <div class="pbox">
-    <span class="lbl p1">Customer Photo</span><span class="lbl p2">Jewel Photo</span>
-    <div class="frame">
-      <div class="photo p1">{{with .CustomerPhoto}}<img src="{{.}}" alt="">{{else}}Customer<br>photo{{end}}</div>
-      <div class="photo p2">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}Jewel<br>photo{{end}}</div>
+    <span class="lbl p1"{{if and $.ShowImages (not $.CustomerPhoto)}} style="visibility:hidden"{{end}}>Customer Photo</span><span class="lbl p2"{{if and $.ShowImages (not $.OverallPhoto)}} style="visibility:hidden"{{end}}>Jewel Photo</span>
+    <div class="frame"{{if and $.ShowImages (not $.CustomerPhoto) (not $.OverallPhoto)}} style="visibility:hidden"{{end}}>
+      <div class="photo p1"{{if and $.ShowImages (not $.CustomerPhoto)}} style="visibility:hidden"{{end}}>{{with .CustomerPhoto}}<img src="{{.}}" alt="">{{else}}Customer<br>photo{{end}}</div>
+      <div class="photo p2"{{if and $.ShowImages (not $.OverallPhoto)}} style="visibility:hidden"{{end}}>{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}Jewel<br>photo{{end}}</div>
     </div>
   </div>
   <table class="loan">
@@ -68,7 +68,7 @@
       <tr><td>Weight</td><td>: {{.NetTotal}} g</td></tr>
     </table>
     <div class="orn"><u>Ornaments &amp; Qty</u>{{range .Items}}<span class="oi">{{.Name}}-{{.Qty}}</span>{{end}}</div>
-    <div class="jw"><u>Jewel Photo</u><div class="sm">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div><div class="ls"><style>.tml-lsig .sig-img{max-height:20px;max-width:90px;display:block}</style><span class="tml-lsig">{{.LenderSignature}}</span></div><small>Authorized Signature<br>({{.LenderName}})</small></div>
+    <div class="jw"><u>Jewel Photo</u><div class="sm"{{if and $.ShowImages (not $.OverallPhoto)}} style="visibility:hidden"{{end}}>{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div><div class="ls"><style>.tml-lsig .sig-img{max-height:20px;max-width:90px;display:block}</style><span class="tml-lsig">{{.LenderSignature}}</span></div><small>Authorized Signature<br>({{.LenderName}})</small></div>
     <div class="terms"><div>1. Principal and interest must be paid, before the gold ornaments are taken back.</div><div>2. Once the term ends, the ornaments will be auctioned after notice is given.</div><div>3. Interest must be paid every month.</div><div>Working hours : 9 AM to 5 PM (Sunday holiday)</div></div>
   </div>
   <div class="r">

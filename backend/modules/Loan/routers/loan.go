@@ -33,6 +33,7 @@ func LoanRoutes(e *echo.Echo) *echo.Echo {
 	e.DELETE(loanPath+"/ornaments/:ornament_id/delete", loan.DeleteOrnament, auth.Staff(perms.Update, loan.GuardOrnamentBranch())...)
 	e.POST(loanPath+"/ornaments/:ornament_id/purity-test", loan.RecordPurityTest, auth.Staff(perms.Update, loan.GuardOrnamentBranch())...)
 	e.POST(loanPath+"/ornaments/:ornament_id/images", loan.AddOrnamentImage, auth.Staff(perms.Update, loan.GuardOrnamentBranch())...)
+	e.DELETE(loanPath+"/ornaments/:ornament_id/images", loan.DeleteOrnamentImage, auth.Staff(perms.Update, loan.GuardOrnamentBranch())...)
 	e.POST(loanPath+"/:id/approve", loan.ApproveLoan, auth.Staff(perms.Update, loan.GuardLoanBranch())...)
 	e.GET(loanPath+"/:id/approvals", loan.ListApprovals, auth.Staff(perms.Read, loan.GuardLoanBranch())...)
 	e.POST(loanPath+"/:id/indemnity-bond/esign/start", loan.StartIndemnityBondEsign, auth.Staff(perms.Update, loan.GuardLoanBranch())...)

@@ -1,6 +1,7 @@
 <!DOCTYPE html><html><head><meta charset="UTF-8"><title>വാഗ്ദത്ത പത്രം — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
 <h1>വാഗ്ദത്ത പത്രം</h1>
 
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <p>
 <b>{{.District}}</b> ജില്ല <b>{{.Taluk}}</b> താലൂക്ക് <b>{{.Village}}</b> വില്ലേജ്
 <b>{{.Place}}</b> ദേശത്ത് <b>{{.Place}}</b> പി.ഒ, പിൻ. <b>{{.PinCode}}</b>
@@ -9,6 +10,7 @@
 {{.EstablishmentAddress}} <b>{{.FinancierName}}</b> എന്ന
 സ്ഥാപനത്തിന്റെ ഉടമക്ക് എഴുതി കൊടുക്കുന്ന വാഗ്ദത്ത പത്രം.
 </p>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 
 <p>
 ഞാൻ <b>{{.BorrowerName}}</b> {{printf "%02d" .Day}}/{{.Month}}/{{.Year}} തിയ്യതി

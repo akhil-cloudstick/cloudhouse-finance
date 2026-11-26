@@ -15,6 +15,9 @@ th,td{border:1px solid #d9d8df;padding:6px 8px;font-size:13px;text-align:left;ve
 th{background:var(--tint);color:var(--deep);font-weight:600}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 .orn-photo{width:56px;height:56px;object-fit:cover}
+td:has(>.orn-photo+.orn-photo){white-space:nowrap}
+td:has(>.orn-photo+.orn-photo)>.orn-photo{width:40px;height:40px}
+.orn-photo+.orn-photo{margin-left:3px}
 .sig{display:flex;justify-content:space-between;gap:20px;margin-top:60px;break-inside:avoid}
 .sig>div{flex:1;text-align:center;position:relative}
 .sig span{display:block;border-top:1px solid #1a1a1a;padding-top:6px;margin-top:62px;font-size:12.5px}
@@ -24,7 +27,7 @@ th{background:var(--tint);color:var(--deep);font-weight:600}
 /* Larger than the bond's 135x45 so the signature reads clearly on the slip (and on Slip + Label). */
 .lender-sig img{width:190px;max-height:60px;object-fit:contain;display:block}
 .muted{color:#62626f;font-size:12.5px}
-</style></head><body>
+{{.DocPhotosStyle}}</style></head><body>
 <header class="brandhead">
   <div class="bh-name">{{.LegalName}}</div>
   <div class="bh-desc">{{.Descriptor}}</div>
@@ -34,6 +37,7 @@ th{background:var(--tint);color:var(--deep);font-weight:600}
   <h2>Gold Loan Pledge Slip</h2>
 </header>
 
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <table>
   <tr><th style="width:110px">Loan No</th><td>{{.LoanNumber}}</td><th style="width:110px">Date</th><td>{{.Today}}</td></tr>
   <tr><th>Customer</th><td>{{.CustomerName}} ({{.CustomerCode}})</td><th>Phone</th><td>{{.Phone}}</td></tr>
@@ -41,15 +45,16 @@ th{background:var(--tint);color:var(--deep);font-weight:600}
   <tr><th>Scheme</th><td>{{.SchemeName}} @ {{.SchemeRate}}% p.a. (LTV {{.SchemeLTV}}%)</td>
       <th>Opened</th><td>{{.Opened}}</td></tr>
 </table>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 
 <table>
-  <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th><th>Photo</th></tr></thead>
+  <thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Net Wt (g)</th><th class="num">Qty</th><th class="num">Value</th>{{if .PhotoCol}}<th>Photo</th>{{end}}</tr></thead>
   <tbody>
     {{range $i, $o := .Ornaments}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td>
       <td class="num">{{$o.NetWeight}}</td><td class="num">{{$o.Quantity}}</td><td class="num">{{$o.Value}}</td>
-      <td style="text-align:center">{{if $o.Photo}}<img src="{{$o.Photo}}" class="orn-photo" alt="">{{else}}—{{end}}</td></tr>
+      {{if $.PhotoCol}}<td style="text-align:center">{{range $o.Photos}}<img src="{{.}}" class="orn-photo" alt="">{{else}}{{if not $.ShowImages}}—{{end}}{{end}}</td>{{end}}</tr>
     {{end}}
-    <tr><th colspan="3">Total</th><th class="num">{{.TotalNetWeight}}</th><th></th><th class="num">{{.TotalGoldValue}}</th><th></th></tr>
+    <tr><th colspan="3">Total</th><th class="num">{{.TotalNetWeight}}</th><th></th><th class="num">{{.TotalGoldValue}}</th>{{if .PhotoCol}}<th></th>{{end}}</tr>
   </tbody>
 </table>
 

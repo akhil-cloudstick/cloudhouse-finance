@@ -223,6 +223,11 @@ export async function addOrnamentImage(ornamentId: number, imageUrl: string): Pr
   });
 }
 
+/* Detach one saved photo from an ornament (the uploaded file itself is kept). */
+export async function deleteOrnamentImage(ornamentId: number, imageUrl: string): Promise<unknown> {
+  return apiFetch(`/loans/ornaments/${ornamentId}/images?url=${encodeURIComponent(imageUrl)}`, { method: "DELETE" });
+}
+
 export async function startIndemnityBondEsign(
   loanId: number,
   // BondLang, not a second inline union: the two drifted apart when

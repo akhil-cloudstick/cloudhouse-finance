@@ -1,6 +1,7 @@
 <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Promissory Note — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
 <h1>PROMISSORY NOTE</h1>
 
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <p>
 Promissory note executed in favour of the proprietor of the establishment <b>{{.FinancierName}}</b>,
 {{.EstablishmentAddress}} by me, <b>{{.BorrowerName}}</b>,
@@ -8,6 +9,7 @@ son/daughter of <b>{{.FatherName}}</b> (Aadhaar No. <b>{{.Aadhaar}}</b>), aged <
 engaged in business, residing at <b>{{.Place}}</b> Desam, <b>{{.Place}}</b> P.O., PIN <b>{{.PinCode}}</b>,
 <b>{{.Village}}</b> Village, <b>{{.Taluk}}</b> Taluk, <b>{{.District}}</b> District.
 </p>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 
 <p>
 I, <b>{{.BorrowerName}}</b>, hereby promise to pay on demand to the establishment

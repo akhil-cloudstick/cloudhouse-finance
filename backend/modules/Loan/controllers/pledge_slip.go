@@ -25,7 +25,9 @@ var slipHexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 type pledgeSlipOrnament struct {
 	Name, Purity, NetWeight, Value string
 	Quantity                       int
-	Photo                          template.URL
+	// Photos: just the first one when the print_images module is off (today's slip), all of
+	// them when it is on.
+	Photos []template.URL
 }
 
 type pledgeSlipTemplateData struct {
@@ -41,6 +43,12 @@ type pledgeSlipTemplateData struct {
 	Esign bool
 	// LenderSignature is the business's uploaded signature, shown in the Manager box.
 	LenderSignature template.HTML
+	// Images on documents (module print_images): DocPhotos is the customer/jewel photo column beside
+	// the customer table; PhotoCol keeps the ornament Photo column (always when the module is off,
+	// only when some ornament has a photo when on).
+	ShowImages, PhotoCol bool
+	DocPhotos            template.HTML
+	DocPhotosStyle       template.CSS
 }
 
 func slipRupees(n float64) string {
@@ -82,6 +90,55 @@ func slipPhoto(tenantID uint, images []models.OrnamentImage) template.URL {
 	return uploadDataURL(tenantID, images[0].ImageURL)
 }
 
+// allPhotos is every printable photo of one ornament, oldest first.
+func allPhotos(tenantID uint, images []models.OrnamentImage) []template.URL {
+	var out []template.URL
+	for _, im := range images {
+		if p := uploadDataURL(tenantID, im.ImageURL); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// ornamentPhotos is every photo of every ornament, in ornament order.
+func ornamentPhotos(tenantID uint, ornaments []models.Ornament) []template.URL {
+	var out []template.URL
+	for _, o := range ornaments {
+		out = append(out, allPhotos(tenantID, o.Images)...)
+	}
+	return out
+}
+
+// loanDocPhotos is the side photo column for a loan document when the business has the
+// print_images module: the customer photo, plus (withJewels) the overall jewel photo and each
+// ornament's photo. "" when the module is off or there is no image.
+func loanDocPhotos(ctx context.Context, l *models.Loan, withJewels bool) template.HTML {
+	if !common.PrintImagesOn(ctx) {
+		return ""
+	}
+	tid, ok := config.TenantFromContext(ctx)
+	if !ok {
+		return ""
+	}
+	var thumbs []template.URL
+	if withJewels {
+		thumbs = append([]template.URL{uploadDataURL(tid, l.OverallPhotoURL)}, ornamentPhotos(tid, l.Ornaments)...)
+	}
+	return common.DocPhotosHTML(uploadDataURL(tid, l.Customer.PhotoURL), thumbs...)
+}
+
+// slipPhotos is the slip's photo cell: today's single first photo, or every photo with print_images.
+func slipPhotos(ctx context.Context, tenantID uint, images []models.OrnamentImage) []template.URL {
+	if common.PrintImagesOn(ctx) {
+		return allPhotos(tenantID, images)
+	}
+	if p := slipPhoto(tenantID, images); p != "" {
+		return []template.URL{p}
+	}
+	return nil
+}
+
 func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData {
 	var t *commonModels.Tenant
 	if id, ok := config.TenantFromContext(ctx); ok {
@@ -105,8 +162,19 @@ func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData 
 	for _, o := range l.Ornaments {
 		rows = append(rows, pledgeSlipOrnament{
 			Name: o.Name, Purity: o.Purity, NetWeight: fmtWeight(o.NetWeight),
-			Quantity: o.Quantity, Value: slipRupees(o.GoldValue), Photo: slipPhoto(tenantID, o.Images),
+			Quantity: o.Quantity, Value: slipRupees(o.GoldValue), Photos: slipPhotos(ctx, tenantID, o.Images),
 		})
+	}
+	hasOrnPhoto := false
+	for _, r := range rows {
+		hasOrnPhoto = hasOrnPhoto || len(r.Photos) > 0
+	}
+	showImages := common.PrintImagesOn(ctx)
+	var docPhotos template.HTML
+	if showImages {
+		// Ornament photos already have their own column here, so the side column holds only
+		// the customer photo and the overall jewel photo.
+		docPhotos = common.DocPhotosHTML(uploadDataURL(tenantID, l.Customer.PhotoURL), uploadDataURL(tenantID, l.OverallPhotoURL))
 	}
 	var dist []bondDistRow
 	for _, d := range bondDisbursements(ctx, l) {
@@ -127,6 +195,10 @@ func pledgeSlipData(ctx context.Context, l *models.Loan) pledgeSlipTemplateData 
 		Principal: slipRupees(l.PrincipalAmount), Eligible: slipRupees(l.EligibleLoanAmount),
 		Distribution:    dist,
 		LenderSignature: lenderSignature(ctx),
+		ShowImages:      showImages,
+		PhotoCol:        !showImages || hasOrnPhoto,
+		DocPhotos:       docPhotos,
+		DocPhotosStyle:  template.CSS(common.DocPhotosStyle),
 	}
 }
 

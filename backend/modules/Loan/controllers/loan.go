@@ -10,6 +10,7 @@ import (
 	packet "cloudhouse/backend/modules/Packet/controllers"
 	"context"
 	"fmt"
+	"html/template"
 	"log"
 	"math"
 	"net/http"
@@ -1222,6 +1223,19 @@ func listLoansForCustomer(ctx context.Context, customerID uint, from, to *time.T
 	return listLoans(ctx, LoanFilter{CustomerID: customerID, OpenedFrom: from, OpenedTo: to, Query: search, Limit: limit, Offset: offset})
 }
 
+// kmlOrnPhotoRows lists every ornament with all its printable photos for the KML bond's ornament page.
+func kmlOrnPhotoRows(tenantID uint, l *models.Loan) []bondOrnPhotoRow {
+	rows := make([]bondOrnPhotoRow, 0, len(l.Ornaments))
+	for _, o := range l.Ornaments {
+		rows = append(rows, bondOrnPhotoRow{
+			Name: o.Name, Purity: o.Purity, Quantity: max(o.Quantity, 1),
+			Gross: fmtWeight(o.GrossWeight), Net: fmtWeight(o.NetWeight), Value: fmt.Sprintf("%.0f", o.GoldValue),
+			Photos: allPhotos(tenantID, o.Images),
+		})
+	}
+	return rows
+}
+
 func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 	now := time.Now()
 	// The agreement is dated the day the loan was opened, not the day it is printed.
@@ -1256,6 +1270,25 @@ func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 	legalName, addressLine, kmlRegNo, policy := lenderProfile(ctx)
 	lenderAge, lenderPAN, lenderAadhaar := lenderIdentity(ctx)
 	phones, customerPhoto, overallPhoto, logo := tmlBondExtras(ctx, l, policy)
+	showImages, docPhotos := false, template.HTML("")
+	var ornRows []bondOrnPhotoRow
+	ornPage := false
+	if common.PrintImagesOn(ctx) {
+		showImages = true
+		if tid, ok := config.TenantFromContext(ctx); ok && commonModels.PolicyOrDefault(policy) != commonModels.PolicyTML {
+			customerPhoto, overallPhoto = uploadDataURL(tid, l.Customer.PhotoURL), uploadDataURL(tid, l.OverallPhotoURL)
+			if commonModels.PolicyOrDefault(policy) == commonModels.PolicyKML {
+				// KML: only the customer photo up top; the ornaments and their photos get their own page.
+				docPhotos = common.DocPhotosHTML(customerPhoto)
+				ornRows, ornPage = kmlOrnPhotoRows(tid, l), overallPhoto != ""
+				for _, r := range ornRows {
+					ornPage = ornPage || len(r.Photos) > 0
+				}
+			} else {
+				docPhotos = common.DocPhotosHTML(customerPhoto, append([]template.URL{overallPhoto}, ornamentPhotos(tid, l.Ornaments)...)...)
+			}
+		}
+	}
 	return BondData{
 		OpenedDate:      l.OpenedDate,
 		CreatedByName:   l.CreatedByName,
@@ -1263,6 +1296,10 @@ func bondDataForLoan(ctx context.Context, l *models.Loan) BondData {
 		Phones:          phones,
 		CustomerPhoto:   customerPhoto,
 		OverallPhoto:    overallPhoto,
+		ShowImages:      showImages,
+		DocPhotos:       docPhotos,
+		OrnPage:         ornPage,
+		OrnRows:         ornRows,
 		Logo:            logo,
 		LoanNumber:      l.LoanNumber,
 		CustomerName:    l.Customer.Name,

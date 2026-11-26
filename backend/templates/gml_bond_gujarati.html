@@ -17,6 +17,7 @@
 <h1>ચલ મિલકતનો આડગીરો કરાર</h1>
 <h2>ગોલ્ડ લોન એકાઉન્ટ નંબર {{.LoanNumber}}</h2>
 <p>આ આડગીરો કરાર તારીખ <b>{{printf "%02d" .Day}}</b>, માસ <b>{{.Month}}</b>, વર્ષ <b>{{.Year}}</b> ના રોજ નીચેના પક્ષકારો વચ્ચે કરવામાં આવે છે:</p>
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <p>
 <b>{{.CustomerName}}</b><br>
 ઉ.આ.વ. :- <b>{{.Age}}</b>, ધંધો:- {{.Blank}}<br>
@@ -24,6 +25,7 @@
 પાનકાર્ડ નંબર :- <b>{{.PAN}}</b><br>
 રહે. :- <b>{{.Address}}</b>
 </p>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 <p>( હવેથી આ કરારમાં પહેલા પક્ષને &quot;આડગીરો મૂકનાર&quot;, &quot;દેણદાર&quot;, &quot;આડમાં મૂકનાર&quot; જેવી સંજ્ઞાઓથી સંબોધવામાં આવશે. )</p>
 <p>અને</p>
 <p>

@@ -1794,8 +1794,10 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
                     <td className="num">{fmt(o.goldValue)}</td>
                     <td>
                       {o.photoUrl ? (
-                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <SafeImage src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={o.photoUrls.length > 1 ? `View all ${o.photoUrls.length} photos` : "View photo"} onClick={() => viewOrnImg(o.photoUrls, o.name)} />
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {o.photoUrls.map((u) => (
+                            <SafeImage key={u} src={u} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={o.photoUrls.length > 1 ? `View all ${o.photoUrls.length} photos` : "View photo"} onClick={() => viewOrnImg(o.photoUrls, o.name)} />
+                          ))}
                         </span>
                       ) : (
                         <span style={{ color: "var(--muted)" }}>—</span>

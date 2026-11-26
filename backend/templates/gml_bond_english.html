@@ -17,6 +17,7 @@
 <h1>AGREEMENT OF PLEDGE OF MOVABLE</h1>
 <h2>Gold Loan Account No. {{.LoanNumber}}</h2>
 <p>MEMORANDUM OF AGREEMENT, made the <b>{{printf "%02d" .Day}}</b> day of <b>{{.Month}}, {{.Year}}</b> BETWEEN</p>
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <p>
 <b>{{.CustomerName}}</b><br>
 Age :- <b>{{.Age}}</b>, business :- {{.Blank}}<br>
@@ -24,6 +25,7 @@ Aadhar Card No. <b>{{.Aadhaar}}</b><br>
 Pan Card No. <b>{{.PAN}}</b><br>
 Residing at :- <b>{{.Address}}</b>
 </p>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 <p>(Hereinafter called &quot;the borrower&quot;) of the one part.</p>
 <p>AND</p>
 <p>

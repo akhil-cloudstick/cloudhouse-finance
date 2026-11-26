@@ -19,7 +19,7 @@ import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornamen
 import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
 import { InterestChangesTable, type InterestChangeView } from "@/modules/loans/components/InterestChangesTable";
 import { GoldReleaseDependents, goldChoicesOf } from "@/modules/loans/components/GoldReleaseDependents";
-import { type LedgerEditDependent, type LedgerFollowingEntry, previewLoanEdit, listTopUps, updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage } from "@/modules/loans/services/loanService";
+import { type LedgerEditDependent, type LedgerFollowingEntry, previewLoanEdit, listTopUps, updateLoan, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage, deleteOrnamentImage } from "@/modules/loans/services/loanService";
 import { uploadFile } from "@/modules/customers/services/customerService";
 import { PhotoSourceMenu } from "@/common/components/ui/PhotoSourceMenu";
 import { SafeImage } from "@/common/components/ui/SafeImage";
@@ -38,10 +38,16 @@ import { FieldError, fieldForMessage } from "@/common/components/ui/FieldError";
 
 // `photos` are the ornament's saved photos; `newPhotos` were uploaded in this
 // edit and are attached on Save (so Cancel leaves the loan untouched).
-type OrnRow = { id?: number; name: string; purity: string; gross: string; less: string; net: string; qty: string; removed?: boolean; photos: string[]; newPhotos: string[] };
+// `removedPhotos` are saved photos the user took off in this edit; they are detached on save.
+type OrnRow = { id?: number; name: string; purity: string; gross: string; less: string; net: string; qty: string; removed?: boolean; photos: string[]; newPhotos: string[]; removedPhotos: string[] };
+
+/* Saved photos still attached (not removed in this edit). */
+function keptPhotos(r: OrnRow | undefined): string[] {
+  return r ? r.photos.filter((u) => !r.removedPhotos.includes(u)) : [];
+}
 
 function toRow(o: OrnamentView): OrnRow {
-  return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), less: String(Math.round(Math.max(0, o.grossWeight - o.netWeight) * 1000) / 1000), net: String(o.netWeight), qty: String(o.quantity), photos: o.photoUrls ?? [], newPhotos: [] };
+  return { id: o.id, name: o.name, purity: o.purity, gross: String(o.grossWeight), less: String(Math.round(Math.max(0, o.grossWeight - o.netWeight) * 1000) / 1000), net: String(o.netWeight), qty: String(o.quantity), photos: o.photoUrls ?? [], newPhotos: [], removedPhotos: [] };
 }
 
 type EditLoanModalContentProps = { loan: LoanView; onSaved: () => void };
@@ -115,7 +121,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     setRowErr((cur) => (cur?.idx === i ? null : cur));
   }
   function addRow() {
-    setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", less: "", net: "", qty: "1", photos: [], newPhotos: [] }]);
+    setRows((rs) => [...rs, { name: "", purity: "22K", gross: "", less: "", net: "", qty: "1", photos: [], newPhotos: [], removedPhotos: [] }]);
   }
   // At most MAX_ORN_PHOTOS per ornament (saved + new); uploads in flight count too,
   // since a multi-select delivers several files in one tick.
@@ -123,7 +129,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
   async function ornPhotoPicked(i: number, f: File) {
     if (!f.type.startsWith("image/")) { toast("Please choose an image file"); return; }
     const inFlight = pendingPhotos.current[i] ?? 0;
-    const have = (rows[i]?.photos.length ?? 0) + (rows[i]?.newPhotos.length ?? 0);
+    const have = keptPhotos(rows[i]).length + (rows[i]?.newPhotos.length ?? 0);
     if (have + inFlight >= MAX_ORN_PHOTOS) {
       toast(`Too many photos — an ornament can have at most ${MAX_ORN_PHOTOS}`);
       return;
@@ -137,6 +143,9 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
     } finally {
       pendingPhotos.current[i] = Math.max(0, (pendingPhotos.current[i] ?? 1) - 1);
     }
+  }
+  function dropSavedPhoto(i: number, url: string) {
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, removedPhotos: [...r.removedPhotos, url] } : r)));
   }
   function dropNewPhoto(i: number, url: string) {
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, newPhotos: r.newPhotos.filter((u) => u !== url) } : r)));
@@ -357,6 +366,7 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
           if (r.id) await deleteOrnament(r.id);
         } else if (r.id) {
           await updateOrnament(r.id, input);
+          for (const url of r.removedPhotos) await deleteOrnamentImage(r.id, url);
           for (const url of r.newPhotos) await addOrnamentImage(r.id, url);
         } else {
           await addOrnament(loan.numericId, { ...input, images: r.newPhotos });
@@ -564,10 +574,15 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
                 <button type="button" className="btn danger eln-sq" onClick={() => removeRow(i)} title="Remove ornament" aria-label="Remove ornament"><Icon name="x" /></button>
               </div>
               {/* Third row: photos, only once there are any. */}
-              {(r.photos.length > 0 || r.newPhotos.length > 0) && (
+              {(keptPhotos(r).length > 0 || r.newPhotos.length > 0) && (
                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  {r.photos.map((u) => (
-                    <SafeImage key={u} src={u} style={{ width: 38, height: 38, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
+                  {keptPhotos(r).map((u) => (
+                    <span key={u} style={{ position: "relative", display: "inline-flex" }}>
+                      <SafeImage src={u} style={{ width: 38, height: 38, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} />
+                      <button type="button" title="Remove photo" aria-label="Remove photo"
+                        style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, padding: 0, borderRadius: "50%", border: "1px solid var(--line)", background: "var(--card, #fff)", color: "var(--red)", fontSize: 9, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                        onClick={() => dropSavedPhoto(i, u)}>✕</button>
+                    </span>
                   ))}
                   {r.newPhotos.map((u) => (
                     <span key={u} style={{ position: "relative", display: "inline-flex" }}>
@@ -615,7 +630,8 @@ export function EditLoanModalContent({ loan, onSaved }: EditLoanModalContentProp
       {/* The sticky-within-`.modal-bg` treatment this used to declare inline
           is now on `.modal .ft` in app.css, for every modal — nothing needed
           here beyond the class. */}
-      <div className="ft">        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
+      <div className="ft">
+        <button className="btn" onClick={save} disabled={saving}><Icon name="check" /> {saving ? "Saving…" : "Save Changes"}</button>
       </div>
     </>
   );
