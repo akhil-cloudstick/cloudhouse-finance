@@ -39,6 +39,27 @@ func marginsFor(htmlDoc string) pageMargins {
 	return pageMargins{top: 0.75, bottom: 0.55, side: pageSideMargin, pageNumbers: true}
 }
 
+// printA4 prints the loaded document to an A4 PDF with the document's margins and footer.
+func printA4(ctx context.Context, m pageMargins) ([]byte, error) {
+	buf, _, err := page.PrintToPDF().
+		WithPrintBackground(true).
+		WithPreferCSSPageSize(false).
+		WithPaperWidth(8.27).
+		WithPaperHeight(11.69).
+		WithMarginTop(m.top).
+		WithMarginBottom(m.bottom).
+		WithMarginLeft(m.side).
+		WithMarginRight(m.side).
+		WithDisplayHeaderFooter(m.pageNumbers).
+		WithHeaderTemplate(`<div style="font-size:1px"></div>`).
+		WithFooterTemplate(`
+<div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">
+Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+</div>`).
+		Do(ctx)
+	return buf, err
+}
+
 func renderA4PDF(htmlDoc, label string) ([]byte, error) {
 	pdfBytes, _, err := renderA4PDFWithSlots(htmlDoc, label)
 	return pdfBytes, err
@@ -70,6 +91,10 @@ func renderA4PDFWithSlots(htmlDoc, label string) ([]byte, []config.SignatureSlot
 		}),
 		chromedp.WaitReady("body"),
 		chromedp.Evaluate(`Promise.all(Array.from(document.images).map(function(i){return i.complete?1:new Promise(function(r){i.onload=i.onerror=r})}))`, nil, func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }),
+		// Images on documents may never add a page: keep them only at a size that fits.
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return common.FitDocPhotos(ctx, func(ctx context.Context) ([]byte, error) { return printA4(ctx, m) })
+		}),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			if !wantSlots {
 				return nil
@@ -86,22 +111,7 @@ func renderA4PDFWithSlots(htmlDoc, label string) ([]byte, []config.SignatureSlot
 		last: !!b, h: br ? br.height : 0, role: e.getAttribute('data-esign-role')||''}})`, &rawSlots).Do(ctx)
 		}),
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			buf, _, err := page.PrintToPDF().
-				WithPrintBackground(true).
-				WithPreferCSSPageSize(false).
-				WithPaperWidth(8.27).
-				WithPaperHeight(11.69).
-				WithMarginTop(m.top).
-				WithMarginBottom(m.bottom).
-				WithMarginLeft(m.side).
-				WithMarginRight(m.side).
-				WithDisplayHeaderFooter(m.pageNumbers).
-				WithHeaderTemplate(`<div style="font-size:1px"></div>`).
-				WithFooterTemplate(`
-<div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">
-Page <span class="pageNumber"></span> of <span class="totalPages"></span>
-</div>`).
-				Do(ctx)
+			buf, err := printA4(ctx, m)
 			if err != nil {
 				return err
 			}
@@ -114,6 +124,12 @@ Page <span class="pageNumber"></span> of <span class="totalPages"></span>
 	}
 	var slots []config.SignatureSlot
 	pages := CountPDFPages(pdfBytes)
+	// The KML bond's appended ornament-photo page comes after every signature slot, so the
+	// single-page check below looks at the pages before it.
+	contentPages := pages
+	if strings.Contains(htmlDoc, ornPageMarker) && contentPages > 1 {
+		contentPages--
+	}
 	for _, r := range rawSlots {
 		page := 1
 		if r.Last {
@@ -122,7 +138,7 @@ Page <span class="pageNumber"></span> of <span class="totalPages"></span>
 				slots = nil
 				break
 			}
-		} else if pages != 1 {
+		} else if contentPages != 1 {
 			slots = nil
 			break
 		}

@@ -9,6 +9,7 @@ import { type Business, type Tier, type AuditLogEntry, type Catalogue } from "@/
 import { clearSuperAdminSession, readSuperAdminToken, readSuperAdminUser } from "@/modules/superadmin/services/superadminSession";
 import { tenantLoginLink } from "@/modules/superadmin/services/tenantLink";
 import { VENDOR } from "@/modules/superadmin/config/brand";
+import { goToSuperAdmin } from "@/modules/superadmin/services/superadminNav";
 import { DEFAULT_BRAND_COLOR } from "@/modules/superadmin/config/theme";
 import { SuperAdminIcon } from "@/modules/superadmin/components/SuperAdminIcon";
 import { GrantChips } from "@/modules/superadmin/components/GrantChips";
@@ -133,7 +134,7 @@ export default function SuperAdminDashboardPage() {
     } catch (err) {
       if (err instanceof SuperAdminApiError && err.status === 401) {
         clearSuperAdminSession();
-        router.replace("/superadmin/login");
+        goToSuperAdmin(router, "/login");
         return;
       }
       setLoadError(err instanceof Error ? err.message : "Could not load the console.");
@@ -148,7 +149,7 @@ export default function SuperAdminDashboardPage() {
 
   useEffect(() => {
     if (!readSuperAdminToken()) {
-      router.replace("/superadmin/login");
+      goToSuperAdmin(router, "/login");
       return;
     }
     setUser(readSuperAdminUser());
@@ -157,7 +158,7 @@ export default function SuperAdminDashboardPage() {
 
   function handleLogout() {
     clearSuperAdminSession();
-    router.replace("/superadmin/login");
+    goToSuperAdmin(router, "/login");
   }
 
   const tierName = (id: number) => tiers?.find((t) => t.id === id)?.name ?? `#${id}`;

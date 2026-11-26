@@ -27,6 +27,8 @@ const MODULE_HINTS: Record<string, string> = {
 		"Settings > Integrations > WhatsApp: lets this business link its own WhatsApp number (QR or phone number) so messages go out from it. Without it the business keeps using the shared server number.",
 	demo_reset:
 		"Lets this business wipe its own data back to the admin login, optionally reloading the demo dataset. Leave OFF for a live client — every other module hides a page, this one hands out a delete button.",
+	print_images:
+		"Prints the customer photo and ornament photos on the bond, pledge slip, release agreement, release receipt, statement, personal loan note and debenture. Only uploaded images are shown — nothing prints for missing ones, and images never add a page.",
 	quick_pay: "Pick a customer and one of their loans, then the usual Record Payment screen.",
 	quick_extension: "Log the request here; if the user can approve their stage they approve it in the same window.",
 	quick_release: "Log the release request and, if the user can approve their stage, review it in the same window.",

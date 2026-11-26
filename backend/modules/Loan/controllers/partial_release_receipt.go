@@ -43,6 +43,8 @@ type PartialReleaseReceiptData struct {
 	LegalName               string
 	AddressLine             string
 	LenderSignature         template.HTML
+	// DocPhotos is the customer/jewel photo column (module print_images); "" prints nothing.
+	DocPhotos template.HTML
 }
 
 type partialReleaseReceiptTemplateData struct {
@@ -81,7 +83,7 @@ func renderPartialReleaseReceiptHTML(data PartialReleaseReceiptData, lang string
 	}
 	td := partialReleaseReceiptTemplateData{
 		PartialReleaseReceiptData: data,
-		Style:                     template.CSS(releaseAgreementStyle(lang)),
+		Style:                     template.CSS(releaseAgreementStyle(lang) + common.DocPhotosStyle),
 		LenderName:                firstNonEmpty(data.LegalName, "CHITTILAPILLY THOMMANA FINANCIERS AND INVESTMENTS"),
 		LenderAddress:             orBlank(data.AddressLine),
 		ReleaseDate:               releaseFmtDate(data.ReleaseDate, lang),
@@ -157,6 +159,7 @@ func partialReleaseReceiptDataForRequest(ctx context.Context, req *models.LoanRe
 		LegalName:               legalName,
 		AddressLine:             addressLine,
 		LenderSignature:         lenderSignature(ctx),
+		DocPhotos:               loanDocPhotos(ctx, l, true),
 	}, nil
 }
 

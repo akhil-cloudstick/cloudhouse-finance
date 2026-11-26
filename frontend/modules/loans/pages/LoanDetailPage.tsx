@@ -1816,7 +1816,9 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 										<td>
 											{o.photoUrl ? (
 												<span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-													<SafeImage src={o.photoUrl} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={o.photoUrls.length > 1 ? `View all ${o.photoUrls.length} photos` : "View photo"} onClick={() => viewOrnImg(o.photoUrls, o.name)} />
+													{o.photoUrls.map((u) => (
+														<SafeImage key={u} src={u} style={{ width: 34, height: 34, objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)", cursor: "pointer" }} title={o.photoUrls.length > 1 ? `View all ${o.photoUrls.length} photos` : "View photo"} onClick={() => viewOrnImg(o.photoUrls, o.name)} />
+													))}
 													<button className="btn plain sm" style={{ padding: "4px 8px" }} onClick={() => viewOrnImg(o.photoUrls, o.name)}>{o.photoUrls.length > 1 ? `View all (${o.photoUrls.length})` : "View"}</button>
 												</span>
 											) : (

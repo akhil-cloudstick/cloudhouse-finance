@@ -38,6 +38,9 @@ type statementTemplateData struct {
 	BalanceDate                                                    string
 	Balance                                                        []statementLine
 	TotalOutstanding, Settlement                                   string
+	// Images on documents (module print_images): photo column beside Loan Details; "" prints nothing.
+	DocPhotos      template.HTML
+	DocPhotosStyle template.CSS
 }
 
 func statementData(ctx context.Context, l *models.Loan) statementTemplateData {
@@ -55,6 +58,7 @@ func statementData(ctx context.Context, l *models.Loan) statementTemplateData {
 		Customer: fmt.Sprintf("%s (%s)", l.Customer.Name, l.Customer.Code), Phone: dash(l.Customer.Phone), Scheme: l.Scheme.Name,
 		Rate: fmt.Sprintf("%.2f%% p.a.", l.SchemeInterestRate), Opened: dateOnly(l.OpenedDate), Due: dateOnly(l.DueDate),
 		BalanceDate: time.Now().Format("02-Jan-2006"),
+		DocPhotos:   loanDocPhotos(ctx, l, true), DocPhotosStyle: template.CSS(common.DocPhotosStyle),
 	}
 	if !singleBranch(ctx) {
 		d.Branch = l.Branch.Name

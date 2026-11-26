@@ -421,6 +421,8 @@ func seedCustomers(ctx context.Context, st *state, rep *Report) error {
 		st.customerIDs = append(st.customerIDs, c.ID)
 		// An investor fixture is also an investor record (its own table), so investments have someone to point at.
 		if f.Investor {
+			// Deliberately the same person as the borrower just created: confirm it so the duplicate check passes.
+			in.ConfirmSamePerson = true
 			investor, err := common.SaveInvestor(ctx, in)
 			if err != nil {
 				return fmt.Errorf("create investor %q: %w", f.Name, err)

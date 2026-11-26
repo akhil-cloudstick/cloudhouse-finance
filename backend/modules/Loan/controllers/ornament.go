@@ -188,6 +188,27 @@ func SaveOrnamentImage(ctx context.Context, ornamentID uint, imageURL string) (*
 	return findOrnamentByID(ctx, ornamentID)
 }
 
+// RemoveOrnamentImage detaches one saved photo from an ornament. Only the link is removed; the
+// uploaded file stays, since other records (drafts, other ornaments) may point at the same file.
+func RemoveOrnamentImage(ctx context.Context, ornamentID uint, imageURL string) (*models.Ornament, error) {
+	if _, err := findOrnamentByID(ctx, ornamentID); err != nil {
+		return nil, common.NewNotFound("ornament not found")
+	}
+	if strings.TrimSpace(imageURL) == "" {
+		return nil, common.NewBadRequest("url is required")
+	}
+	res := config.DB.WithContext(ctx).
+		Where("ornament_id = ? AND image_url = ?", ornamentID, imageURL).
+		Delete(&models.OrnamentImage{})
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, common.NewNotFound("photo not found on this ornament")
+	}
+	return findOrnamentByID(ctx, ornamentID)
+}
+
 func listOrnamentsForCustomer(ctx context.Context, customerID uint, from, to *time.Time, search string, limit, offset int) ([]CustomerOrnamentRow, int64, error) {
 	if _, err := common.FindCustomerByID(ctx, customerID); err != nil {
 		return nil, 0, common.NewBadRequest("customer does not exist")
@@ -373,6 +394,20 @@ func AddOrnamentImage(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, echo.Map{"success": false, "error": "Invalid input"})
 	}
 	rec, err := SaveOrnamentImage(ctx, ornamentID, req.ImageURL)
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	return common.Success(c, http.StatusOK, rec)
+}
+
+// DeleteOrnamentImage handles DELETE /loans/ornaments/:ornament_id/images?url=<saved image url>.
+func DeleteOrnamentImage(c echo.Context) error {
+	ctx := auth.RequestContext(c)
+	ornamentID, err := common.IDParam(c, "ornament_id")
+	if err != nil {
+		return common.FailErr(c, err)
+	}
+	rec, err := RemoveOrnamentImage(ctx, ornamentID, c.QueryParam("url"))
 	if err != nil {
 		return common.FailErr(c, err)
 	}

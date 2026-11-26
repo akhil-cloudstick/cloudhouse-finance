@@ -5,7 +5,7 @@
 <div class="rule"></div>
 
 <div class="two">
-  <div><b>{{.CustomerName}}</b>{{range .AddressLines}}<br>{{.}}{{end}}</div>
+  <div>{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}<b>{{.CustomerName}}</b>{{range .AddressLines}}<br>{{.}}{{end}}{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}</div>
   <div class="r">
     <div><b>A/c No</b><span><b>: {{.AccountNo}}</b></span></div>
     <div><span>Rcpt No</span><span>: {{.ReceiptNo}}</span></div>

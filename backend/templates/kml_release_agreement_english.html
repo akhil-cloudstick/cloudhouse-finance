@@ -14,6 +14,7 @@
     </td>
   </tr>
 </table>
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <p><b>S. NO.</b> {{.LoanNumber}}</p>
 
 <p>
@@ -27,6 +28,7 @@
   <tr><td><b>TOTAL AMOUNT:</b></td><td class="num">{{.ReturnedAmount}}/-</td></tr>
 </table>
 <p>({{.AmountWordsLine}})</p>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 
 <table>
   <thead><tr><th>Item Name</th><th class="num">Qty</th><th>Metal type</th><th class="num">GSWT</th><th class="num">NTWT</th><th class="num">FNWT</th><th class="num">Valuation</th></tr></thead>

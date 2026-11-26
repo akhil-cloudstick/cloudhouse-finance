@@ -246,6 +246,7 @@ var routeManifest = map[string]routeSpec{
 	"POST /api/v1/users/:user_id/loans/requests/:request_id/release-payment":              probe("request_id=loan_requests"),
 	"PATCH /api/v1/users/:user_id/loans/ornaments/:ornament_id/update":                    probe("ornament_id=ornaments"),
 	"POST /api/v1/users/:user_id/loans/ornaments/:ornament_id/images":                     probe("ornament_id=ornaments"),
+	"DELETE /api/v1/users/:user_id/loans/ornaments/:ornament_id/images":                   probe("ornament_id=ornaments"),
 	"POST /api/v1/users/:user_id/loans/ornaments/:ornament_id/purity-test":                probe("ornament_id=ornaments"),
 	"POST /api/v1/users/:user_id/loans/requests/:request_id/approve":                      probe("request_id=loan_requests"),
 	"PATCH /api/v1/users/:user_id/loans/requests/:request_id/decide":                      probe("request_id=loan_requests"),

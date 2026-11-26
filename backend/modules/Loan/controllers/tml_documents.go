@@ -12,7 +12,6 @@ import (
 	"html/template"
 	"math"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,24 +176,9 @@ tr.t td{border-top:1px solid #000;border-bottom:1px solid #000;font-weight:700;h
 .ft{display:flex;justify-content:space-between;margin-top:30px}
 `
 
-const maxTMLPhotoBytes = 3 << 20
-
-// uploadDataURL inlines a stored upload ("/uploads/<key>") as a data: URL so the
-// headless-Chrome render needs no network or auth. Empty when missing or too big.
+// uploadDataURL inlines a stored upload as a data: URL (see common.UploadDataURL).
 func uploadDataURL(tenantID uint, url string) template.URL {
-	if config.Env.UploadsDir == "" || strings.TrimSpace(url) == "" {
-		return ""
-	}
-	key := strings.TrimPrefix(url, "/uploads/")
-	b, err := os.ReadFile(common.ResolvePath(config.Env.UploadsDir, tenantID, key))
-	if err != nil || len(b) == 0 || len(b) > maxTMLPhotoBytes {
-		return ""
-	}
-	ct := http.DetectContentType(b)
-	if !strings.HasPrefix(ct, "image/") {
-		return ""
-	}
-	return template.URL("data:" + ct + ";base64," + base64.StdEncoding.EncodeToString(b)) //nolint:gosec // sniffed image MIME + base64 only
+	return common.UploadDataURL(tenantID, url)
 }
 
 func tenantForContext(ctx context.Context) *commonModels.Tenant {
@@ -238,6 +222,8 @@ type tmlSlipTemplateData struct {
 	Logo, QR                                         template.URL
 	InterestDue, InterestDueNote                     string
 	LenderSignature                                  template.HTML
+	// ShowImages (module print_images) hides a photo cell that has no image instead of printing "photo".
+	ShowImages bool
 }
 
 func tmlSlabs(tiers []commonModels.RateTier, baseRate float64) []tmlSlipSlab {
@@ -310,6 +296,7 @@ func tmlSlipData(ctx context.Context, l *models.Loan) tmlSlipTemplateData {
 		Logo:  logo, QR: qrDataURL(l.LoanNumber),
 		InterestDue: interestDue.Format("02/01/2006"), InterestDueNote: fmt.Sprintf("every 90 days from pledge date or last interest paid date, whichever is later but not exceeding Principal Due Date %s", l.DueDate.Format("02/01/2006")),
 		CustomerPhoto: uploadDataURL(tenantID, l.Customer.PhotoURL), OverallPhoto: uploadDataURL(tenantID, l.OverallPhotoURL),
+		ShowImages:  common.PrintImagesOn(ctx),
 		Particulars: strings.Join(parts, ", "),
 		TotalWeight: fmtWeightOneDecimal(gross), StoneWeight: fmtWeightOneDecimal(stone), NetWeight: fmtWeightOneDecimal(net),
 		LenderSignature: lenderSignature(ctx),
@@ -326,6 +313,7 @@ func renderTMLSlipHTML(data tmlSlipTemplateData) (string, error) {
 
 type tmlStatementTemplateData struct {
 	Style                                      template.CSS
+	DocPhotos                                  template.HTML
 	LegalName, Place, Contact                  string
 	CustomerName                               string
 	AddressLines                               []string
@@ -390,7 +378,7 @@ func tmlStatementData(ctx context.Context, l *models.Loan, paymentID uint) (tmlS
 		legalName, contact = firstNonEmpty(t.LegalName, t.Name), t.ContactPhone
 	}
 	return tmlStatementTemplateData{
-		Style: template.CSS(tmlStatementStyle), LegalName: legalName, Place: documentBranchName(ctx, l.Branch.Name), Contact: contact,
+		Style: template.CSS(tmlStatementStyle + common.DocPhotosStyle), DocPhotos: loanDocPhotos(ctx, l, false), LegalName: legalName, Place: documentBranchName(ctx, l.Branch.Name), Contact: contact,
 		CustomerName: l.Customer.Name, AddressLines: addressLines(l.Customer.Address),
 		AccountNo: l.LoanNumber, ReceiptNo: strconv.FormatUint(uint64(p.ID), 10), Date: p.PaidOn.Format("02/01/2006"), Status: status,
 		Principal: money(p.PrincipalApplied), Interest: money(p.InterestApplied),

@@ -6,7 +6,6 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/PersonalLoan/models"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"html/template"
 	"log"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 )
 
@@ -64,6 +64,8 @@ type BondData struct {
 	Day                 int
 	Month               string
 	Year                int
+	// DocPhotos is the borrower photo column (module print_images); "" prints nothing.
+	DocPhotos template.HTML
 }
 
 type bondTemplateData struct {
@@ -191,6 +193,7 @@ func renderBondHTML(data BondData, financier bondFinancier, lang string) (string
 			Day:        data.Day,
 			Month:      data.Month,
 			Year:       data.Year,
+			DocPhotos:  data.DocPhotos,
 		},
 		Style: template.CSS(`
 body{font-family:'Noto Sans Malayalam','Nirmala UI','Mona Sans','Segoe UI',ui-sans-serif,system-ui,-apple-system,Helvetica,Arial,sans-serif;color:#1a1a1a;margin:40px auto;max-width:760px;line-height:1.7;font-size:14px;padding:0 20px}
@@ -204,7 +207,7 @@ p{margin:0 0 14px;text-align:justify}
 .footer-row .r{text-align:right}
 .witness{margin-top:36px}
 .witness div{margin-bottom:10px}
-`),
+` + common.DocPhotosStyle),
 		Blank:                bondBlank,
 		FinancierName:        bondOrBlank(financier.name),
 		EstablishmentAddress: financier.establishment(lang),
@@ -231,6 +234,11 @@ p{margin:0 0 14px;text-align:justify}
 
 func GenerateBondPDF(ctx context.Context, loan *models.PersonalLoan, cust *commonModels.Customer, aadhaar, lang string) ([]byte, error) {
 	data := bondDataForLoan(loan, cust, aadhaar)
+	if common.PrintImagesOn(ctx) && cust != nil {
+		if tid, ok := config.TenantFromContext(ctx); ok {
+			data.DocPhotos = common.DocPhotosHTML(common.UploadDataURL(tid, cust.PhotoURL))
+		}
+	}
 	html, err := renderBondHTML(data, bondFinancierFor(ctx), lang)
 	if err != nil {
 		return nil, err
@@ -239,30 +247,45 @@ func GenerateBondPDF(ctx context.Context, loan *models.PersonalLoan, cust *commo
 	defer cancel()
 	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	encoded := base64.StdEncoding.EncodeToString([]byte(html))
 	var pdfBytes []byte
-	err = chromedp.Run(ctx,
-		chromedp.Navigate("data:text/html;charset=utf-8;base64,"+encoded),
-		chromedp.WaitReady("body"),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			buf, _, err := page.PrintToPDF().
-				WithPrintBackground(true).
-				WithPreferCSSPageSize(false).
-				WithPaperWidth(8.27).
-				WithPaperHeight(11.69).
-				WithMarginTop(0.4).
-				WithMarginBottom(0.35).
-				WithMarginLeft(0.6).
-				WithMarginRight(0.6).
-				WithDisplayHeaderFooter(true).
-				WithHeaderTemplate(`
+	printPDF := func(ctx context.Context) ([]byte, error) {
+		buf, _, err := page.PrintToPDF().
+			WithPrintBackground(true).
+			WithPreferCSSPageSize(false).
+			WithPaperWidth(8.27).
+			WithPaperHeight(11.69).
+			WithMarginTop(0.4).
+			WithMarginBottom(0.35).
+			WithMarginLeft(0.6).
+			WithMarginRight(0.6).
+			WithDisplayHeaderFooter(true).
+			WithHeaderTemplate(`
 <div style="font-size:9px;width:100%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
 </div>`).
-				WithFooterTemplate(`
+			WithFooterTemplate(`
 <div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">
 Page <span class="pageNumber"></span> of <span class="totalPages"></span>
 </div>`).
-				Do(ctx)
+			Do(ctx)
+		return buf, err
+	}
+	err = chromedp.Run(ctx,
+		// Set the document directly rather than navigating to a data: URL — Chrome caps those
+		// at about 2 MB, which an inlined photo can exceed.
+		chromedp.Navigate("about:blank"),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			tree, err := page.GetFrameTree().Do(ctx)
+			if err != nil {
+				return err
+			}
+			return page.SetDocumentContent(tree.Frame.ID, html).Do(ctx)
+		}),
+		chromedp.WaitReady("body"),
+		chromedp.Evaluate(`Promise.all(Array.from(document.images).map(function(i){return i.complete?1:new Promise(function(r){i.onload=i.onerror=r})}))`, nil, func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }),
+		// The borrower photo may never add a page: keep it only at a size that fits.
+		chromedp.ActionFunc(func(ctx context.Context) error { return common.FitDocPhotos(ctx, printPDF) }),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			buf, err := printPDF(ctx)
 			if err != nil {
 				return err
 			}

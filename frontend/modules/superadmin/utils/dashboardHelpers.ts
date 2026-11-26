@@ -59,6 +59,7 @@ export const MODULE_LABELS: Record<string, string> = {
 	demo_reset: "Demo Reset",
 	whatsapp: "WhatsApp",
 	multiple_interest: "Multiple Interest Schemes",
+	print_images: "Images on Documents",
 	quick_pay: "Record Payment",
 	quick_extension: "Request Extension",
 	quick_release: "Request Release",

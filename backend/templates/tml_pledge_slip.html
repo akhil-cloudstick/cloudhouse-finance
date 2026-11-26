@@ -1,4 +1,4 @@
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Gold Deposit Receipt — {{.LoanNumber}}</title><style>{{.Style}}</style></head><body>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Gold Deposit Receipt — {{.LoanNumber}}</title><style>{{.Style}}.dp-hide{visibility:hidden}</style></head><body>
 
 <div class="top">
   <div class="brandbox">{{with .Logo}}<img class="blogo" src="{{.}}" alt="">{{end}}<div class="brand">{{.LegalName}}</div></div>
@@ -18,8 +18,8 @@
   </table>
   <div class="part">
     <div style="flex:1">Interest Rate @{{.InterestRate}} % p.a.{{if gt (len .Slabs) 1}} Make early payments to avail lower interest rates as below{{end}}</div>
-    <div style="width:130px"><b>Customer Photo</b><div class="ph" style="margin-top:4px">{{with .CustomerPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div></div>
-    <div style="width:130px"><b>Ornaments Photo</b><div class="ph" style="margin-top:4px">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div></div>
+    <div style="width:130px"{{if and $.ShowImages (not $.CustomerPhoto)}} class="dp-hide"{{end}}><b>Customer Photo</b><div class="ph" style="margin-top:4px">{{with .CustomerPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div></div>
+    <div style="width:130px"{{if and $.ShowImages (not $.OverallPhoto)}} class="dp-hide"{{end}}><b>Ornaments Photo</b><div class="ph" style="margin-top:4px">{{with .OverallPhoto}}<img src="{{.}}" alt="">{{else}}photo{{end}}</div></div>
     <div style="width:110px"><b>QR Code</b><div class="ph" style="margin-top:4px">{{with .QR}}<img src="{{.}}" alt="">{{else}}QR{{end}}</div></div>
   </div>
   <table style="border-top:0">

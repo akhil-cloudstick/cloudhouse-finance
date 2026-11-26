@@ -2,6 +2,7 @@
 <h1>{{.LenderName}}</h1>
 <h2><span style="white-space:pre-line">{{.LenderAddressShort}}</span><br>KML Reg No: {{.LenderRegNo}}</h2>
 
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <table style="border:none;margin:8px 0">
 <tr>
 <td style="border:none;width:50%">ITEM NAME: {{.ItemNames}}<br>ITEM Weight: {{.ItemWeights}}</td>
@@ -11,6 +12,7 @@
 
 <p>CUSTOMER NAME: {{.CustomerName}}<br>CUSTOMER MOB NO: {{.Mobile}}</p>
 <p>AMOUNT: {{.PrincipalAmount}}</p>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 {{if .Distribution}}<table style="margin:4px 0 10px">
 <thead><tr><th>Date</th><th>Particulars</th><th class="num">Amount (Rs.)</th></tr></thead>
 <tbody>
@@ -42,4 +44,15 @@ I, <b>{{.CustomerName}}</b>, undertake to pay the interest on the loan of Rs. <b
 <p>Ornaments received back without any damage.</p>
 <p>Date: {{.Blank}} &nbsp; Name: {{.CustomerName}} &nbsp; Signature: {{.Blank}}</p>
 </div>
+{{if .OrnPage}}<div class="orn-page">
+<h3>ORNAMENT DETAILS</h3>
+<p>Loan No. {{.LoanNumber}} &nbsp; · &nbsp; Customer: {{.CustomerName}} &nbsp; · &nbsp; Date: {{.DateDisplay}}</p>
+<table>
+<thead><tr><th>#</th><th>Ornament</th><th>Purity</th><th class="num">Qty</th><th class="num">Gross Wt (g)</th><th class="num">Net Wt (g)</th><th class="num">Value (Rs.)</th><th>Photos</th></tr></thead>
+<tbody>
+{{range $i, $o := .OrnRows}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{$o.Quantity}}</td><td class="num">{{$o.Gross}}</td><td class="num">{{$o.Net}}</td><td class="num">{{$o.Value}}</td><td class="ph">{{range $o.Photos}}<img src="{{.}}" alt="">{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+{{with .OverallPhoto}}<div class="overall"><b>Overall photo of the pledged ornaments</b><br><img src="{{.}}" alt=""></div>{{end}}
+</div>{{end}}
 </body></html>

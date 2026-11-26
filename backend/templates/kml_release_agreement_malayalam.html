@@ -14,6 +14,7 @@
     </td>
   </tr>
 </table>
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <p><b>ക്രമ നമ്പർ:</b> {{.LoanNumber}}</p>
 
 <p>
@@ -27,6 +28,7 @@
   <tr><td><b>ആകെ തുക:</b></td><td class="num">{{.ReturnedAmount}}/-</td></tr>
 </table>
 <p>({{.AmountWordsLine}})</p>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 
 <table>
   <thead><tr><th>ഇനത്തിന്റെ പേര്</th><th class="num">എണ്ണം</th><th>ലോഹം</th><th class="num">ആകെ തൂക്കം</th><th class="num">അറ്റ തൂക്കം</th><th class="num">തനി തൂക്കം</th><th class="num">മൂല്യം</th></tr></thead>

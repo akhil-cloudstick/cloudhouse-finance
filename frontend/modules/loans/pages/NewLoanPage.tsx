@@ -22,7 +22,7 @@ import { searchActiveSchemesPage } from "@/modules/schemes/services/schemeServic
 import { type SchemeView } from "@/modules/schemes/types/scheme-types";
 import { searchOrnamentTypesPage, createOrnamentType, deleteOrnamentType } from "@/modules/ornament-types/services/ornamentTypeService";
 import { type BackendOrnamentType } from "@/modules/ornament-types/types/ornament-type-types";
-import { createLoan, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber, getLoanByNumber, updateLoan, previewLoanEdit, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage, type LedgerEditDependent, type LedgerFollowingEntry } from "@/modules/loans/services/loanService";
+import { createLoan, saveDraft, updateDraft, listDrafts, deleteDraft, getNextLoanNumber, getLoanByNumber, updateLoan, previewLoanEdit, addOrnament, updateOrnament, deleteOrnament, addOrnamentImage, deleteOrnamentImage, type LedgerEditDependent, type LedgerFollowingEntry } from "@/modules/loans/services/loanService";
 import { type BackendLoanDraft, type SaveDraftInput, type LoanView } from "@/modules/loans/types/loan-types";
 import { FollowingEntriesTable } from "@/modules/loans/components/FollowingEntriesTable";
 import { InterestChangesTable, type InterestChangeView } from "@/modules/loans/components/InterestChangesTable";
@@ -74,7 +74,7 @@ import { navigate } from "@/common/services/appRoutes";
 // NetWeight × rate with no quantity factor — this frontend calc was the
 // one out of step, not the backend.
 // Edit mode: `id` is the saved ornament this row stands for (none for one added in this edit) and `saved` its photos
-// as saved — those can't be removed here, only photos added in this edit.
+// as saved. A saved photo taken out of `imgs` is detached from the ornament on Save.
 type OrnRow = { n: string; p: string; w: number; lessWt: number; netW: number; q: number; imgs?: string[]; id?: number; saved?: string[] };
 const blankOrnRow = (): OrnRow => ({ n: "", p: "22K", w: 0, lessWt: 0, netW: 0, q: 1 });
 
@@ -677,7 +677,6 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
 		}
 	}
 	function delOrnImg(i: number, url: string) {
-    if (rows[i]?.saved?.includes(url)) { toast("A saved photo cannot be removed here, only photos added in this edit"); return; }
 		setRows((rs) => rs.map((r, idx) => {
 			if (idx !== i) return r;
 			const imgs = (r.imgs ?? []).filter((u) => u !== url);
@@ -941,6 +940,7 @@ export function NewLoanPage({ customerId, editLoanNumber }: NewLoanPageProps = {
         const input = { name: r.n.trim(), purity: r.p, grossWeight: r.w, deductionWeight: r.lessWt, quantity: r.q };
         if (r.id != null) {
           await updateOrnament(r.id, input);
+          for (const url of (r.saved ?? []).filter((u) => !(r.imgs ?? []).includes(u))) await deleteOrnamentImage(r.id, url);
           for (const url of (r.imgs ?? []).filter((u) => !(r.saved ?? []).includes(u))) await addOrnamentImage(r.id, url);
         } else {
           await addOrnament(ln.numericId, { ...input, ...(r.imgs?.length ? { images: r.imgs } : {}) });

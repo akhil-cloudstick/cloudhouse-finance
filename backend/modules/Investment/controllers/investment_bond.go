@@ -5,7 +5,6 @@ import (
 	"cloudhouse/backend/config"
 	"cloudhouse/backend/modules/Investment/models"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"html/template"
 	"log"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 )
 
@@ -36,6 +36,8 @@ type InvestmentBondData struct {
 	LegalName           string
 	AddressLine         string
 	LenderSignature     template.HTML
+	// DocPhotos is the investor photo column (module print_images); "" prints nothing.
+	DocPhotos template.HTML
 }
 
 type investmentBondTemplateData struct {
@@ -56,6 +58,7 @@ type investmentBondTemplateData struct {
 	ProjectedReturn     string
 	GeneratedOn         string
 	LenderSignature     template.HTML
+	DocPhotos           template.HTML
 }
 
 func findTemplatesDir() string {
@@ -165,6 +168,7 @@ func renderInvestmentBondHTML(data InvestmentBondData) (string, error) {
 		ProjectedReturn:     bondFmtAmount(projected),
 		GeneratedOn:         bondFmtDate(time.Now()),
 		LenderSignature:     data.LenderSignature,
+		DocPhotos:           data.DocPhotos,
 	}
 	var sb strings.Builder
 	if err := bondTemplate.Execute(&sb, struct {
@@ -184,7 +188,7 @@ td.num,th.num{text-align:right}
 .sig-row>div{flex:1;text-align:center;font-size:12px}
 .sig-line{display:flex;align-items:flex-end;justify-content:center;border-bottom:1px solid #333;height:48px}
 .sig-line .sig-img{max-height:44px;max-width:170px;display:block}
-`)}); err != nil {
+` + common.DocPhotosStyle)}); err != nil {
 		return "", fmt.Errorf("debenture subscription agreement: render template: %w", err)
 	}
 	return sb.String(), nil
@@ -228,30 +232,45 @@ func RenderInvestmentBondPDF(data InvestmentBondData) ([]byte, error) {
 	defer cancel()
 	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	encoded := base64.StdEncoding.EncodeToString([]byte(htmlStr))
 	var pdfBytes []byte
-	err = chromedp.Run(ctx,
-		chromedp.Navigate("data:text/html;charset=utf-8;base64,"+encoded),
-		chromedp.WaitReady("body"),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			buf, _, err := page.PrintToPDF().
-				WithPrintBackground(true).
-				WithPreferCSSPageSize(false).
-				WithPaperWidth(8.27).
-				WithPaperHeight(11.69).
-				WithMarginTop(0.75).
-				WithMarginBottom(0.55).
-				WithMarginLeft(0.6).
-				WithMarginRight(0.6).
-				WithDisplayHeaderFooter(true).
-				WithHeaderTemplate(`
+	printPDF := func(ctx context.Context) ([]byte, error) {
+		buf, _, err := page.PrintToPDF().
+			WithPrintBackground(true).
+			WithPreferCSSPageSize(false).
+			WithPaperWidth(8.27).
+			WithPaperHeight(11.69).
+			WithMarginTop(0.75).
+			WithMarginBottom(0.55).
+			WithMarginLeft(0.6).
+			WithMarginRight(0.6).
+			WithDisplayHeaderFooter(true).
+			WithHeaderTemplate(`
 <div style="font-size:9px;width:100%;text-align:center;color:#8a6d1f;font-family:Arial,sans-serif;padding-top:6px">
 </div>`).
-				WithFooterTemplate(`
+			WithFooterTemplate(`
 <div style="font-size:8px;width:100%;text-align:center;color:#888;font-family:Arial,sans-serif;padding-bottom:6px">
 Page <span class="pageNumber"></span> of <span class="totalPages"></span>
 </div>`).
-				Do(ctx)
+			Do(ctx)
+		return buf, err
+	}
+	err = chromedp.Run(ctx,
+		// Set the document directly rather than navigating to a data: URL — Chrome caps those
+		// at about 2 MB, which an inlined photo can exceed.
+		chromedp.Navigate("about:blank"),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			tree, err := page.GetFrameTree().Do(ctx)
+			if err != nil {
+				return err
+			}
+			return page.SetDocumentContent(tree.Frame.ID, htmlStr).Do(ctx)
+		}),
+		chromedp.WaitReady("body"),
+		chromedp.Evaluate(`Promise.all(Array.from(document.images).map(function(i){return i.complete?1:new Promise(function(r){i.onload=i.onerror=r})}))`, nil, func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }),
+		// The investor photo may never add a page: keep it only at a size that fits.
+		chromedp.ActionFunc(func(ctx context.Context) error { return common.FitDocPhotos(ctx, printPDF) }),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			buf, err := printPDF(ctx)
 			if err != nil {
 				return err
 			}
@@ -288,7 +307,17 @@ func investmentBondDataFor(ctx context.Context, inv *models.Investment) Investme
 		LegalName:           legalName,
 		AddressLine:         addressLine,
 		LenderSignature:     signature,
+		DocPhotos:           investorDocPhotos(ctx, inv),
 	}
+}
+
+// investorDocPhotos is the investor's photo column when the business has the print_images module.
+func investorDocPhotos(ctx context.Context, inv *models.Investment) template.HTML {
+	tid, ok := config.TenantFromContext(ctx)
+	if !ok || !common.PrintImagesOn(ctx) {
+		return ""
+	}
+	return common.DocPhotosHTML(common.UploadDataURL(tid, inv.Customer.PhotoURL))
 }
 
 func renderInvestmentBondPDFForInvestment(ctx context.Context, investmentID uint, branchID *uint) ([]byte, string, error) {

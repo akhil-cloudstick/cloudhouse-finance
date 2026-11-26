@@ -59,6 +59,8 @@ type ReleaseAgreementData struct {
 	LenderSignature template.HTML
 	KMLRegNo        string
 	Policy          string
+	// DocPhotos is the customer/jewel photo column (module print_images); "" prints nothing.
+	DocPhotos template.HTML
 }
 
 type releaseAgreementTemplateData struct {
@@ -185,7 +187,7 @@ func renderReleaseAgreementHTML(data ReleaseAgreementData, lang string) (string,
 	}
 	td := releaseAgreementTemplateData{
 		ReleaseAgreementData: data,
-		Style:                template.CSS(releaseAgreementStyle(lang)),
+		Style:                template.CSS(releaseAgreementStyle(lang) + common.DocPhotosStyle),
 		Blank:                releaseBlank,
 		LenderName:           firstNonEmpty(data.LegalName, "CHITTILAPILLY THOMMANA FINANCIERS AND INVESTMENTS"),
 		LenderAddress:        orBlank(data.AddressLine),
@@ -274,6 +276,7 @@ func releaseAgreementDataForLoan(ctx context.Context, l *models.Loan) ReleaseAgr
 		KMLRegNo:        kmlRegNo,
 		Policy:          policy,
 		LenderSignature: lenderSignature(ctx),
+		DocPhotos:       loanDocPhotos(ctx, l, true),
 	}
 }
 

@@ -2,6 +2,7 @@
 <h1>{{.LenderName}}</h1>
 <h2><span style="white-space:pre-line">{{.LenderAddressShort}}</span><br>കെ.എം.എൽ. രജിസ്റ്റർ നമ്പർ: {{.LenderRegNo}}</h2>
 
+{{if .DocPhotos}}<div class="doc-photo-row"><div class="doc-photo-main">{{end}}
 <table style="border:none;margin:8px 0">
 <tr>
 <td style="border:none;width:50%">ആഭരണത്തിന്റെ പേര്: {{.ItemNames}}<br>ആഭരണത്തിന്റെ തൂക്കം: {{.ItemWeights}}</td>
@@ -11,6 +12,7 @@
 
 <p>ഇടപാടുകാരന്റെ പേര്: {{.CustomerName}}<br>മൊബൈൽ നമ്പർ: {{.Mobile}}</p>
 <p>തുക: {{.PrincipalAmount}} രൂപ</p>
+{{if .DocPhotos}}</div>{{.DocPhotos}}</div>{{end}}
 {{if .Distribution}}<table style="margin:4px 0 10px">
 <thead><tr><th>തിയ്യതി</th><th>വിവരണം</th><th class="num">തുക (രൂപ)</th></tr></thead>
 <tbody>
@@ -44,4 +46,15 @@
 <p>കേടുപാടുകളില്ലാതെ ആഭരണങ്ങൾ തിരികെ ലഭിച്ചു.</p>
 <p>തിയ്യതി: {{.Blank}} &nbsp; പേര്: {{.CustomerName}} &nbsp; ഒപ്പ്: {{.Blank}}</p>
 </div>
+{{if .OrnPage}}<div class="orn-page">
+<h3>ആഭരണ വിവരങ്ങൾ</h3>
+<p>വായ്പ നമ്പർ: {{.LoanNumber}} &nbsp; · &nbsp; ഇടപാടുകാരൻ: {{.CustomerName}} &nbsp; · &nbsp; തിയ്യതി: {{.DateDisplay}}</p>
+<table>
+<thead><tr><th>#</th><th>ആഭരണം</th><th>പരിശുദ്ധി</th><th class="num">എണ്ണം</th><th class="num">ആകെ തൂക്കം (ഗ്രാം)</th><th class="num">അറ്റ തൂക്കം (ഗ്രാം)</th><th class="num">മൂല്യം (രൂപ)</th><th>ഫോട്ടോ</th></tr></thead>
+<tbody>
+{{range $i, $o := .OrnRows}}<tr><td>{{inc $i}}</td><td>{{$o.Name}}</td><td>{{$o.Purity}}</td><td class="num">{{$o.Quantity}}</td><td class="num">{{$o.Gross}}</td><td class="num">{{$o.Net}}</td><td class="num">{{$o.Value}}</td><td class="ph">{{range $o.Photos}}<img src="{{.}}" alt="">{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+{{with .OverallPhoto}}<div class="overall"><b>പണയം വെച്ച ആഭരണങ്ങളുടെ മൊത്തം ഫോട്ടോ</b><br><img src="{{.}}" alt=""></div>{{end}}
+</div>{{end}}
 </body></html>

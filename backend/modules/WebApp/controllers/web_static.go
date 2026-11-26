@@ -226,6 +226,18 @@ func rewriteForSuperAdminHost(urlPath string) string {
 	}
 }
 
+// cleanSuperAdminURL returns the clean superadmin-subdomain URL for an old
+// /superadmin page URL, or "" when the path needs no redirect.
+func cleanSuperAdminURL(urlPath string) string {
+	switch strings.TrimRight(urlPath, "/") {
+	case "/superadmin":
+		return "/"
+	case "/superadmin/login":
+		return "/login"
+	}
+	return ""
+}
+
 func Register(router *echo.Echo, root string) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -243,6 +255,13 @@ func Register(router *echo.Echo, root string) {
 		urlPath := c.Request().URL.Path
 		switch {
 		case isSuperAdminHost(host):
+			// The subdomain already says "superadmin": send old /superadmin URLs to the clean ones.
+			if clean := cleanSuperAdminURL(urlPath); clean != "" {
+				if q := c.Request().URL.RawQuery; q != "" {
+					clean += "?" + q
+				}
+				return c.Redirect(http.StatusMovedPermanently, clean)
+			}
 			urlPath = rewriteForSuperAdminHost(urlPath)
 		case isLandingHost(host):
 			urlPath = rewriteForLandingHost(urlPath)
