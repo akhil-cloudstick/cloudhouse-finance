@@ -55,7 +55,7 @@ moved from a blanket 400 to a more accurate code — 409 for state conflicts
 live endpoints under real traffic — the automated checks are solid but nobody
 has clicked through the running app since this landed.
 
-### Parts C/D — mobile apps (`customer-mobile/`, `mobile/`). COMPLETE.
+### Parts C/D — mobile apps (`mobile/customer/`, `mobile/admin/`). COMPLETE.
 
 Both apps were already close to the standard (single HTTP client, one service
 file per entity, no dead files). Changes:
@@ -65,7 +65,7 @@ file per entity, no dead files). Changes:
   confirmation responses would have silently resolved to `undefined`).
 - Switched every service file to the enveloped helper in lockstep with each
   backend module's migration (`goldRate.ts`, `notifications.ts`, `profile.ts`,
-  `auth.ts`, `loans.ts`, `payments.ts` on customer-mobile; `branches.ts`,
+  `auth.ts`, `loans.ts`, `payments.ts` on mobile/customer; `branches.ts`,
   `banks.ts`, `lockers.ts`, `employees.ts`, `ornamentTypes.ts`,
   `purityStandards.ts`, `settings.ts`, `goldRates.ts`, `reminders.ts`,
   `packets.ts`, `schemes.ts`, `cash.ts`, `reports.ts`, `auth.ts`, `customers.ts`,
@@ -186,7 +186,7 @@ cd frontend && npx tsc --noEmit && npm run build
 cd mobile && npx tsc --noEmit
 
 # Customer mobile
-cd customer-mobile && npx tsc --noEmit
+cd mobile/customer && npx tsc --noEmit
 ```
 
 All four should be clean as of the end of this session.

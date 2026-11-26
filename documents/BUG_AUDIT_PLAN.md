@@ -17,7 +17,7 @@ Audited 2026-10-31 on branch `adithyan-productV2`. Two QA sheets: **WEB** (Bug_0
 | Open | ~42 | 18 |
 | Verify by hand | ~20 | 4 |
 
-Paths: `BE` = `backend/modules/<Module>/controllers`, `FE` = `frontend/modules`, `MO` = `mobile/src/modules`.
+Paths: `BE` = `backend/modules/<Module>/controllers`, `FE` = `frontend/modules`, `MO` = `mobile/admin/src/modules`.
 
 ---
 

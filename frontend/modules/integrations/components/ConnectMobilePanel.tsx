@@ -9,8 +9,8 @@ import { createConnectCode } from "@/modules/branding/services/brandingService";
 
 /* The staff mobile app has no business of its own any more — it starts on a
  * scanner and learns which business to sign in to from this QR (see
- * mobile/app/(auth)/connect.tsx). The payload uses the staff app's own URL
- * scheme (mobile/app.json `scheme: "cloudhouse"`), so a phone's camera app
+ * mobile/admin/app/(auth)/connect.tsx). The payload uses the staff app's own URL
+ * scheme (mobile/admin/app.json `scheme: "cloudhouse"`), so a phone's camera app
  * opens the staff app straight onto that screen too.
  *
  * Like WhatsApp's "link a device", the QR carries a fresh 6-character code

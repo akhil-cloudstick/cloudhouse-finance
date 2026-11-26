@@ -1,4 +1,4 @@
-// Metro config — mirrors mobile/metro.config.js. On Windows, Metro's
+// Metro config — mirrors mobile/admin/metro.config.js. On Windows, Metro's
 // fallback file watcher (used when Watchman isn't installed) can crash with
 // ENOENT if it tries to watch a transient `.debugger-shell-*` folder that
 // @expo/cli's bundled @react-native debugger-frontend tooling downloads/

@@ -229,7 +229,7 @@ export type Loan = {
   status: string;
   openedDate: string;
   dueDate: string;
-  // Free text captured at creation (mobile/app/(tabs)/new-loan.tsx) —
+  // Free text captured at creation (mobile/admin/app/(tabs)/new-loan.tsx) —
   // anything the standard fields don't cover, carried through onto the
   // printed Statement of Account.
   additionalInfo?: string;
@@ -402,7 +402,7 @@ export type BondLang = "en" | "ml" | "gu" | "ta";
 // StartIndemnityBondSign doc comment):
 //   - "open": no extra delivery — this screen opens the URL itself.
 //   - "whatsapp": also sent to the customer's own WhatsApp.
-//   - "dashboard": also pushed as an action card on customer-mobile.
+//   - "dashboard": also pushed as an action card on mobile/customer.
 export type BondDeliverBy = "open" | "whatsapp" | "dashboard";
 export type IndemnityBondEsignStart = {
   id: string;

@@ -267,7 +267,7 @@ the actual git history at the time of writing; update it as new commits land.
 - **Multi-tenancy, Step 5: the borrower app audited, and given a lender
   code.** The audit found the existing ownership checks hold —
   `customerOwnedLoan` plus each handler's own `CustomerID` comparison — but
-  turned up the same lockout the staff frontend had: `customer-mobile`'s
+  turned up the same lockout the staff frontend had: `mobile/customer`'s
   `requestOtp`/`verifyOtp` sent no `businessCode`, so a second lender would
   lock every borrower out with "please open your lender's app link" and no way
   to answer it.
@@ -340,7 +340,7 @@ the actual git history at the time of writing; update it as new commits land.
     already asserts (`TestSessionsWithoutABusinessAreRejected` checks that a
     business hint in the query string or an `X-Tenant-ID`/`X-Business-Code`
     header changes nothing).
-  - Not done here: the **borrower app** (`customer-mobile/`) is a separate
+  - Not done here: the **borrower app** (`mobile/customer/`) is a separate
     client and still needs the same treatment. Its `/customer/auth/*`
     endpoints already accept `businessCode`, so it is client work — tracked
     under Step 5.

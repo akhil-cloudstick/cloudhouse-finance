@@ -14,7 +14,7 @@ import { NEUTRAL_DOCUMENT_TITLE } from "@/common/config/theme";
  * tracked — so it takes the display role that Bodoni Moda used to hold.
  * Bodoni was dropped outright: its thick/thin contrast belonged to the old
  * jewellery brand, and mobile had already aliased it away as unreadable at
- * phone size (see mobile/src/common/theme/typography.ts).
+ * phone size (see mobile/admin/src/common/theme/typography.ts).
  *
  * Unlike the fonts they replace, these are consumed through their CSS
  * variables — app.css and login.css reference var(--font-sans)/(--font-display)

@@ -1,7 +1,7 @@
 # One mobile build, one common backend domain, many tenants
 
 Audience: backend/DevOps engineer pulling this onto the server. It explains how
-the staff mobile app (`mobile/`) reaches the real backend with a **single build
+the staff mobile app (`mobile/admin/`) reaches the real backend with a **single build
 shared by every tenant**, what the server must provide, and every endpoint the
 connect + sign-in flow uses (request, response, errors).
 
@@ -56,12 +56,12 @@ name that points at the same server and the same Go process.
 
 | Concern | Where |
 |---|---|
-| API host | `mobile/src/api/config.ts` — `BACKEND_URL` (hardcoded fallback) and `API_BASE_URL = EXPO_PUBLIC_API_BASE_URL \|\| BACKEND_URL` |
-| Build-time host | `mobile/eas.json` -> `build.base.env.EXPO_PUBLIC_API_BASE_URL` |
-| Business code storage | `mobile/src/auth/businessCode.ts` — SecureStore key `cloudhousestaff_business_code`; validated `^[a-z0-9][a-z0-9-]*$`, max 60 chars |
-| Connect screen | `mobile/app/(auth)/connect.tsx` |
+| API host | `mobile/admin/src/api/config.ts` — `BACKEND_URL` (hardcoded fallback) and `API_BASE_URL = EXPO_PUBLIC_API_BASE_URL \|\| BACKEND_URL` |
+| Build-time host | `mobile/admin/eas.json` -> `build.base.env.EXPO_PUBLIC_API_BASE_URL` |
+| Business code storage | `mobile/admin/src/auth/businessCode.ts` — SecureStore key `cloudhousestaff_business_code`; validated `^[a-z0-9][a-z0-9-]*$`, max 60 chars |
+| Connect screen | `mobile/admin/app/(auth)/connect.tsx` |
 | Connect-code parsing | `parseConnectQr` — accepts `cloudhouse://connect?c=<code>` or a bare 6-char code (alphabet `ABCDEFGHJKMNPQRSTUVWXYZ2-9`) |
-| HTTP client | `mobile/src/api/client.ts` — adds `Authorization: Bearer <token>` unless `skipAuth`; 20 s timeout |
+| HTTP client | `mobile/admin/src/api/client.ts` — adds `Authorization: Bearer <token>` unless `skipAuth`; 20 s timeout |
 | Response unwrapping | `apiRequestEnveloped` — returns `data` (or `message`) from the envelope |
 
 The tenant is **never** part of the host. Once the host is set, the same
@@ -69,10 +69,10 @@ binary works for every tenant.
 
 ### Client changes needed for production (checklist)
 
-1. `mobile/src/api/config.ts`: set `BACKEND_URL` to `https://api.cloudhousefinance.com/api/v1`.
-2. `mobile/eas.json` `build.base.env.EXPO_PUBLIC_API_BASE_URL`: same value.
-3. `mobile/eas.json`: **remove** `EXPO_PUBLIC_DEFAULT_BUSINESS_CODE` — a shared build must not default to any tenant (grep shows it is not read anywhere in `mobile/src`; it is a leftover).
-4. Do not ship `mobile/.env.local` values: it points at an ngrok URL and is for local dev only.
+1. `mobile/admin/src/api/config.ts`: set `BACKEND_URL` to `https://api.cloudhousefinance.com/api/v1`.
+2. `mobile/admin/eas.json` `build.base.env.EXPO_PUBLIC_API_BASE_URL`: same value.
+3. `mobile/admin/eas.json`: **remove** `EXPO_PUBLIC_DEFAULT_BUSINESS_CODE` — a shared build must not default to any tenant (grep shows it is not read anywhere in `mobile/admin/src`; it is a leftover).
+4. Do not ship `mobile/admin/.env.local` values: it points at an ngrok URL and is for local dev only.
 5. Build once: `eas build --profile production --platform android|ios`.
 
 ---
@@ -212,7 +212,7 @@ Errors: `404 this code is invalid or has expired — generate a new one from the
 
 Defaults when unknown / unset (`branding/model.go`): name `CloudHouse Finance`, `brandColor` `#6054bf`, font `inter`, scales `default`, `logoDisplay` `transparent`, empty `logoUrl`.
 
-`logoUrl` is **server-root-relative** or empty. The app joins it to the origin (`API_ORIGIN` in `mobile/src/api/config.ts` = base URL minus `/api/v1`), so the logo is fetched from the same common host:
+`logoUrl` is **server-root-relative** or empty. The app joins it to the origin (`API_ORIGIN` in `mobile/admin/src/api/config.ts` = base URL minus `/api/v1`), so the logo is fetched from the same common host:
 `GET /public/branding/:code/logo` (public, image bytes, `Cache-Control: public, max-age=3600`, `404 no logo for this business` when absent).
 
 Host-based variant (used by the web login page, **not** by the mobile app): `GET /public/branding` resolves the tenant from the Host header and returns the defaults for any host that is not a tenant subdomain (including `api.`).
@@ -384,4 +384,4 @@ reconnect to a different tenant.
 1. Tenant creation rejects codes in `ReservedHostLabels` (`api`, `www`, `admin`, `superadmin`).
 2. Number of backend instances; if more than one, handle the in-memory connect-code store (section 4.4).
 3. Proxy forwards the original `Host` header and accepts `api.cloudhousefinance.com`.
-4. `mobile/src/api/config.ts` and `mobile/eas.json` updated to the final API host before the production build.
+4. `mobile/admin/src/api/config.ts` and `mobile/admin/eas.json` updated to the final API host before the production build.

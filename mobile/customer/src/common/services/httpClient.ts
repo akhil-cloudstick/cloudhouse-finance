@@ -13,7 +13,7 @@ const PROD_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://10.0.2.2:8090/a
 export const RAZORPAY_CHECKOUT_URL = "https://checkout.razorpay.com/v1/checkout.js";
 
 // Single place to change the backend base URL — same dev-proxy convention
-// as mobile/src/common/services/httpClient.ts, pointed at the customer-scoped API base path
+// as mobile/admin/src/common/services/httpClient.ts, pointed at the customer-scoped API base path
 // instead of the staff one. Point this at your machine's LAN IP (not
 // localhost — the Android emulator/device is a separate host) while
 // developing, e.g. "http://192.168.1.23:8090/api/v1/customer".
@@ -78,7 +78,7 @@ type RequestOptions = {
   skipAuth?: boolean;
 };
 
-// Same apiRequest fetch-wrapper pattern as mobile/src/common/services/httpClient.ts, pointed
+// Same apiRequest fetch-wrapper pattern as mobile/admin/src/common/services/httpClient.ts, pointed
 // at the customer-scoped API_BASE_URL (/api/v1/customer).
 // apiUrl is the full URL of a customer API path under the backend's current contract, for downloads that
 // cannot go through apiRequest (the signed-in customer comes from the last token read).
@@ -119,7 +119,7 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
 
 // apiRequestEnveloped is apiRequest's counterpart for backend modules
 // migrated to the house response envelope ({success, data} / {success,
-// error}) — see backend/internal/platform/httpx and mobile/src/common/services/httpClient.ts
+// error}) — see backend/internal/platform/httpx and mobile/admin/src/common/services/httpClient.ts
 // (the staff app's identical helper). No customer-app endpoint has migrated
 // yet (branch, the first migrated module, is staff-only) — this exists so
 // both apps' httpClient.ts stay in lockstep, ready for the first customer-facing

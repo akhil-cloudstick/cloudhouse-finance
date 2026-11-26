@@ -5,7 +5,7 @@ Android-only Expo (React Native + expo-router) app for customer self-service. Th
 ## Running it
 
 ```bash
-cd customer-mobile
+cd mobile/customer
 npm install
 npx expo start
 ```
@@ -31,4 +31,4 @@ Make sure the backend is running (`cd backend && go run .`) and migrated (`go ru
 
 ## Conventions
 
-Mirrors `mobile/` (the staff app) closely: same theme (`src/theme/colors.ts`, `typography.ts`), same component set (`ThemedText`, `Card`, `GoldButton`, `GoldTextInput`, `BottomSheetModal`/`SheetHost`, `Icon`, `FloatingHeader`, `AppTabBar`), same `apiRequest` fetch-wrapper pattern in `src/api/client.ts`. The customer JWT scheme (`type: "customer"`) and its middleware are entirely separate from the staff app's — a customer token is never valid on a staff route and vice versa.
+Mirrors `mobile/admin/` (the staff app) closely: same theme (`src/theme/colors.ts`, `typography.ts`), same component set (`ThemedText`, `Card`, `GoldButton`, `GoldTextInput`, `BottomSheetModal`/`SheetHost`, `Icon`, `FloatingHeader`, `AppTabBar`), same `apiRequest` fetch-wrapper pattern in `src/api/client.ts`. The customer JWT scheme (`type: "customer"`) and its middleware are entirely separate from the staff app's — a customer token is never valid on a staff route and vice versa.

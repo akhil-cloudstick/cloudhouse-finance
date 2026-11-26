@@ -18,7 +18,7 @@ import * as SecureStore from "./secureStorage";
 const BUSINESS_CODE_KEY = "cloudhousestaff_business_code";
 
 /* Same rule as the web app's slug (frontend/common/services/tenantSession.ts)
- * and the customer app's lender code (customer-mobile/src/common/services/businessCode.ts):
+ * and the customer app's lender code (mobile/customer/src/common/services/businessCode.ts):
  * lowercase alphanumerics and dashes. Validated so a stray value is never
  * sent as a business code. */
 const CODE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;

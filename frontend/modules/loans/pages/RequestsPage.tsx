@@ -34,7 +34,7 @@ import { fmtDate } from "@/common/utils/format";
 import { singleFlight } from "@/common/utils/singleFlight";
 
 /* Real "Extensions & Release" review page — staff approve/reject the
- * extension/release requests logged by the customer-mobile app (or by staff
+ * extension/release requests logged by the mobile/customer app (or by staff
  * on a customer's behalf via LoanDetail.tsx). Both types now go through
  * their own staged approval chain (Extension: Loan Officer -> Branch
  * Manager -> Management; Release: Manager -> Management), reviewed via the

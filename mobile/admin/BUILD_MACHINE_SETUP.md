@@ -45,7 +45,7 @@ Get these from the account owner over a private channel (never in git, never in 
 
 **A2. Put the Expo projects in a shared Expo organization**
 1. On https://expo.dev, make sure the organization `cloudhouse-team` exists (the customer app already uses it).
-2. The staff app (`mobile/app.json`, slug `ambikagold`) has no `owner` field, so it belongs to a personal account. Transfer it to `cloudhouse-team` from the project's settings page on expo.dev, then add `"owner": "cloudhouse-team"` to `mobile/app.json`.
+2. The staff app (`mobile/admin/app.json`, slug `ambikagold`) has no `owner` field, so it belongs to a personal account. Transfer it to `cloudhouse-team` from the project's settings page on expo.dev, then add `"owner": "cloudhouse-team"` to `mobile/admin/app.json`.
 3. Invite each developer under **Organization → Members** with the **Developer** role.
 4. For a shared/CI build PC with no personal login: **Organization → Access tokens → create robot user token** (role Developer). That token is the machine's `EXPO_TOKEN`.
 
@@ -103,13 +103,13 @@ STEP 1 — Check prerequisites
   https://nodejs.org and stop)
 - Run: git --version
 - Confirm the current folder is the gold-app repo root (it contains the folders
-  `mobile`, `customer-mobile`, `backend`, `frontend`). If not, ask me for the path.
+  `mobile/admin`, `mobile/customer`, `backend`, `frontend`). If not, ask me for the path.
 
 STEP 2 — Install dependencies and the EAS CLI
 - Run: npm install -g eas-cli
-- Run: eas --version   (must be >= 24.8.0, as required by mobile/eas.json)
+- Run: eas --version   (must be >= 24.8.0, as required by mobile/admin/eas.json)
 - Run: cd mobile && npm install   (then return to the repo root)
-- Run: cd customer-mobile && npm install   (then return to the repo root)
+- Run: cd mobile/customer && npm install   (then return to the repo root)
 
 STEP 3 — Store the App Store Connect API key outside the repo
 - Ask me for the full path of the AuthKey_XXXXXX.p8 file I received.
@@ -160,7 +160,7 @@ STEP 6 — Reload and verify
 - Run: cd mobile && eas project:info   → must show the project
   (id 2eefa477-9d29-496f-9e91-06261ed62690). If it says no access, tell me the Expo
   account needs to be invited to the organization that owns the project.
-- Run: cd customer-mobile && eas project:info → must show the project
+- Run: cd mobile/customer && eas project:info → must show the project
   (id 1fb4bd03-4939-4a9e-9142-c26294cdedbb).
 
 STEP 7 — Test build (ask me before starting; builds use EAS build quota)
@@ -173,11 +173,11 @@ STEP 7 — Test build (ask me before starting; builds use EAS build quota)
     * It gives a build URL on expo.dev.
 - If it fails with a credentials error, report the exact error message to me and do not
   try to create new certificates — the account owner must fix credentials on EAS
-  (Part A3 of mobile/BUILD_MACHINE_SETUP.md).
+  (Part A3 of mobile/admin/BUILD_MACHINE_SETUP.md).
 
 STEP 8 — Summary
 Print a short checklist of what was done with ✓ / ✗ for each step, the Expo account
-in use, and the daily build commands from Part C of mobile/BUILD_MACHINE_SETUP.md.
+in use, and the daily build commands from Part C of mobile/admin/BUILD_MACHINE_SETUP.md.
 ````
 
 ---
@@ -203,12 +203,12 @@ eas build -p android --profile production --non-interactive
 eas submit -p ios --latest --non-interactive
 ```
 
-**Customer app (`customer-mobile`)**
+**Customer app (`mobile/customer`)**
 
-> Note: `customer-mobile` currently has **no `eas.json`** and **no iOS `bundleIdentifier`** in `app.json`.
-> Before its first iOS build, the account owner must run `eas build:configure` in `customer-mobile`,
+> Note: `mobile/customer` currently has **no `eas.json`** and **no iOS `bundleIdentifier`** in `app.json`.
+> Before its first iOS build, the account owner must run `eas build:configure` in `mobile/customer`,
 > add `ios.bundleIdentifier`, and complete Part A3 for this project too. After that, the same commands
-> as above work inside `customer-mobile`.
+> as above work inside `mobile/customer`.
 
 ---
 
@@ -228,5 +228,5 @@ eas submit -p ios --latest --non-interactive
 ## Security
 
 - The `.p8` key has **Admin** access to App Store Connect. Treat it like a password.
-- It must **never** be in git — `mobile/.gitignore` already ignores `*.p8`; keep it in `C:\keys` or `~/.keys`.
+- It must **never** be in git — `mobile/admin/.gitignore` already ignores `*.p8`; keep it in `C:\keys` or `~/.keys`.
 - If a PC is lost or a developer leaves: **revoke** the key in App Store Connect → Integrations, create a new one, update Part A3, and send the new values to the remaining machines. Remove the person from the Expo organization / revoke their robot token. The Apple ID password never has to change.

@@ -360,7 +360,7 @@ export function LoanDetailPage({ id }: LoanDetailPageProps) {
 	// approver in the chain, say, sitting on this page waiting for their
 	// turn. Without it, that stage only "came online" for them after a
 	// manual reload, since there's no live-push channel for staff pages
-	// (only customer-mobile has one, over internal/notification's
+	// (only mobile/customer has one, over internal/notification's
 	// WebSocket). 20s is frequent enough that a stage change shows up
 	// quickly without a real-time channel, without hammering the loan
 	// endpoint on every open tab.

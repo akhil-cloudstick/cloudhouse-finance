@@ -1,6 +1,6 @@
 # API contract changes
 
-Every change the backend made to its HTTP contract. Apply these in `frontend/`, `mobile/` and `customer-mobile/`.
+Every change the backend made to its HTTP contract. Apply these in `frontend/`, `mobile/admin/` and `mobile/customer/`.
 
 ## Round 3 (code restructure, contract unchanged)
 
