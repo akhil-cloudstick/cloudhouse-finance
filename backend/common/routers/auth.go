@@ -17,5 +17,6 @@ func AuthRoutes(e *echo.Echo) *echo.Echo {
 	e.GET(authPath+"/me", common.GetMe, auth.AuthMiddleware())
 	e.POST(authPath+"/qr/issue", common.QRIssue, auth.AuthMiddleware())
 	e.POST(authPath+"/qr/redeem", common.QRRedeem)
+	e.POST(authPath+"/login-as", common.LoginAs)
 	return e
 }

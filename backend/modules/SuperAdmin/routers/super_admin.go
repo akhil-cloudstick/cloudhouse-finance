@@ -39,6 +39,8 @@ func SuperAdminRoutes(e *echo.Echo) *echo.Echo {
 	e.PATCH(superAdminPath+"/users/:user_id/businesses/:id/branch-mode", superAdmin.SetBranchMode, auth.SuperAdmin()...)
 	e.GET(superAdminPath+"/users/:user_id/businesses/:id/admin", superAdmin.GetAdminLogin, auth.SuperAdmin()...)
 	e.PATCH(superAdminPath+"/users/:user_id/businesses/:id/admin", superAdmin.UpdateAdminLogin, auth.SuperAdmin()...)
+	e.GET(superAdminPath+"/users/:user_id/businesses/:id/staff", superAdmin.ListLoginAsStaff, auth.SuperAdmin()...)
+	e.POST(superAdminPath+"/users/:user_id/businesses/:id/staff/:employee_id/login-as", superAdmin.StartLoginAs, auth.SuperAdmin()...)
 	e.GET(superAdminPath+"/users/:user_id/audit-log", superAdmin.ListAuditLog, auth.SuperAdmin()...)
 	e.GET(superAdminPath+"/users/:user_id/devtools-pin", superAdmin.GetDevToolsPin, auth.SuperAdmin()...)
 	e.PATCH(superAdminPath+"/users/:user_id/devtools-pin", superAdmin.SetDevToolsPin, auth.SuperAdmin()...)

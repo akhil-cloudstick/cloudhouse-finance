@@ -8,7 +8,7 @@
  * the wrong bearer token to a superadmin request. */
 import { apiRawFetch } from "@/common/services/httpClient";
 import { readSuperAdminToken } from "@/modules/superadmin/services/superadminSession";
-import type { LoginResponse, Tier, Business, CreateBusinessInput, PaymentMode, SubscriptionPayment, BusinessOverview, RecordPaymentInput, AuditLogEntry, Catalogue, ProfileInput, ThemeInput, AdminLogin, DesktopReleaseJob, DesktopReleaseHistoryEntry, TriggerDesktopReleaseInput } from "@/modules/superadmin/types/superadmin-types";
+import type { LoginResponse, Tier, Business, CreateBusinessInput, PaymentMode, SubscriptionPayment, BusinessOverview, RecordPaymentInput, AuditLogEntry, Catalogue, ProfileInput, ThemeInput, AdminLogin, LoginAsStaff, LoginAsStart, DesktopReleaseJob, DesktopReleaseHistoryEntry, TriggerDesktopReleaseInput } from "@/modules/superadmin/types/superadmin-types";
 
 export class SuperAdminApiError extends Error {
 	status: number;
@@ -214,6 +214,15 @@ export function setLanguages(id: number, languages: string[], reason: string): P
 
 export function getAdminLogin(id: number): Promise<AdminLogin> {
 	return request<AdminLogin>(`/superadmin/businesses/${id}/admin`);
+}
+
+export function listLoginAsStaff(id: number): Promise<LoginAsStaff[]> {
+	return request<LoginAsStaff[]>(`/superadmin/businesses/${id}/staff`);
+}
+
+/* "Login as" for debugging: returns a one-time code; the console opens the business's own site with it. */
+export function startLoginAs(id: number, employeeId: number): Promise<LoginAsStart> {
+	return request<LoginAsStart>(`/superadmin/businesses/${id}/staff/${employeeId}/login-as`, { method: "POST" });
 }
 
 export function updateAdminLogin(

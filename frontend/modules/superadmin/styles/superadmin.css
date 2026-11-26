@@ -1982,3 +1982,106 @@ body {
 .sa-field.has-err .sa-select-btn {
   border-color: var(--sa-red);
 }
+
+/* "Login as" picker: a plain list instead of a table, so the action button is
+   always on screen (the console tables have a 760px floor and would scroll
+   sideways inside a modal). */
+.sa-modal.sa-loginas { max-width: 600px; }
+.sa-loginas-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius);
+  max-height: min(420px, calc(90vh - 260px));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.sa-loginas-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--sa-line);
+}
+.sa-loginas-row:last-child { border-bottom: 0; }
+.sa-loginas-row:hover { background: var(--sa-side-hover); }
+.sa-loginas-who {
+  flex: 1;
+  min-width: 0;
+}
+.sa-loginas-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sa-loginas-meta {
+  font-size: 12px;
+  color: var(--sa-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sa-loginas-row .sa-btn { flex-shrink: 0; }
+.sa-loginas-search { margin-bottom: 10px; }
+
+/* ── Businesses list: never a sideways scroll ────────────────────────────────
+   The table fits its card at every width. Columns drop out as the screen
+   narrows (each is still on the business's detail page), and on a phone each
+   row becomes a card: name and on/off switch on top, then the sign-in link,
+   then plan · status · renewal. Columns are matched by class (sa-col-*), not
+   position, so the same rules fit the Gold console and the ERP copy, which has
+   an extra "ERP customer" column. */
+.sa-table-wrap-fit { overflow-x: hidden; }
+.sa-table-biz { min-width: 0; width: 100%; }
+.sa-table-biz td { overflow-wrap: normal; }
+.sa-table-biz td,
+.sa-table-biz th { min-width: 0 !important; }
+.sa-table-biz .sa-col-biz { min-width: 160px !important; }
+.sa-table-biz .sa-biz-name { overflow-wrap: anywhere; }
+.sa-table-biz .sa-url { overflow-wrap: anywhere; }
+.sa-table-biz .sa-col-active { width: 1%; white-space: nowrap; }
+@media (max-width: 1400px) {
+  .sa-table-biz .sa-col-code,
+  .sa-table-biz .sa-col-langs { display: none; }
+}
+@media (max-width: 1024px) {
+  /* the copy button keeps only its icon; the link text above it is the label */
+  .sa-table-biz .sa-signin-row .sa-btn { font-size: 0; gap: 0; padding: 6px 8px; }
+  .sa-table-biz .sa-signin-row .sa-btn .sa-icon { width: 14px; height: 14px; flex: none; }
+  .sa-table-biz .sa-col-erp .sa-biz-sub { display: none; }
+}
+@media (max-width: 860px) {
+  .sa-table-wrap-fit { overflow-x: hidden; }
+  .sa-table-biz,
+  .sa-table-biz tbody { display: block; min-width: 0; width: 100%; }
+  .sa-table-biz thead { display: none; }
+  .sa-table-biz tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+    padding: 12px;
+    border-bottom: 1px solid var(--sa-line);
+  }
+  .sa-table-biz td { display: block; padding: 0; border: 0; background: transparent !important; }
+  .sa-table-biz tbody tr:hover { background: var(--sa-side-hover); }
+  .sa-table-biz .sa-col-biz { order: 1; flex: 1 1 0; min-width: 0 !important; }
+  .sa-table-biz .sa-col-active { order: 2; flex: none; width: auto; }
+  .sa-table-biz .sa-col-url { order: 3; flex: 1 1 100%; display: flex; align-items: center; gap: 8px; min-width: 0 !important; }
+  .sa-table-biz .sa-col-url .sa-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sa-table-biz .sa-col-url .sa-signin-row { flex: none; margin: 0; }
+  .sa-table-biz .sa-col-erp { order: 4; flex: 1 1 100%; }
+  .sa-table-biz .sa-col-erp .sa-biz-sub { display: none; }
+  .sa-table-biz .sa-col-plan,
+  .sa-table-biz .sa-col-status,
+  .sa-table-biz .sa-col-renewal { order: 5; flex: none; font-size: 12.5px; }
+  .sa-table-biz .sa-col-plan .sa-biz-sub { display: inline; margin-left: 4px; }
+  .sa-table-biz .sa-col-plan .sa-biz-sub::before { content: "· "; }
+}

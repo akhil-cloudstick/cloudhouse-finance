@@ -14,6 +14,7 @@ import { Stat } from "@/modules/superadmin/components/Stat";
 import { RecordPaymentModal } from "@/modules/superadmin/components/RecordPaymentModal";
 import { RemovePaymentModal } from "@/modules/superadmin/components/RemovePaymentModal";
 import { ExpiryModal } from "@/modules/superadmin/components/ExpiryModal";
+import { LoginAsModal } from "@/modules/superadmin/components/LoginAsModal";
 import { formatDate, formatINR, quotaText, MODULE_LABELS, LANGUAGE_LABELS } from "@/modules/superadmin/utils/dashboardHelpers";
 
 function formatBytes(n: number): string {
@@ -70,6 +71,7 @@ export function BusinessDetail({
   const [editingExpiry, setEditingExpiry] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
   const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [loggingInAs, setLoggingInAs] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -121,6 +123,9 @@ export function BusinessDetail({
       <div className="sa-toolbar sa-detail-toolbar">
         {backButton}
         <span className="sa-foot-spacer" />
+        <button className="sa-btn primary" onClick={() => setLoggingInAs(true)}>
+          Login as…
+        </button>
         <button className="sa-btn" onClick={() => onEdit(b)}>
           Edit details
         </button>
@@ -140,6 +145,10 @@ export function BusinessDetail({
           Rebuild this app
         </button>
       </div>,
+      )}
+
+      {loggingInAs && (
+        <LoginAsModal business={b} onClose={() => setLoggingInAs(false)} onDone={onChanged} />
       )}
 
       {rebuilding && (

@@ -9,6 +9,14 @@ export function login(identifier: string, password: string, businessCode = ""): 
 	});
 }
 
+// Trades the one-time code from the superadmin console's "Login as" for a session (no password involved).
+export function loginAs(code: string): Promise<LoginResponse> {
+	return apiFetch<LoginResponse>("/auth/login-as", {
+		method: "POST",
+		body: JSON.stringify({ code }),
+	});
+}
+
 // Resets via a texted OTP (no emailed link); businessCode is required since a phone number is unique only within a business.
 export function forgotPassword(username: string, phone: string, businessCode = ""): Promise<string> {
 	return apiFetch<string>("/auth/forgot-password", {

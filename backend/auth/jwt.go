@@ -16,6 +16,8 @@ type Claims struct {
 	TenantID   uint   `json:"tenantId"`
 	BranchID   uint   `json:"branchId"`
 	Type       string `json:"type,omitempty"`
+	// ImpersonatedBy is the superadmin user who opened this session with "Login as"; 0 for an ordinary sign-in.
+	ImpersonatedBy uint `json:"imp,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -80,6 +82,30 @@ func IssueToken(employeeID uint, role string, roleID uint, tenantID uint, branch
 		TenantID:   tenantID,
 		BranchID:   branchID,
 		Type:       "employee",
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
+}
+
+// IssueImpersonationToken is an ordinary employee token that also names the superadmin behind it. Tokens are
+// stateless, so issuing one never signs the real employee out or touches their row.
+func IssueImpersonationToken(employeeID uint, role string, roleID uint, tenantID uint, branchID uint, superAdminUserID uint, secret string, expiry time.Duration) (string, error) {
+	if tenantID == 0 || superAdminUserID == 0 {
+		return "", errors.New("platform: refusing to issue a login-as token with no tenant or superadmin")
+	}
+	now := time.Now()
+	claims := Claims{
+		EmployeeID:     employeeID,
+		Role:           role,
+		RoleID:         roleID,
+		TenantID:       tenantID,
+		BranchID:       branchID,
+		Type:           "employee",
+		ImpersonatedBy: superAdminUserID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),

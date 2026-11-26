@@ -54,6 +54,7 @@ import { SupportPage } from "@/modules/support/pages/SupportPage";
 import { BillingPage } from "@/modules/billing/pages/BillingPage";
 import { useAuth } from "@/common/providers/AuthProvider";
 import { SyncBanner } from "@/common/components/layout/SyncBanner";
+import { LoginAsBanner } from "@/common/components/layout/LoginAsBanner";
 import { ModeLedgerPage } from "@/modules/cash/pages/ModeLedgerPage";
 import { ROUTE_ALIASES } from "@/common/config/routes";
 import { ROUTE_PERMISSIONS, baseRoute, routeAllowed, routeEntitled, setNavigationGuard } from "@/common/config/routePermissions";
@@ -401,6 +402,7 @@ function AppShellInner() {
 			<div className="main">
 				<Topbar route={route} arg={arg} onBurger={() => setSidebarOpen((v) => !v)} />
 					<SyncBanner />
+					<LoginAsBanner />
 				<main className="page" id="view" ref={pageRef}>
 					{/* The global branch selection is part of the key: switching branch
 						* remounts the page so every list/KPI refetches under the new

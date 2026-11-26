@@ -227,6 +227,22 @@ export type ThemeInput = {
  * back, and an empty one on update keeps the current password. */
 export type AdminLogin = { employeeId: number; name: string; username: string; phone: string };
 
+/* One employee of a business, for the console's "Login as" list. canLogin is false when the employee has no
+ * password set (they never sign in themselves). */
+export type LoginAsStaff = {
+	id: number;
+	name: string;
+	username: string;
+	role: string;
+	branchName: string;
+	isSystem: boolean;
+	isActive: boolean;
+	canLogin: boolean;
+};
+
+// A one-time, one-minute code the business's own site trades for the session.
+export type LoginAsStart = { code: string; businessCode: string };
+
 // One real build: one tenant (or "common" for a content release), one OS.
 export type DesktopReleaseJob = {
 	id: number;
