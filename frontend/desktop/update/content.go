@@ -13,6 +13,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +35,31 @@ type ContentManifest struct {
 	File    string `json:"file"`
 	SHA512  string `json:"sha512"`
 	Size    int64  `json:"size"`
+	// Built is when the package was made (unix seconds). A package made before this exe holds an older UI than the
+	// one built into it, so it is never offered or used. 0 (an older feed) counts as older than any stamped exe.
+	Built int64 `json:"built"`
+}
+
+// appBuilt is when this exe was built (unix seconds); 0 for a build without the stamp, which keeps the old rules.
+var appBuilt int64
+
+// SetAppBuildTime records the exe's build time, from main's -ldflags stamp.
+func SetAppBuildTime(unixSeconds string) {
+	appBuilt, _ = strconv.ParseInt(strings.TrimSpace(unixSeconds), 10, 64)
+}
+
+// newerThanApp reports whether content built at `built` is newer than the UI inside this exe.
+func newerThanApp(built int64) bool {
+	return appBuilt == 0 || built > appBuilt
+}
+
+func activeBuilt(contentDir string) int64 {
+	b, err := os.ReadFile(filepath.Join(contentDir, "active-built.txt"))
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	return n
 }
 
 // ContentUpdater checks, downloads and activates a content-only release without touching the installed exe, icon or name.
@@ -52,6 +79,9 @@ func NewContent(baseURL, contentDir string, emit Emitter) *ContentUpdater {
 
 // ActiveVersion returns the version active on disk, or "" if still on the embedded assets.
 func (c *ContentUpdater) ActiveVersion() string {
+	if !newerThanApp(activeBuilt(c.dir)) {
+		return "" // an app update since then brought a newer UI; the old package is ignored
+	}
 	b, err := os.ReadFile(filepath.Join(c.dir, "active-version.txt"))
 	if err != nil {
 		return ""
@@ -66,6 +96,9 @@ func (c *ContentUpdater) ActiveAssetsDir() (string, bool) {
 
 // ActiveContentAssetsDir is ActiveAssetsDir callable before any ContentUpdater exists.
 func ActiveContentAssetsDir(contentDir string) (string, bool) {
+	if !newerThanApp(activeBuilt(contentDir)) {
+		return "", false
+	}
 	b, err := os.ReadFile(filepath.Join(contentDir, "active-version.txt"))
 	if err != nil {
 		return "", false
@@ -81,11 +114,20 @@ func ActiveContentAssetsDir(contentDir string) (string, bool) {
 	return dir, true
 }
 
-// ContentDir is the on-disk directory next to the exe a content package lives in.
+// ContentDir is where content packages live: next to the exe on Windows and Linux. On macOS it is the user's
+// Application Support folder instead, because writing inside the .app breaks its signature and macOS then
+// warns again on every open.
 func ContentDir() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
+	}
+	if runtime.GOOS == "darwin" {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(base, filepath.Base(exe), "content"), nil
 	}
 	return filepath.Join(filepath.Dir(exe), "content"), nil
 }
@@ -125,7 +167,7 @@ func (c *ContentUpdater) Check(ctx context.Context) error {
 		return c.fail(errors.New("content feed is incomplete"))
 	}
 
-	if !SemverGreater(m.Version, c.ActiveVersion()) {
+	if !newerThanApp(m.Built) || !SemverGreater(m.Version, c.ActiveVersion()) {
 		c.emit("content:not-available", map[string]any{"version": m.Version})
 		return nil
 	}
@@ -241,6 +283,14 @@ func (c *ContentUpdater) Apply() error {
 		return c.fail(errors.New("no downloaded content update to apply"))
 	}
 	version := filepath.Base(staged)
+	var built int64
+	if c.manifest != nil {
+		built = c.manifest.Built
+	}
+	// built first: a crash between the two writes then leaves the previous version active, never a mismatch.
+	if err := os.WriteFile(filepath.Join(c.dir, "active-built.txt"), []byte(strconv.FormatInt(built, 10)), 0o644); err != nil {
+		return c.fail(err)
+	}
 	if err := os.WriteFile(filepath.Join(c.dir, "active-version.txt"), []byte(version), 0o644); err != nil {
 		return c.fail(err)
 	}

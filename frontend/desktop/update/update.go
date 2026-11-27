@@ -110,11 +110,10 @@ func (u *Updater) Download(ctx context.Context) error {
 		return u.fail(errors.New("no update to download; check for updates first"))
 	}
 
-	exe, err := os.Executable()
+	part, err := stagingFile()
 	if err != nil {
 		return u.fail(err)
 	}
-	part := exe + ".part"
 
 	staged, err := u.fetch(ctx, m, part)
 	if err != nil {

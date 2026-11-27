@@ -103,6 +103,38 @@ async function generateIconFromBuffer(logoBuffer, root) {
     await sharp(square).resize(px, px).toFile(path.join(winDir, `icon-${px}.png`));
   }
   await sharp(square).resize(256, 256).toFile(path.join(winDir, "icon.png"));
+  await writeMacIcon(square, root);
+}
+
+/* The macOS icon (build/mac/icon.icns) from the same square logo. An .icns is a
+ * list of PNGs tagged by size, so sharp makes it on any OS with no Apple tools.
+ * The logo sits inside Apple's grid margin (824 of 1024) like every Mac icon;
+ * without this file the app showed a blank white square in the Dock. */
+async function writeMacIcon(square, root) {
+  const sharp = require("sharp");
+  const canvas = 1024;
+  const body = 824;
+  const big = await sharp(square)
+    .resize(body, body, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .extend({ top: 100, bottom: 100, left: 100, right: 100, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .png()
+    .toBuffer();
+  // ic10 1024, ic09 512, ic08 256, ic07 128, ic14 512 (256@2x), ic13 256 (128@2x), ic12 64 (32@2x), ic11 32 (16@2x)
+  const entries = [["ic10", canvas], ["ic09", 512], ["ic14", 512], ["ic08", 256], ["ic13", 256], ["ic07", 128], ["ic12", 64], ["ic11", 32]];
+  const chunks = [];
+  for (const [type, px] of entries) {
+    const png = px === canvas ? big : await sharp(big).resize(px, px).png().toBuffer();
+    const head = Buffer.alloc(8);
+    head.write(type, 0, "ascii");
+    head.writeUInt32BE(png.length + 8, 4);
+    chunks.push(head, png);
+  }
+  const fileHead = Buffer.alloc(8);
+  fileHead.write("icns", 0, "ascii");
+  fileHead.writeUInt32BE(8 + chunks.reduce((n, c) => n + c.length, 0), 4);
+  const macDir = path.join(root, "build", "mac");
+  fs.mkdirSync(macDir, { recursive: true });
+  fs.writeFileSync(path.join(macDir, "icon.icns"), Buffer.concat([fileHead, ...chunks]));
 }
 
 /* Builds the 4 Windows icon sizes from the tenant's NAME when they have no
@@ -128,6 +160,7 @@ async function generateIconFromInitials(name, brandColor, root) {
     await sharp(square).resize(px, px).toFile(path.join(winDir, `icon-${px}.png`));
   }
   await sharp(square).resize(256, 256).toFile(path.join(winDir, "icon.png"));
+  await writeMacIcon(await sharp(Buffer.from(svg)).resize(1024, 1024).png().toBuffer(), root);
 }
 
 /* Regenerates desktop/rsrc_windows_amd64.syso from the (now tenant-branded)

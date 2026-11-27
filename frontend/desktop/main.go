@@ -27,6 +27,8 @@ var (
 	updateURL = ""
 	// Shared (not per-tenant) content-package feed — the bucket's "common" folder.
 	contentUpdateURL = ""
+	// Unix seconds this exe was built (-ldflags -X); a content package built before it is older than the UI inside it.
+	buildTime = ""
 	// Overridden per tenant build via -ldflags -X (see scripts/package-win.cjs),
 	// which fetches the tenant's own display name before building. Falls back
 	// to the platform name for a build that isn't tenant-specific.
@@ -118,6 +120,7 @@ func main() {
 	setupCrashLog()
 	update.WaitForPreviousInstance(os.Args[1:])
 	update.CleanupOld()
+	update.SetAppBuildTime(buildTime)
 	if framelessWindow {
 		roundWindowCorners(windowTitle)
 	}

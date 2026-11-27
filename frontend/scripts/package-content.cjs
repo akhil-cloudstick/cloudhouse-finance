@@ -48,6 +48,7 @@ async function main() {
     file,
     sha512: crypto.createHash("sha512").update(bytes).digest("hex"),
     size: bytes.length,
+    built: Math.floor(Date.now() / 1000),
   };
   fs.writeFileSync(path.join(outDir, "latest-content.json"), JSON.stringify(manifest, null, 2));
 

@@ -155,7 +155,7 @@ async function main() {
   const file = branding ? `${branding.slug}-finance-${version}-win.exe` : `cloudhouse-finance-${version}-win.exe`;
   const target = path.join(dist, file);
 
-  const ldflags = `-H windowsgui -s -w -X main.version=${version} -X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()}`;
+  const ldflags = `-H windowsgui -s -w -X main.version=${version} -X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()} -X main.buildTime=${Math.floor(Date.now() / 1000)}`;
   run("go", ["build", "-tags", "desktop,production", "-ldflags", `"${ldflags}"`, "-o", `"${target}"`, "."], {
     cwd: path.join(root, "desktop"),
     env: { ...process.env, GOOS: "windows", GOARCH: "amd64", CGO_ENABLED: "0" },

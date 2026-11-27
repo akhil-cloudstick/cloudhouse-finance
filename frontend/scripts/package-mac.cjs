@@ -2,7 +2,14 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { loadReleaseEnv } = require("./release-env.cjs");
-const { fetchTenantBranding, writeWindowTitleOverride, updateUrl, contentUrl } = require("./tenant-icon.cjs");
+const {
+  fetchTenantBranding,
+  generateIconFromLogo,
+  generateDefaultIcon,
+  writeWindowTitleOverride,
+  updateUrl,
+  contentUrl,
+} = require("./tenant-icon.cjs");
 
 const root = path.join(__dirname, "..");
 const { version: pkgVersion } = require(path.join(root, "package.json"));
@@ -15,19 +22,18 @@ function run(cmd, args, opts = {}) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-// Window title only — there's no per-tenant .icns yet, so the bundle's icon stays the platform default until that's added.
+// Window title plus the Dock/Finder icon (build/mac/icon.icns), both from the tenant's own branding.
 async function applyTenantBranding() {
   const apiBase = process.env.DESKTOP_API_BASE || process.env.NEXT_PUBLIC_API_BASE;
-  if (!apiBase) {
-    writeWindowTitleOverride(root, null);
-    return null;
+  const branding = apiBase ? await fetchTenantBranding(apiBase) : null;
+  writeWindowTitleOverride(root, branding ? branding.name : null);
+  try {
+    if (branding?.logoUrl) await generateIconFromLogo(branding.logoUrl, root);
+    else await generateDefaultIcon(root);
+  } catch (err) {
+    console.warn(`Could not build the Mac icon (${err.message}) — trying the default logo.`);
+    await generateDefaultIcon(root).catch(() => {});
   }
-  const branding = await fetchTenantBranding(apiBase);
-  if (!branding) {
-    writeWindowTitleOverride(root, null);
-    return null;
-  }
-  writeWindowTitleOverride(root, branding.name);
   return branding;
 }
 
@@ -39,23 +45,33 @@ function stageAssets() {
   fs.cpSync(path.join(root, "dist-desktop"), assets, { recursive: true });
 }
 
+function xmlEscape(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // A minimal .app bundle — required for codesign/notarization to apply at
 // all (a bare Unix binary can't be notarized). See scripts/finalize-mac.cjs
 // for the step that zips this up after signing.
-function writeAppBundle(appDir, execName, slug) {
+function writeAppBundle(appDir, execName, slug, displayName) {
   const macOS = path.join(appDir, "Contents", "MacOS");
+  const resources = path.join(appDir, "Contents", "Resources");
   fs.mkdirSync(macOS, { recursive: true });
+  fs.mkdirSync(resources, { recursive: true });
+  const icon = path.join(root, "build", "mac", "icon.icns");
+  const hasIcon = fs.existsSync(icon);
+  if (hasIcon) fs.copyFileSync(icon, path.join(resources, "icon.icns"));
+  const name = xmlEscape(displayName);
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>${execName}</string>
   <key>CFBundleIdentifier</key><string>com.cloudhousefinance.desktop.${slug}</string>
-  <key>CFBundleName</key><string>CloudHouse Finance</string>
-  <key>CFBundleDisplayName</key><string>CloudHouse Finance</string>
+  <key>CFBundleName</key><string>${name}</string>
+  <key>CFBundleDisplayName</key><string>${name}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
-  <key>CFBundleVersion</key><string>${version}</string>
+  <key>CFBundleVersion</key><string>${version}</string>${hasIcon ? "\n  <key>CFBundleIconFile</key><string>icon</string>" : ""}
   <key>NSHighResolutionCapable</key><true/>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
 </dict>
@@ -76,17 +92,24 @@ async function main() {
   const appName = `${slug}-finance-${version}-mac.app`;
   const appDir = path.join(dist, appName);
   fs.rmSync(appDir, { recursive: true, force: true });
-  const execPath = writeAppBundle(appDir, `${slug}-finance`, slug);
+  const execPath = writeAppBundle(appDir, `${slug}-finance`, slug, branding?.name || "CloudHouse Finance");
 
-  const ldflags = `-s -w -X main.version=${version} -X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()}`;
-  run("go", ["build", "-tags", "desktop,production", "-ldflags", `"${ldflags}"`, "-o", `"${execPath}"`, "."], {
-    cwd: path.join(root, "desktop"),
-    // Wails' macOS webview binds WebKit via cgo — CGO_ENABLED=0 (fine for Windows) silently drops every cgo file.
-    env: { ...process.env, GOOS: "darwin", GOARCH: "amd64", CGO_ENABLED: "1" },
+  const ldflags = `-s -w -X main.version=${version} -X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()} -X main.buildTime=${Math.floor(Date.now() / 1000)}`;
+  // One binary for both Intel and Apple-silicon Macs, so M-series Macs never ask to install Rosetta.
+  const parts = ["amd64", "arm64"].map((arch) => {
+    const out = path.join(dist, `${slug}-finance-${arch}`);
+    run("go", ["build", "-tags", "desktop,production", "-ldflags", `"${ldflags}"`, "-o", `"${out}"`, "."], {
+      cwd: path.join(root, "desktop"),
+      // Wails' macOS webview binds WebKit via cgo — CGO_ENABLED=0 (fine for Windows) silently drops every cgo file.
+      env: { ...process.env, GOOS: "darwin", GOARCH: arch, CGO_ENABLED: "1" },
+    });
+    return out;
   });
+  run("lipo", ["-create", "-output", `"${execPath}"`, ...parts.map((p) => `"${p}"`)]);
+  parts.forEach((p) => fs.rmSync(p, { force: true }));
   fs.chmodSync(execPath, 0o755);
 
-  console.log(`built ${appName} (unsigned — scripts/finalize-mac.cjs signs/notarizes/zips it)`);
+  console.log(`built ${appName} (universal; release.yml signs it, then scripts/finalize-mac.cjs zips it)`);
 }
 
 main();
