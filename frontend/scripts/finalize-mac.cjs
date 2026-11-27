@@ -20,6 +20,17 @@ function displayName(appDir) {
   return name.trim() || "CloudHouse Finance";
 }
 
+// Bytes in a folder (symlinks counted as links, not followed).
+function folderBytes(dir) {
+  let total = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += folderBytes(p);
+    else total += fs.lstatSync(p).size;
+  }
+  return total;
+}
+
 // The .dmg people download and install from: opens to the app beside an Applications shortcut, so installing is
 // one drag. The update feed keeps using the .zip (the app unpacks it itself, see desktop/update/install_darwin.go).
 function buildDmg(appName) {
@@ -32,7 +43,10 @@ function buildDmg(appName) {
   fs.symlinkSync("/Applications", path.join(stage, "Applications"));
   const dmg = appName.replace(/\.app$/, ".dmg");
   fs.rmSync(path.join(dist, dmg), { force: true });
-  run("hdiutil", ["create", "-volname", name, "-srcfolder", stage, "-ov", "-format", "UDZO", dmg]);
+  // hdiutil's own size guess from -srcfolder is often too small on GitHub's Mac runners ("No space left on
+  // device" while copying the app in), so the image is sized explicitly: the app plus half again and 32 MB.
+  const sizeMb = Math.ceil((folderBytes(stage) / 1048576) * 1.5) + 32;
+  run("hdiutil", ["create", "-volname", name, "-srcfolder", stage, "-size", `${sizeMb}m`, "-fs", "HFS+", "-ov", "-format", "UDZO", dmg]);
   fs.rmSync(stage, { recursive: true, force: true });
   if (process.env.MACOS_SIGNING_IDENTITY) {
     run("codesign", ["--force", "--timestamp", "--sign", process.env.MACOS_SIGNING_IDENTITY, dmg]);
