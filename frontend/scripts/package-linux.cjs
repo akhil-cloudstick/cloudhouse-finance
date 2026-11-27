@@ -1,4 +1,5 @@
 const { spawnSync } = require("node:child_process");
+const { feedNameFor } = require("./feed-name.cjs");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -68,7 +69,7 @@ async function main() {
     sha512: crypto.createHash("sha512").update(bytes).digest("hex"),
     size: bytes.length,
   };
-  fs.writeFileSync(path.join(dist, "latest.json"), JSON.stringify(manifest, null, 2));
+  fs.writeFileSync(path.join(dist, feedNameFor("linux")), JSON.stringify(manifest, null, 2));
 
   console.log(`built ${file}`);
 }

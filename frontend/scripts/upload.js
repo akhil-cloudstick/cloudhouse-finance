@@ -3,6 +3,7 @@ const path = require("node:path");
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { fetchTenantBranding } = require("./tenant-icon.cjs");
 const { loadReleaseEnv } = require("./release-env.cjs");
+const { FEED_FILE } = require("./feed-name.cjs");
 
 const root = path.join(__dirname, "..");
 loadReleaseEnv(root);
@@ -41,11 +42,12 @@ async function resolveTenantFolder() {
 
 async function main() {
   const dist = path.join(root, buildType === "content" ? "dist-content" : "dist");
-  const feedName = buildType === "content" ? "latest-content.json" : "latest.json";
+  // one feed per OS built on this machine (latest.json / latest-mac.json / latest-linux.json, see feed-name.cjs)
+  const isFeed = (f) => (buildType === "content" ? f === "latest-content.json" : FEED_FILE.test(f));
 
   const files = fs.readdirSync(dist).filter((f) => fs.statSync(path.join(dist, f)).isFile());
-  if (!files.includes(feedName)) {
-    console.error(`${dist}/${feedName} is missing; run the matching dist script first.`);
+  if (!files.some(isFeed)) {
+    console.error(`${dist} has no update feed (latest*.json); run the matching dist script first.`);
     process.exit(1);
   }
 
@@ -53,7 +55,7 @@ async function main() {
   const folder = [baseFolder, tenantFolder].filter(Boolean).join("/");
 
   // The feed goes last so no client reads it before the file it names exists.
-  const ordered = [...files.filter((f) => f !== feedName), feedName];
+  const ordered = [...files.filter((f) => !isFeed(f)), ...files.filter(isFeed)];
   for (const name of ordered) {
     const key = folder ? `${folder}/${name}` : name;
     await client.send(

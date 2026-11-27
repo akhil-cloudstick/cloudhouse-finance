@@ -58,7 +58,7 @@ async function main() {
   const prefix = [baseFolder, tenant].filter(Boolean).join("/") + "/";
 
   const listed = await client.send(new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: prefix }));
-  const files = (listed.Contents || []).map((o) => o.Key).filter((k) => k && !k.endsWith("latest.json"));
+  const files = (listed.Contents || []).map((o) => o.Key).filter((k) => k && !/\/latest[^/]*\.json$/.test(k));
 
   // Groups by OS (e.g. "...-1.4.0-win.exe" -> "win") so each OS's limit is independent.
   const byOs = new Map();

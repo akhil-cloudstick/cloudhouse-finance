@@ -2085,3 +2085,68 @@ body {
   .sa-table-biz .sa-col-plan .sa-biz-sub { display: inline; margin-left: 4px; }
   .sa-table-biz .sa-col-plan .sa-biz-sub::before { content: "· "; }
 }
+
+/* ===== Rebuild progress (DesktopReleaseModal, after "Confirm & start") =====
+   One stacked card per build instead of a table, so nothing scrolls sideways. */
+.sa-rb-sub { margin: 4px 0 0; font-size: 13px; color: var(--sa-muted); }
+.sa-rb { display: grid; gap: 14px; min-width: 0; }
+.sa-rb-summary { display: grid; gap: 8px; }
+.sa-rb-summary-top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.sa-rb-summary-top strong { font-weight: 600; }
+.sa-rb-summary-top span { color: var(--sa-muted); }
+.sa-rb-bar { height: 6px; border-radius: 99px; background: var(--sa-bg); overflow: hidden; }
+.sa-rb-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--sa-brand); transition: width 0.6s ease; }
+
+.sa-rb-job { border: 1px solid var(--sa-line); border-radius: var(--sa-radius); padding: 14px 16px; display: grid; gap: 12px; min-width: 0; }
+.sa-rb-job.done { border-color: color-mix(in oklch, var(--sa-green) 40%, var(--sa-line)); }
+.sa-rb-job.failed { border-color: color-mix(in oklch, var(--sa-red) 40%, var(--sa-line)); }
+.sa-rb-job-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sa-rb-os { width: 36px; height: 36px; border-radius: 9px; background: var(--sa-bg); display: grid; place-items: center; flex: none; }
+.sa-rb-os svg { width: 18px; height: 18px; fill: var(--sa-ink); }
+.sa-rb-who { flex: 1; min-width: 0; }
+.sa-rb-who b { display: block; font-size: 14px; }
+.sa-rb-who > span { font-size: 12px; color: var(--sa-muted); }
+.sa-rb-code { font-family: ui-monospace, "Cascadia Mono", monospace; background: var(--sa-bg); padding: 1px 6px; border-radius: 5px; }
+.sa-rb-state { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 99px; white-space: nowrap; }
+.sa-rb-state.run { background: var(--sa-amber-bg); color: var(--sa-amber); }
+.sa-rb-state.done { background: var(--sa-green-bg); color: var(--sa-green); }
+.sa-rb-state.failed { background: var(--sa-red-bg); color: var(--sa-red); }
+.sa-rb-state.cancelled { background: var(--sa-bg); color: var(--sa-muted); }
+
+.sa-rb-track { display: grid; gap: 8px; }
+.sa-rb-pct { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--sa-muted); font-variant-numeric: tabular-nums; }
+.sa-rb-job.done .sa-rb-bar > i { background: var(--sa-green); }
+.sa-rb-job.failed .sa-rb-bar > i { background: var(--sa-red); }
+.sa-rb-job.cancelled .sa-rb-bar > i { background: var(--sa-muted); }
+.sa-rb-job.run .sa-rb-bar > i {
+  background-image: linear-gradient(90deg, var(--sa-brand) 0%, color-mix(in oklch, var(--sa-brand) 55%, white) 50%, var(--sa-brand) 100%);
+  background-size: 200% 100%;
+  animation: sa-rb-shimmer 1.6s linear infinite;
+}
+@keyframes sa-rb-shimmer { to { background-position: -200% 0; } }
+
+.sa-rb-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.sa-rb-steps li { display: grid; justify-items: center; gap: 4px; font-size: 11px; color: var(--sa-muted); text-align: center; min-width: 0; }
+.sa-rb-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--sa-line); background: var(--sa-card); display: grid; place-items: center; }
+.sa-rb-dot svg { width: 10px; height: 10px; stroke: var(--sa-card); }
+.sa-rb-steps li.past .sa-rb-dot { background: var(--sa-brand); border-color: var(--sa-brand); }
+.sa-rb-steps li.now { color: var(--sa-ink); font-weight: 600; }
+.sa-rb-steps li.now .sa-rb-dot { border-color: var(--sa-brand); box-shadow: 0 0 0 4px var(--sa-brand-pale); }
+.sa-rb-job.run .sa-rb-steps li.now .sa-rb-dot { animation: sa-rb-pulse 1.4s ease-in-out infinite; }
+@keyframes sa-rb-pulse { 50% { box-shadow: 0 0 0 7px var(--sa-brand-pale); } }
+.sa-rb-job.done .sa-rb-steps li .sa-rb-dot { background: var(--sa-green); border-color: var(--sa-green); }
+.sa-rb-job.failed .sa-rb-steps li.now { color: var(--sa-red); }
+.sa-rb-job.failed .sa-rb-steps li.now .sa-rb-dot { background: var(--sa-red); border-color: var(--sa-red); box-shadow: none; }
+
+.sa-rb-msg { font-size: 12.5px; border-radius: var(--sa-radius-sm); padding: 8px 10px; }
+.sa-rb-msg.bad { background: var(--sa-red-bg); color: var(--sa-red); }
+.sa-rb-msg.ok { background: var(--sa-green-bg); color: var(--sa-green); }
+.sa-rb-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.sa-rb-actions a.sa-btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+@media (max-width: 520px) {
+  .sa-rb-steps li span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-rb-job.run .sa-rb-bar > i, .sa-rb-job.run .sa-rb-steps li.now .sa-rb-dot { animation: none; }
+}

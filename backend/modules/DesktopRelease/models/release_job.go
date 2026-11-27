@@ -29,6 +29,10 @@ type ReleaseJob struct {
 	CreatedByAdminID *uint     `json:"-" gorm:"column:created_by_admin_id"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+
+	// Filled per response (controllers.withLinks), never stored.
+	RunURL      string `json:"run_url" gorm:"-"`
+	DownloadURL string `json:"download_url" gorm:"-"`
 }
 
 func (ReleaseJob) TableName() string { return "desktop_release_jobs" }

@@ -253,6 +253,9 @@ export type DesktopReleaseJob = {
 	buildType: "full" | "content";
 	status: "queued" | "preparing" | "building" | "uploading" | "verifying" | "done" | "failed" | "cancelled";
 	createdAt: string;
+	updatedAt: string;
+	runUrl: string; // the GitHub run's log; "" until the run is found
+	downloadUrl: string; // the installer once done; "" otherwise
 };
 
 // One version currently kept in B2 for a tenant — the plain history list, not the live in-progress view.
@@ -264,7 +267,7 @@ export type DesktopReleaseHistoryEntry = {
 };
 
 export type TriggerDesktopReleaseInput = {
-	tenantCode?: string; // "" or "all" = every tenant; ignored for buildType "content"
+	tenantCode: string; // one tenant code, or "all" = every tenant; ignored for buildType "content"
 	version: string;
 	buildType: "full" | "content";
 	targets?: string[]; // e.g. ["win"]

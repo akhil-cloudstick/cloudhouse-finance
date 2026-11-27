@@ -28,17 +28,39 @@ func newDispatchToken() string {
 	return hex.EncodeToString(b)
 }
 
-// fileExtFor mirrors scripts/package-win.cjs/package-mac.cjs/package-linux.cjs's own naming:
-// Windows builds end in .exe; Mac/Linux binaries have no extension.
-func fileExtFor(osTarget string) string {
-	if osTarget == "win" {
-		return ".exe"
+// downloadFileFor is the file a person downloads to install that build, named as package-win.cjs (the Inno setup,
+// not the bare exe the updater swaps in), finalize-mac.cjs (the zipped .app) and package-linux.cjs name it.
+func downloadFileFor(tenantCode, version, osTarget string) string {
+	switch osTarget {
+	case "win":
+		return fmt.Sprintf("%s-finance-%s-setup.exe", tenantCode, version)
+	case "mac":
+		return fmt.Sprintf("%s-finance-%s-mac.zip", tenantCode, version)
+	default:
+		return fmt.Sprintf("%s-finance-%s-%s", tenantCode, version, osTarget)
 	}
-	return ""
+}
+
+// withLinks fills the two links the Rebuild window shows: the GitHub run's log, and (once done) the installer.
+func withLinks(job *models.ReleaseJob) {
+	job.RunURL = ""
+	if job.GitHubRunID != nil {
+		owner := config.EnvTrimmed("GITHUB_REPO_OWNER")
+		repo := config.EnvTrimmed("GITHUB_REPO_NAME")
+		if owner != "" && repo != "" {
+			job.RunURL = fmt.Sprintf("https://github.com/%s/%s/actions/runs/%d", owner, repo, *job.GitHubRunID)
+		}
+	}
+	job.DownloadURL = ""
+	if job.Status == models.StatusDone && job.BuildType == models.BuildTypeFull {
+		if base := bucketPublicBase(); base != "" {
+			job.DownloadURL = strings.Join([]string{base, job.TenantCode, downloadFileFor(job.TenantCode, job.Version, job.OS)}, "/")
+		}
+	}
 }
 
 type triggerRequest struct {
-	TenantCode string   `json:"tenant_code"` // "" or "all" = every tenant (ignored for build_type=content)
+	TenantCode string   `json:"tenant_code"` // one tenant code, or "all" = every tenant (ignored for build_type=content); "" is rejected
 	Version    string   `json:"version"`
 	BuildType  string   `json:"build_type"` // "full" (default) or "content"
 	Targets    []string `json:"targets"`    // e.g. ["win"]; defaults to supportedTargets
@@ -112,7 +134,11 @@ func TriggerRelease(c echo.Context) error {
 	var tenantCodes []string
 	if req.BuildType == models.BuildTypeContent {
 		tenantCodes = []string{"common"}
-	} else if req.TenantCode == "" || strings.EqualFold(req.TenantCode, "all") {
+	} else if strings.TrimSpace(req.TenantCode) == "" {
+		// Never read a missing code as "every business": a client that sent the field under the wrong name once
+		// turned one business's Rebuild into a real release for all of them. "all" has to be asked for by name.
+		return common.FailErr(c, common.NewBadRequest("tenant_code is required (send \"all\" to rebuild every business)"))
+	} else if strings.EqualFold(req.TenantCode, "all") {
 		tenants, err := common.FindTenants(ctx)
 		if err != nil {
 			return common.FailErr(c, err)
@@ -129,7 +155,9 @@ func TriggerRelease(c echo.Context) error {
 		if err != nil {
 			continue // no feed yet (first release for this tenant) isn't a block
 		}
-		if current != "" && !semverGreater(req.Version, current) {
+		// The same version is still allowed for an OS that has no finished build of it yet: retrying a failed macOS
+		// build after Windows already shipped that version.
+		if current != "" && !semverGreater(req.Version, current) && !(req.Version == current && !anyDone(ctx, code, req.Version, targets)) {
 			return common.FailErr(c, common.NewBadRequest(
 				fmt.Sprintf("version %s is not higher than %s's current version %s", req.Version, code, current)))
 		}
@@ -173,7 +201,19 @@ func TriggerRelease(c echo.Context) error {
 		}
 		created = append(created, rows...)
 	}
+	for i := range created {
+		withLinks(&created[i])
+	}
 	return common.Success(c, http.StatusOK, echo.Map{"jobs": created})
+}
+
+// anyDone reports whether any of these OSes already has a finished full build of this version for the tenant.
+func anyDone(ctx context.Context, tenantCode, version string, targets []string) bool {
+	var n int64
+	config.BaseDB.WithContext(ctx).Model(&models.ReleaseJob{}).
+		Where("tenant_code = ? AND version = ? AND build_type = ? AND status = ? AND os IN ?", tenantCode, version, models.BuildTypeFull, models.StatusDone, targets).
+		Count(&n)
+	return n > 0
 }
 
 func releaseRef() string {
@@ -198,6 +238,7 @@ func ListReleaseJobs(c echo.Context) error {
 	gh, ghErr := newGitHubClient()
 	for i := range jobs {
 		refreshJob(ctx, gh, ghErr, &jobs[i])
+		withLinks(&jobs[i])
 	}
 	return common.Success(c, http.StatusOK, jobs)
 }
@@ -276,7 +317,7 @@ func ListReleaseHistory(c echo.Context) error {
 	base := bucketPublicBase()
 	out := make([]historyEntry, 0, len(done))
 	for _, job := range done {
-		file := fmt.Sprintf("%s-finance-%s-%s%s", job.TenantCode, job.Version, job.OS, fileExtFor(job.OS))
+		file := downloadFileFor(job.TenantCode, job.Version, job.OS)
 		url := ""
 		if base != "" {
 			url = strings.Join(filterNonEmpty([]string{base, job.TenantCode, file}), "/")
@@ -324,6 +365,7 @@ func CancelReleaseJob(c echo.Context) error {
 		return common.FailErr(c, common.NewNotFound("release job not found"))
 	}
 	if job.Status == models.StatusDone || job.Status == models.StatusFailed || job.Status == models.StatusCancelled {
+		withLinks(&job)
 		return common.Success(c, http.StatusOK, job)
 	}
 	if job.GitHubRunID != nil {
@@ -335,6 +377,7 @@ func CancelReleaseJob(c echo.Context) error {
 	if err := config.BaseDB.WithContext(ctx).Save(&job).Error; err != nil {
 		return common.FailErr(c, err)
 	}
+	withLinks(&job)
 	return common.Success(c, http.StatusOK, job)
 }
 
