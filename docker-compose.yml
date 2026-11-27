@@ -77,7 +77,7 @@ services:
       DB_USER: cloudhouse_demo_db
       DB_PASSWORD: cloudhouse_demo_db
       DB_SSLMODE: disable
-      FRONTEND_ORIGIN: "https://superadmin.cloudhousefinance.com,https://*.cloudhousefinance.com,http://wails.localhost,http://wails.localhost:34115,http://localhost:3000"
+      FRONTEND_ORIGIN: "https://superadmin.cloudhousefinance.com,https://erp.cloudhousetechnologies.com,https://*.cloudhousefinance.com,http://wails.localhost,http://wails.localhost:34115,http://localhost:3000,wails://wails"
       BASE_DOMAIN: cloudhousefinance.com
       # Hosts whose "/" shows the public landing page instead of the login redirect.
       LANDING_HOSTS: "cloudhousefinance.com,www.cloudhousefinance.com"
