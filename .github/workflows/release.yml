@@ -74,6 +74,11 @@ jobs:
           go-version-file: frontend/desktop/go.mod
           cache-dependency-path: frontend/desktop/go.sum
       - run: npm ci
+      # package-win.cjs only makes the setup .exe when Inno Setup is installed (otherwise just the portable exe), so
+      # install it rather than rely on the runner image having it. Already present = a quick no-op.
+      - name: Install Inno Setup
+        if: ${{ github.event.inputs.build_type != 'content' }}
+        run: choco install innosetup -y --no-progress
       # "full" = the real per-tenant installer; "content" = the shared web-content package only.
       - if: ${{ github.event.inputs.build_type != 'content' }}
         run: npm run dist:win
