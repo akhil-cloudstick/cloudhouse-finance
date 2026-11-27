@@ -262,6 +262,24 @@ jobs:
             ${{ env.APP_DIR }}/build/${{ env.APK_NAME }}-dev.apk
             ${{ env.APP_DIR }}/build/latest-dev.json
 
+      # Shows the download link on the run's Summary page, so nobody has to look it up.
+      - name: Download link
+        if: inputs.profile != 'production'
+        run: |
+          base="https://github.com/${RELEASES_REPO}/releases/download"
+          if [ "${{ inputs.profile }}" = "development" ]; then
+            url="${base}/${{ inputs.app }}-dev/${APK_NAME}-dev.apk"; label="${APP_TITLE} Dev"
+          else
+            url="${base}/${{ inputs.app }}-latest/${APK_NAME}.apk"; label="${APP_TITLE}"
+          fi
+          {
+            echo "## 📱 ${label} v${VERSION}: Android download"
+            echo ""
+            echo "**[${url}](${url})**"
+            echo ""
+            echo "Open this link in Chrome on the phone, then tap Install. The link stays the same for every build."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   ios:
     needs: version
     if: inputs.platform == 'all' || inputs.platform == 'ios'

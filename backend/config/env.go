@@ -139,13 +139,25 @@ func getERPConsolePublicKey() string {
 	if path := strings.TrimSpace(os.Getenv("ERP_CONSOLE_PUBLIC_KEY_FILE")); path != "" {
 		b, err := os.ReadFile(path)
 		if err != nil {
-			log.Printf("WARNING: ERP_CONSOLE_PUBLIC_KEY_FILE=%q could not be read: %v — ERP console sign-in disabled", path, err)
-			return ""
+			log.Printf("WARNING: ERP_CONSOLE_PUBLIC_KEY_FILE=%q could not be read: %v — using the built-in ERP key", path, err)
+			return erpConsoleBuiltInPublicKey
 		}
 		return strings.TrimSpace(string(b))
 	}
-	return strings.TrimSpace(strings.ReplaceAll(os.Getenv("ERP_CONSOLE_PUBLIC_KEY"), `\n`, "\n"))
+	if inline := strings.TrimSpace(strings.ReplaceAll(os.Getenv("ERP_CONSOLE_PUBLIC_KEY"), `\n`, "\n")); inline != "" {
+		return inline
+	}
+	return erpConsoleBuiltInPublicKey
 }
+
+// erpConsoleBuiltInPublicKey is the CloudHouse ERP's public key (internalprojectmanagementsystem/cloudhouse/public_ec.pem,
+// the same file local and live). It is used when no ERP_CONSOLE_PUBLIC_KEY_FILE / ERP_CONSOLE_PUBLIC_KEY is set, so a
+// deploy needs no key setting. A public key can only check ERP sign-ins, never make one. If the ERP key is ever
+// changed, update it here (or set ERP_CONSOLE_PUBLIC_KEY_FILE).
+const erpConsoleBuiltInPublicKey = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/Br0Hj6p9tU7BWxn6ZFJkejAYb15
+jgEivdbfymJevBKj4T2keIn/958zOU/x6OeLbgqHqoyaxTpo5jMwV2vQsw==
+-----END PUBLIC KEY-----`
 
 const defaultERPConsoleExpiry = 2 * time.Hour
 
