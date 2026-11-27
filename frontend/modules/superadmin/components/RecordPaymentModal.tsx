@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { autoGrowTextarea } from "@/common/components/ui/NoteField";
+import { autoGrow } from "@/modules/superadmin/kit/common/autoGrow";
 import { recordPayment, PAYMENT_MODE_LABELS, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business, type PaymentMode } from "@/modules/superadmin/types/superadmin-types";
-import { Select } from "@/modules/superadmin/components/Select";
-import { fieldForMessage } from "@/common/components/ui/FieldError";
+import { Select } from "@/modules/superadmin/kit/components/Select";
+import { fieldForMessage } from "@/modules/superadmin/kit/common/FieldError";
 
 // Server messages are put on the field they are about, by wording.
 const SERVER_FIELDS: Record<string, RegExp> = { amount: /amount/i, paidOn: /paid on|date/i, reference: /reference/i };
@@ -132,7 +132,7 @@ export function RecordPaymentModal({
           </div>
           <div className="sa-field">
             <label>Note (optional)</label>
-            <textarea value={note} onChange={(e) => { setNote(e.target.value); autoGrowTextarea(e.target); }} rows={2} />
+            <textarea value={note} onChange={(e) => { setNote(e.target.value); autoGrow(e.target); }} rows={2} />
           </div>
           {error && <p className="sa-error">{error}</p>}
         </div>

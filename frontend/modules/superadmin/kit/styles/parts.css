@@ -1,0 +1,54 @@
+/* Styles of the kit's small parts, loaded by the parts themselves, so they look the same in every console
+   (ERP, Gold Finance, POS) whatever that console's own superadmin.css holds. Uses the --sa-* variables. */
+
+/* A business's initials on its brand colour, where it has no logo (BusinessMark). */
+.sa-biz-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+/* Password field with a reveal (eye) button inside its right edge (PasswordInput). */
+.sa-pw {
+  position: relative;
+}
+.sa-pw input {
+  width: 100%;
+  padding-right: 42px;
+}
+/* The browser's own reveal button (Edge) would sit beside ours. */
+.sa-pw input::-ms-reveal,
+.sa-pw input::-ms-clear {
+  display: none;
+}
+.sa-pw-toggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--sa-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sa-pw-toggle:hover {
+  color: var(--sa-brand-deep, var(--sa-brand));
+}
+.sa-pw-toggle .sa-icon {
+  width: 18px;
+  height: 18px;
+}

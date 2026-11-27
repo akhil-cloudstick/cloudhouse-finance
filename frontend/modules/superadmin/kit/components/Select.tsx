@@ -1,9 +1,24 @@
-"use client";
 
 import { useEffect, useId, useRef, useState } from "react";
 
-// Replaces native <select> because its OS-drawn popup list can't be themed (no bg/radius/brand colour/font).
-export type SuperAdminSelectOption = {
+/* A themed dropdown, replacing the native <select> everywhere in this console.
+ *
+ * WHY this exists at all, given a <select> is smaller, accessible for free and
+ * already carried the console's border, radius and custom caret: none of that
+ * reaches the part people actually look at. A native select's POPUP LIST is
+ * drawn by the operating system, outside the page, and CSS cannot touch it —
+ * no background, no radius, no brand colour, no font. So every dropdown in the
+ * wizard looked correct until it was opened, and then showed a raw Windows
+ * list in the middle of a themed modal. Styling `option` does not fix it
+ * either; support is partial and platform-dependent.
+ *
+ * The trade is real and worth stating: this component owns keyboard support,
+ * focus and outside-click behaviour that the browser used to provide. Those
+ * are implemented below rather than assumed — if a dropdown here is ever less
+ * usable by keyboard than a native one, that is a bug in this file, not an
+ * acceptable cost of the styling. */
+
+export type SelectOption = {
   value: string;
   label: string;
 };
@@ -11,18 +26,25 @@ export type SuperAdminSelectOption = {
 type Props = {
   value: string;
   onChange: (value: string) => void;
-  options: SuperAdminSelectOption[];
-  // Rendered when the value matches no option, rather than silently falling back to the first (misreporting state).
+  options: SelectOption[];
+  /* Rendered when the value matches no option — a business on a policy that
+     has since been retired, say. Shown rather than falling back silently to
+     the first option, which would misreport what is stored. */
   placeholder?: string;
   disabled?: boolean;
+  /* Labels the button for screen readers where the visible <label> is not
+     already associated with it. */
   ariaLabel?: string;
 };
 
-export function SuperAdminSelect({ value, onChange, options, placeholder = "Select…", disabled, ariaLabel }: Props) {
+export function Select({ value, onChange, options, placeholder = "Select…", disabled, ariaLabel }: Props) {
   const [open, setOpen] = useState(false);
-  // Keyboard-highlighted row, not the selection — arrowing must not commit a value until Enter. -1 = none yet.
+  /* The row the keyboard is on, which is NOT the selection: arrowing through
+     the list must not commit a value until Enter. -1 means "nothing yet". */
   const [activeIdx, setActiveIdx] = useState(-1);
-  // Opens upward when there isn't room below, since these live inside a scrolling modal body.
+  /* Whether the list opens upward. These dropdowns live inside a modal body
+     that scrolls, so one opened near the bottom of the wizard would otherwise
+     be cut off at the modal's edge with no indication there was more. */
   const [dropUp, setDropUp] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -31,7 +53,9 @@ export function SuperAdminSelect({ value, onChange, options, placeholder = "Sele
   const selectedIdx = options.findIndex((o) => o.value === value);
   const selected = selectedIdx >= 0 ? options[selectedIdx] : null;
 
-  // Listens on the document (not a backdrop) so it also closes on a click on another control in the same modal.
+  /* Close on any click that is not inside this dropdown. Listening on the
+     document (not a backdrop element) so it also closes when the click lands
+     on another control in the same modal. */
   useEffect(() => {
     if (!open) return;
     function onPointerDown(e: MouseEvent) {
@@ -41,6 +65,8 @@ export function SuperAdminSelect({ value, onChange, options, placeholder = "Sele
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [open]);
 
+  /* Keep the active row in view when arrowing past the edge of a list that
+     scrolls — without this the highlight moves invisibly. */
   useEffect(() => {
     if (!open || activeIdx < 0) return;
     const node = listRef.current?.children[activeIdx] as HTMLElement | undefined;
@@ -49,12 +75,15 @@ export function SuperAdminSelect({ value, onChange, options, placeholder = "Sele
 
   function openList() {
     if (disabled) return;
-    // LIST_MAX must stay in step with .sa-select-list's max-height in superadmin.css.
+    /* Decide the direction BEFORE painting, from the space actually left
+       below the control. LIST_MAX must stay in step with .sa-select-list's
+       max-height in superadmin.css. */
     const LIST_MAX = 240;
     const rect = rootRef.current?.getBoundingClientRect();
     if (rect) {
       const below = window.innerHeight - rect.bottom;
-      // Only flip when there is genuinely more room above, else a cramped viewport moves it somewhere equally clipped.
+      /* Only flip when there is genuinely more room above — otherwise a
+         cramped viewport would move the list somewhere equally clipped. */
       setDropUp(below < LIST_MAX && rect.top > below);
     }
     setActiveIdx(selectedIdx >= 0 ? selectedIdx : 0);
@@ -72,7 +101,9 @@ export function SuperAdminSelect({ value, onChange, options, placeholder = "Sele
     if (disabled) return;
 
     if (!open) {
-      // Enter deliberately excluded: this lives inside a <form>, and opening on Enter could submit it instead.
+      /* Enter is deliberately NOT in this list. The dropdown lives inside a
+         <form>, and opening on Enter would swallow the keystroke that submits
+         it — or, worse, submit the form on the way past. */
       if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === " ") {
         e.preventDefault();
         openList();
@@ -107,6 +138,8 @@ export function SuperAdminSelect({ value, onChange, options, placeholder = "Sele
         setActiveIdx(options.length - 1);
         break;
       case "Tab":
+        /* Let focus leave, but do not leave a popup hanging over the field
+           the user just moved to. */
         setOpen(false);
         break;
     }
@@ -150,7 +183,8 @@ export function SuperAdminSelect({ value, onChange, options, placeholder = "Sele
               className={`sa-select-option${i === activeIdx ? " active" : ""}${
                 o.value === value ? " selected" : ""
               }`}
-              // mouseDown, not click: the document listener above closes the list on mousedown first.
+              /* mouseDown, not click: the document listener above closes the
+                 list on mousedown, so a click handler would never fire. */
               onMouseDown={(e) => {
                 e.preventDefault();
                 commit(i);

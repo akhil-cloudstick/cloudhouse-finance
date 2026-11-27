@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { suspendBusiness, reactivateBusiness, deleteBusiness, changeTier, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business, type Tier } from "@/modules/superadmin/types/superadmin-types";
-import { Select } from "@/modules/superadmin/components/Select";
-import { ReasonField } from "@/modules/superadmin/components/ReasonField";
+import { Select } from "@/modules/superadmin/kit/components/Select";
+import { ReasonField } from "@/modules/superadmin/kit/components/ReasonField";
 import { plansFor, downgradeNote, planLabel } from "@/modules/superadmin/utils/dashboardHelpers";
-import { fieldForMessage } from "@/common/components/ui/FieldError";
+import { fieldForMessage } from "@/modules/superadmin/kit/common/FieldError";
 import { useActiveBranches } from "@/modules/superadmin/hooks/use-active-branches";
 
 // Server messages are put on the field they are about, by wording.

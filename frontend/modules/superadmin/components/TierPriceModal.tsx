@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { setTierPrice, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Tier } from "@/modules/superadmin/types/superadmin-types";
-import { ReasonField } from "@/modules/superadmin/components/ReasonField";
+import { ReasonField } from "@/modules/superadmin/kit/components/ReasonField";
 import { fieldForMessage } from "@/common/components/ui/FieldError";
 
 // Server messages are put on the field they are about, by wording.

@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { deletePayment, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business, type SubscriptionPayment } from "@/modules/superadmin/types/superadmin-types";
-import { ReasonField } from "@/modules/superadmin/components/ReasonField";
-import { fieldForMessage } from "@/common/components/ui/FieldError";
+import { ReasonField } from "@/modules/superadmin/kit/components/ReasonField";
+import { fieldForMessage } from "@/modules/superadmin/kit/common/FieldError";
 import { formatINR, formatDate } from "@/modules/superadmin/utils/dashboardHelpers";
 
 // Server messages are put on the field they are about, by wording.

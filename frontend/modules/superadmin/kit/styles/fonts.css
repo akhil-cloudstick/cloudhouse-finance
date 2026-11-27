@@ -1,0 +1,14 @@
+/* Fonts for the Gold Finance branding preview, scoped by class like the
+ * next/font variables they replace (BrandingStep's .bs-canvas). */
+@font-face { font-family: "GoldMontserrat"; src: url("../fonts/Montserrat-Variable-latin.woff2") format("woff2"); font-weight: 600 800; font-display: swap; }
+@font-face { font-family: "GoldInter"; src: url("../fonts/Inter-Variable-latin.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: "GoldLora"; src: url("../fonts/Lora-Variable-latin.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: "GoldPoppins"; src: url("../fonts/Poppins-400-latin.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "GoldPoppins"; src: url("../fonts/Poppins-500-latin.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "GoldPoppins"; src: url("../fonts/Poppins-600-latin.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "GoldPoppins"; src: url("../fonts/Poppins-700-latin.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+
+.gold-font-display { --font-display: "GoldMontserrat", system-ui, sans-serif; }
+.gold-font-sans { --font-sans: "GoldInter", system-ui, sans-serif; }
+.gold-font-lora { --font-lora: "GoldLora", Georgia, serif; }
+.gold-font-poppins { --font-poppins: "GoldPoppins", system-ui, sans-serif; }

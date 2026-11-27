@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { adjustExpiry, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
 import { type Business } from "@/modules/superadmin/types/superadmin-types";
-import { ReasonField } from "@/modules/superadmin/components/ReasonField";
-import { fieldForMessage } from "@/common/components/ui/FieldError";
+import { ReasonField } from "@/modules/superadmin/kit/components/ReasonField";
+import { fieldForMessage } from "@/modules/superadmin/kit/common/FieldError";
 
 // Server messages are put on the field they are about, by wording.
 const SERVER_FIELDS: Record<string, RegExp> = { reason: /reason/i, date: /date|expir|renew/i };

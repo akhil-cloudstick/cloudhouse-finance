@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TruncText } from "@/common/components/ui/TruncText";
 import { DesktopReleaseModal } from "@/modules/superadmin/components/DesktopReleaseModal";
 import { DesktopReleaseHistory } from "@/modules/superadmin/components/DesktopReleaseHistory";
 import { createPortal } from "react-dom";
 import { getBusinessOverview, PAYMENT_MODE_LABELS } from "@/modules/superadmin/services/superadminService";
 import { type Business, type BusinessOverview, type SubscriptionPayment, type Tier } from "@/modules/superadmin/types/superadmin-types";
-import { DEFAULT_BRAND_COLOR } from "@/modules/superadmin/config/theme";
-import { SuperAdminIcon } from "@/modules/superadmin/components/SuperAdminIcon";
-import { GrantChips } from "@/modules/superadmin/components/GrantChips";
-import { Stat } from "@/modules/superadmin/components/Stat";
+import { DEFAULT_BRAND_COLOR } from "@/modules/superadmin/kit/config/theme";
+import { SuperAdminIcon } from "@/modules/superadmin/kit/components/SuperAdminIcon";
+import { GrantChips } from "@/modules/superadmin/kit/components/GrantChips";
+import { Stat } from "@/modules/superadmin/kit/components/Stat";
+import { TruncText } from "@/modules/superadmin/kit/components/TruncText";
 import { RecordPaymentModal } from "@/modules/superadmin/components/RecordPaymentModal";
 import { RemovePaymentModal } from "@/modules/superadmin/components/RemovePaymentModal";
 import { ExpiryModal } from "@/modules/superadmin/components/ExpiryModal";
@@ -49,6 +49,12 @@ type BusinessDetailProps = {
   onCopyLink: (b: Business) => void;
   /* Code of the business whose link was just copied, to flash "Copied". */
   copied: string | null;
+  /* ERP: the host page has its own single back button and title row. */
+  hideBack?: boolean;
+  /* ERP: minimal layout — no title panel (the page header shows the name and
+     sign-in link), no "recent activity" (the Activity log tab has it all), and
+     desktop versions last. Every action stays. */
+  compact?: boolean;
 };
 
 export function BusinessDetail({
@@ -63,6 +69,8 @@ export function BusinessDetail({
   signInLink,
   onCopyLink,
   copied,
+  hideBack,
+  compact,
 }: BusinessDetailProps) {
   const [data, setData] = useState<BusinessOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +98,7 @@ export function BusinessDetail({
   }, [id, version]);
 
   const placeToolbar = (bar: React.ReactNode) => (toolbarSlot ? createPortal(bar, toolbarSlot) : bar);
-  const backButton = (
+  const backButton = hideBack ? null : (
     <button className="sa-btn" onClick={onBack}>
       ← All businesses
     </button>
@@ -116,6 +124,11 @@ export function BusinessDetail({
   const plan = tiers.find((t) => t.id === b.tierId) ?? b.tier;
   const atLimit = !u.unlimited && u.branches >= u.branchQuota;
   const expired = b.subscriptionExpiresAt ? new Date(b.subscriptionExpiresAt) < new Date() : false;
+  const desktopVersions = (
+        <section className="sa-panel">
+          <DesktopReleaseHistory tenantCode={b.code} refreshKey={historyRefresh} />
+        </section>
+  );
 
   return (
     <div className="sa-detail">
@@ -159,11 +172,9 @@ export function BusinessDetail({
         />
       )}
 
-      <section className="sa-panel">
-        <h3>Desktop app versions</h3>
-        <DesktopReleaseHistory tenantCode={b.code} refreshKey={historyRefresh} />
-      </section>
+      {!compact && desktopVersions}
 
+      {!compact && (
       <section className="sa-panel sa-detail-head">
         {b.logoUrl ? (
           <img className="sa-detail-logo" src={b.logoUrl} alt="" />
@@ -197,6 +208,7 @@ export function BusinessDetail({
           </div>
         </div>
       </section>
+      )}
 
       <section className="sa-cards sa-detail-stats">
         <Stat
@@ -335,6 +347,7 @@ export function BusinessDetail({
         )}
       </section>
 
+      {!compact && (
       <section className="sa-panel">
         <h3>Recent admin activity</h3>
         {data.recentActivity.length === 0 ? (
@@ -353,6 +366,9 @@ export function BusinessDetail({
           </ul>
         )}
       </section>
+      )}
+
+      {compact && desktopVersions}
 
       {recording && (
         <RecordPaymentModal

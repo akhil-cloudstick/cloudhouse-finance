@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -42,6 +44,40 @@ func downloadFileFor(tenantCode, version, osTarget string) string {
 	}
 }
 
+// macDownloadOK remembers, per .dmg URL, whether the file is in the bucket (checked once).
+var macDownloadOK sync.Map
+
+var linkCheckClient = &http.Client{Timeout: 5 * time.Second}
+
+// installerURL is the download link of one build. A Mac download is always the .dmg: a Mac build made before
+// the .dmg existed (f2b1ddad) only uploaded the updater's .zip, so it gets no download link at all (rebuild it).
+func installerURL(base, tenantCode, version, osTarget string) string {
+	if base == "" {
+		return ""
+	}
+	url := strings.Join(filterNonEmpty([]string{base, tenantCode, downloadFileFor(tenantCode, version, osTarget)}), "/")
+	if osTarget != "mac" {
+		return url
+	}
+	ok, seen := macDownloadOK.Load(url)
+	if !seen {
+		resp, err := linkCheckClient.Head(url)
+		found := err == nil && resp.StatusCode == http.StatusOK
+		if resp != nil {
+			resp.Body.Close()
+		}
+		// Only a definite answer is remembered; a network error is asked again next time.
+		if err == nil {
+			macDownloadOK.Store(url, found)
+		}
+		ok = found
+	}
+	if ok.(bool) {
+		return url
+	}
+	return ""
+}
+
 // withLinks fills the two links the Rebuild window shows: the GitHub run's log, and (once done) the installer.
 func withLinks(job *models.ReleaseJob) {
 	job.RunURL = ""
@@ -54,9 +90,7 @@ func withLinks(job *models.ReleaseJob) {
 	}
 	job.DownloadURL = ""
 	if job.Status == models.StatusDone && job.BuildType == models.BuildTypeFull {
-		if base := bucketPublicBase(); base != "" {
-			job.DownloadURL = strings.Join([]string{base, job.TenantCode, downloadFileFor(job.TenantCode, job.Version, job.OS)}, "/")
-		}
+		job.DownloadURL = installerURL(bucketPublicBase(), job.TenantCode, job.Version, job.OS)
 	}
 }
 
@@ -318,11 +352,7 @@ func ListReleaseHistory(c echo.Context) error {
 	base := bucketPublicBase()
 	out := make([]historyEntry, 0, len(done))
 	for _, job := range done {
-		file := downloadFileFor(job.TenantCode, job.Version, job.OS)
-		url := ""
-		if base != "" {
-			url = strings.Join(filterNonEmpty([]string{base, job.TenantCode, file}), "/")
-		}
+		url := installerURL(base, job.TenantCode, job.Version, job.OS)
 		out = append(out, historyEntry{TenantCode: job.TenantCode, OS: job.OS, Version: job.Version, DownloadURL: url})
 	}
 	return common.Success(c, http.StatusOK, out)

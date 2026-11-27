@@ -4,23 +4,28 @@ import { useEffect, useState, useCallback } from "react";
 import { TruncText } from "@/common/components/ui/TruncText";
 import { useRouter } from "next/navigation";
 import "@/modules/superadmin/styles/superadmin.css";
-import { listBusinesses, listTiers, listAuditLog, getCatalogue, SuperAdminApiError } from "@/modules/superadmin/services/superadminService";
+import { listBusinesses, listTiers, listAuditLog, getCatalogue, SuperAdminApiError, getDevToolsPin, setDevToolsPin } from "@/modules/superadmin/services/superadminService";
 import { type Business, type Tier, type AuditLogEntry, type Catalogue } from "@/modules/superadmin/types/superadmin-types";
 import { clearSuperAdminSession, readSuperAdminToken, readSuperAdminUser } from "@/modules/superadmin/services/superadminSession";
 import { tenantLoginLink } from "@/modules/superadmin/services/tenantLink";
 import { VENDOR } from "@/modules/superadmin/config/brand";
 import { goToSuperAdmin } from "@/modules/superadmin/services/superadminNav";
 import { DEFAULT_BRAND_COLOR } from "@/modules/superadmin/config/theme";
-import { SuperAdminIcon } from "@/modules/superadmin/components/SuperAdminIcon";
-import { GrantChips } from "@/modules/superadmin/components/GrantChips";
+import { SuperAdminIcon } from "@/modules/superadmin/kit/components/SuperAdminIcon";
+import { GrantChips } from "@/modules/superadmin/kit/components/GrantChips";
+import { BusinessMark } from "@/modules/superadmin/kit/components/BusinessMark";
+import { ActivityTable } from "@/modules/superadmin/kit/components/ActivityTable";
 import { BusinessActionModal } from "@/modules/superadmin/components/BusinessActionModal";
 import { DesktopReleaseModal } from "@/modules/superadmin/components/DesktopReleaseModal";
 import { TierPriceModal } from "@/modules/superadmin/components/TierPriceModal";
 import { BusinessDetail } from "@/modules/superadmin/components/BusinessDetail";
 import { BusinessWizard } from "@/modules/superadmin/components/BusinessWizard";
-import { DevToolsPinModal } from "@/modules/superadmin/components/DevToolsPinModal";
+import { DevToolsPinModal, type DevToolsPinAdapter } from "@/modules/superadmin/kit/components/DevToolsPinModal";
 import type { IconName, StepId } from "@/modules/superadmin/types/dashboard-types";
 import { formatDate, quotaText, LANGUAGE_LABELS } from "@/modules/superadmin/utils/dashboardHelpers";
+
+// Gold Finance's DevTools PIN in the shared PIN window (the same settings as the ERP console).
+const GOLD_PIN: DevToolsPinAdapter = { load: getDevToolsPin, save: setDevToolsPin, pattern: /^\d{4,6}$/, rule: "4-6 digits", maxLength: 6, needsReason: true };
 
 type Tab = "businesses" | "tiers" | "audit";
 
@@ -392,14 +397,7 @@ export default function SuperAdminDashboardPage() {
                                 * it — a logo when set, otherwise a swatch of
                                 * its colour, so a row is recognisable at a
                                 * glance even before a logo is uploaded. */}
-                              {b.logoUrl ? (
-                                <img className="sa-biz-logo" src={b.logoUrl} alt="" />
-                              ) : (
-                                <span
-                                  className="sa-biz-swatch"
-                                  style={{ background: b.brandColor || DEFAULT_BRAND_COLOR }}
-                                />
-                              )}
+                              <BusinessMark name={b.name} logoUrl={b.logoUrl} color={b.brandColor} />
                               <span>
                                 <span className="sa-biz-name">{b.name}</span>
                                 {b.legalName && b.legalName !== b.name && (
@@ -541,37 +539,11 @@ export default function SuperAdminDashboardPage() {
                   onChange={(e) => setAuditQ(e.target.value)}
                 />
               </div>
-              <table className="sa-table">
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Actor</th>
-                    <th>Action</th>
-                    <th>Business</th>
-                    <th>Detail</th>
-                    <th>Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(auditLog ?? []).filter((e) => matches(auditQ, e.actorName, e.action, e.tenantName, e.detail, e.reason)).map((e) => (
-                    <tr key={e.id}>
-                      <td>{new Date(e.createdAt).toLocaleString()}</td>
-                      <td>{e.actorName}</td>
-                      <td>{e.action}</td>
-                      <td>{e.tenantName || "—"}</td>
-                      <td>{e.detail}</td>
-                      <td><TruncText text={e.reason} /></td>
-                    </tr>
-                  ))}
-                  {(auditLog ?? []).length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="sa-empty">
-                        No actions logged yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              <ActivityTable
+                showBusiness
+                rows={(auditLog ?? []).filter((e) => matches(auditQ, e.actorName, e.action, e.tenantName, e.detail, e.reason)).map((e) => ({ id: e.id, createdAt: e.createdAt, actor: e.actorName, action: e.action, business: e.tenantName, detail: e.detail, reason: e.reason }))}
+                emptyText="No actions logged yet."
+              />
             </div>
           )}
 
@@ -612,7 +584,7 @@ export default function SuperAdminDashboardPage() {
         />
       )}
       {pricingTier && <TierPriceModal tier={pricingTier} onClose={() => setPricingTier(null)} onDone={afterAction} />}
-      {devToolsPinOpen && <DevToolsPinModal onClose={() => setDevToolsPinOpen(false)} />}
+      {devToolsPinOpen && <DevToolsPinModal pin={GOLD_PIN} onClose={() => setDevToolsPinOpen(false)} />}
     </div>
   );
 }
