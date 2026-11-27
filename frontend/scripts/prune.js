@@ -60,10 +60,11 @@ async function main() {
   const listed = await client.send(new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: prefix }));
   const files = (listed.Contents || []).map((o) => o.Key).filter((k) => k && !/\/latest[^/]*\.json$/.test(k));
 
-  // Groups by OS (e.g. "...-1.4.0-win.exe" -> "win") so each OS's limit is independent.
+  // Groups by OS and file kind (e.g. "...-1.4.0-mac.dmg" -> "mac.dmg") so each one keeps its own newest versions:
+  // a Mac release uploads both a .zip and a .dmg, and those must not count twice against one limit.
   const byOs = new Map();
-  // Windows files end in an extension (...-win.exe); Mac/Linux binaries have none (...-mac, ...-linux).
-  const pattern = /-(\d+\.\d+\.\d+(?:-[\w.]+)?)-(\w+)(?:\.\w+)?$/;
+  // Windows files end in an extension (...-win.exe); Linux binaries have none (...-linux).
+  const pattern = /-(\d+\.\d+\.\d+(?:-[\w.]+)?)-(\w+(?:\.\w+)?)$/;
   for (const key of files) {
     const m = pattern.exec(key);
     if (!m) continue;

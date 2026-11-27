@@ -24,7 +24,7 @@ const client = new S3Client({
 });
 
 const baseFolder = (S3_FOLDER || "").replace(/^\/+|\/+$/g, "");
-const contentTypes = { ".json": "application/json", ".exe": "application/octet-stream", ".zip": "application/zip" };
+const contentTypes = { ".json": "application/json", ".exe": "application/octet-stream", ".zip": "application/zip", ".dmg": "application/x-apple-diskimage" };
 
 // "content" publishes once into the shared "common" folder; "full" (default) goes into the tenant's own folder.
 const buildType = process.env.RELEASE_BUILD_TYPE === "content" ? "content" : "full";

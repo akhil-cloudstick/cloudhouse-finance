@@ -29,13 +29,14 @@ func newDispatchToken() string {
 }
 
 // downloadFileFor is the file a person downloads to install that build, named as package-win.cjs (the Inno setup,
-// not the bare exe the updater swaps in), finalize-mac.cjs (the zipped .app) and package-linux.cjs name it.
+// not the bare exe the updater swaps in), finalize-mac.cjs (the .dmg, not the .zip the updater unpacks) and
+// package-linux.cjs name it.
 func downloadFileFor(tenantCode, version, osTarget string) string {
 	switch osTarget {
 	case "win":
 		return fmt.Sprintf("%s-finance-%s-setup.exe", tenantCode, version)
 	case "mac":
-		return fmt.Sprintf("%s-finance-%s-mac.zip", tenantCode, version)
+		return fmt.Sprintf("%s-finance-%s-mac.dmg", tenantCode, version)
 	default:
 		return fmt.Sprintf("%s-finance-%s-%s", tenantCode, version, osTarget)
 	}
