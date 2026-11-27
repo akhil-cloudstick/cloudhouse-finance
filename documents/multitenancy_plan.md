@@ -157,7 +157,7 @@ must keep that immutable once staff have the link, and should stop treating
 
 The decided design this implements (from Step 0 "Decided"):
 - Slug-based per-business URLs: `/login/<slug>`, `/app/<slug>`. **Done for
-  staff.** The borrower app (`customer-mobile/`) is a separate client and
+  staff.** The borrower app (`mobile/customer/`) is a separate client and
   still needs the same treatment — its `/customer/auth/*` endpoints already
   accept `businessCode`, so this is client work, tracked under Step 5.
 - **Do not derive the slug from the tenant id.** Sequential or reversible
@@ -211,7 +211,7 @@ business to exist at all — which is why it is worse than a cross-business leak
 in one respect.
 
 **The blocker that did exist: the borrower app, like the staff app, sent no
-business code.** `customer-mobile/src/api/auth.ts` called
+business code.** `mobile/customer/src/api/auth.ts` called
 `requestOtp(phone)`/`verifyOtp(phone, code)` with no `businessCode`, so the day
 a second lender existed every borrower would hit
 `customerauth.ErrBusinessCodeRequired` ("please open your lender's app link")

@@ -105,6 +105,9 @@ func AuthMiddleware() echo.MiddlewareFunc {
 			c.Set("isSystem", session.IsSystem)
 			c.Set("tenantId", claims.TenantID)
 			c.Set("branchId", session.BranchID)
+			if claims.ImpersonatedBy != 0 {
+				c.Set("impersonatedBy", claims.ImpersonatedBy)
+			}
 			return next(c)
 		}
 	}

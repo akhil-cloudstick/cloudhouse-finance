@@ -1,0 +1,121 @@
+import { apiRequestEnveloped as apiRequest, API_BASE_URL, apiUrl } from "@/common/services/httpClient";
+import type { Frequency, PersonalLoanHistory, PersonalLoan, PersonalLoanInstallment, PersonalLoanPayment, CreatePersonalLoanInput, RenewInput, RenewalPreview, RenewResult, PersonalLoanApproval, PersonalLoanBondLang } from "@/modules/personal-loans/types/personal-loan-types";
+
+export function listPersonalLoansPage(params: {
+  q?: string;
+  frequency?: string;
+  status?: string;
+  customerId?: number;
+  /** Opened-date range (YYYY-MM-DD), like web. */
+  from?: string;
+  to?: string;
+  limit: number;
+  offset: number;
+}) {
+  return apiRequest<{ items: PersonalLoan[]; hasMore: boolean }>("/personal-loans", { params });
+}
+
+export function getPersonalLoan(id: number) {
+  return apiRequest<PersonalLoan>(`/personal-loans/${id}`);
+}
+
+export function getPersonalLoanSchedulePage(id: number, limit: number, offset: number) {
+  return apiRequest<{ items: PersonalLoanInstallment[]; hasMore: boolean }>(`/personal-loans/${id}/schedule`, {
+    params: { limit, offset },
+  });
+}
+
+export function listPersonalLoanPaymentsPage(id: number, limit: number, offset: number) {
+  return apiRequest<{ items: PersonalLoanPayment[]; hasMore: boolean; totalDebit?: number; totalCredit?: number }>(`/personal-loans/${id}/payments`, {
+    params: { limit, offset },
+  });
+}
+
+// Event history (created / penal applied / renewed) — web getPersonalLoanHistoryPage, GET /personal-loans/:id/history.
+export function getPersonalLoanHistoryPage(id: number, limit: number, offset: number) {
+  return apiRequest<{ items: PersonalLoanHistory[]; hasMore: boolean; total?: number }>(`/personal-loans/${id}/history`, { params: { limit, offset } });
+}
+
+export function createPersonalLoan(input: CreatePersonalLoanInput) {
+  return apiRequest<PersonalLoan>("/personal-loans", { method: "POST", body: input });
+}
+
+// Corrects a loan's terms — only before any payment, renewal or penal charge (the backend answers with the reason otherwise).
+export function editPersonalLoan(id: number, input: Partial<CreatePersonalLoanInput> & { reason?: string }) {
+  return apiRequest<PersonalLoan>(`/personal-loans/${id}`, { method: "PATCH", body: input });
+}
+
+// Deletes a loan and reverses its disbursement; the backend refuses one with payments or in a renewal.
+export function deletePersonalLoan(id: number) {
+  return apiRequest<unknown>(`/personal-loans/${id}`, { method: "DELETE" });
+}
+
+export function recordPersonalLoanPayment(
+  id: number,
+  input: {
+    amount: number;
+    cashAmount: number; // must sum to amount
+    upiAmount: number;
+    bankTransferAmount: number;
+    chequeAmount: number;
+    // Required when any of UPI/Bank Transfer/Cheque is non-zero.
+    bankId?: number;
+    reference?: string;
+    description?: string;
+  }
+) {
+  return apiRequest<PersonalLoan>(`/personal-loans/${id}/payments`, { method: "POST", body: input });
+}
+
+export function previewRenewal(id: number, input: RenewInput) {
+  return apiRequest<RenewalPreview>(`/personal-loans/${id}/renewal-preview`, { method: "POST", body: input });
+}
+
+export function renewPersonalLoan(id: number, input: RenewInput) {
+  return apiRequest<RenewResult>(`/personal-loans/${id}/renew`, { method: "POST", body: input });
+}
+
+export function approvePersonalLoan(id: number, input: { stage: string; action: "Approved" | "Rejected"; remarks?: string }) {
+  return apiRequest<PersonalLoan>(`/personal-loans/${id}/approve`, { method: "POST", body: input });
+}
+
+export function listPersonalLoanApprovals(id: number) {
+  return apiRequest<PersonalLoanApproval[]>(`/personal-loans/${id}/approvals`);
+}
+
+export function personalLoanBondUrl(loanId: number | string, lang: PersonalLoanBondLang): string {
+  return apiUrl(`/personal-loans/${loanId}/bond?lang=${lang}`);
+}
+
+/* --- Ledger edit / delete: the loan's balances, instalments and status are recalculated server-side.
+ * dryRun previews the before / after figures without saving. The disbursement can be edited (date, payment
+ * breakdown) but not deleted or re-amounted. */
+export type PersonalLedgerSummary = { outstanding: number; totalPaid: number; status: string };
+export type PersonalLedgerEditPreview = { before: PersonalLedgerSummary; after: PersonalLedgerSummary; dryRun: boolean };
+
+export function editPersonalLoanPayment(
+  loanId: number,
+  paymentId: number,
+  input: { paidOn?: string; amount?: number; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number; reference?: string; description?: string; reason?: string },
+  dryRun = false
+) {
+  return apiRequest<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/payments/${paymentId}${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+}
+
+export function deletePersonalLoanPayment(loanId: number, paymentId: number, dryRun = false, reason?: string) {
+  return apiRequest<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/payments/${paymentId}?${new URLSearchParams({ ...(reason ? { reason } : {}), ...(dryRun ? { dry_run: "true" } : {}) })}`, { method: "DELETE" });
+}
+
+export function editPersonalLoanDisbursement(
+  loanId: number,
+  input: { disbursedAt?: string; cashAmount?: number; upiAmount?: number; bankTransferAmount?: number; chequeAmount?: number; bankId?: number; reason?: string },
+  dryRun = false
+) {
+  return apiRequest<PersonalLedgerEditPreview>(`/personal-loans/${loanId}/disbursement${dryRun ? "?dry_run=true" : ""}`, { method: "PATCH", body: input });
+}
+
+// All personal loans of one customer (GET /customers/:id/personal-loans) — web's listPersonalLoansForCustomer;
+// used by the customer delete-blockers list.
+export function listPersonalLoansForCustomer(customerId: number) {
+  return apiRequest<PersonalLoan[]>(`/customers/${customerId}/personal-loans`);
+}

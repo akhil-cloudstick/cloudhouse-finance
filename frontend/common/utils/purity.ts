@@ -1,17 +1,10 @@
-/* Shared purity math + formatting, mirroring backend/internal/loan/purity.go
- * exactly (ParsePurity/rateForPurity) so the client-side preview shown while
- * filling a form always matches what the server will actually compute and
- * store. Only the 24K benchmark is ever published (see
- * modules/gold-rates/services/goldRateService.ts) —
- * every other purity is resolved here, per-ornament, at entry time. */
+// Mirrors backend/internal/loan/purity.go exactly, so the client-side preview matches the server's computation.
 
 export const MIN_KARAT = 10;
 export const MAX_KARAT = 24;
 export const MIN_FINENESS_PERCENT = 0; // exclusive
 export const MAX_FINENESS_PERCENT = 100;
-// 24K is quoted as 999 (99.9% pure). Shown fixed and read-only in the Set
-// Rate modal; it labels the 24K rate rather than scaling it — 24K IS the
-// reference every other karat derives from.
+// 24K is quoted as 999 (99.9% pure) and is the reference every other karat derives from.
 export const FINENESS_24K = 99.9;
 
 export type PurityUnit = "karat" | "fineness";
@@ -24,27 +17,19 @@ export function isFinenessInRange(finenessPercent: number): boolean {
 	return finenessPercent > MIN_FINENESS_PERCENT && finenessPercent <= MAX_FINENESS_PERCENT;
 }
 
-/* The exact karat/24 ratio, rounded to 1 decimal — matches
- * puritystandard.FinenessForKarat, used to seed/suggest fineness% for a
- * given karat. */
+// Matches puritystandard.FinenessForKarat.
 export function finenessForKarat(karat: number): number {
 	return Math.round((karat / 24) * 1000) / 10;
 }
 
-/* The fineness% a published rate implies against its K24 — the inverse of
- * rateForFineness, to 2 decimals. Fineness itself is never stored (only the
- * three rates are), so this is how the Set Rate modal restores the fineness
- * last used for a karat instead of resetting to the standard karat/24 ratio.
- * Falls back to the standard ratio when either rate is missing, or the
- * result isn't a valid fineness. */
+// Inverse of rateForFineness; restores the fineness last used for a karat since fineness itself isn't stored.
 export function finenessFromRate(k24: number, rate: number, karat: number): number {
 	if (!(k24 > 0) || !(rate > 0)) return finenessForKarat(karat);
 	const f = Math.round((rate / k24) * FINENESS_24K * 100) / 100;
 	return isFinenessInRange(f) ? f : finenessForKarat(karat);
 }
 
-/* Per-gram rate for a purity, off the day's K24 benchmark — rounded to the
- * nearest whole rupee, matching loan/purity.go's rateForPurity. */
+// Matches loan/purity.go's rateForPurity.
 export function rateForKarat(k24: number, karat: number): number {
 	return Math.round((k24 * karat) / 24);
 }
@@ -53,15 +38,12 @@ export function rateForFineness(k24: number, finenessPercent: number): number {
 	return Math.round((k24 * finenessPercent) / FINENESS_24K);
 }
 
-/* Formats a purity into the canonical unit-suffixed string stored on
- * Ornament.Purity / OrnamentPurityTest.TestedPurity — "22K" or "91.6%". */
+// Canonical unit-suffixed string stored on Ornament.Purity / OrnamentPurityTest.TestedPurity.
 export function formatPurity(unit: PurityUnit, value: number): string {
 	return unit === "karat" ? `${value}K` : `${value}%`;
 }
 
-/* Parses a stored/typed purity string back into its unit + numeric value.
- * Returns null for anything that doesn't match either shape or falls
- * outside range — mirrors loan/purity.go's ParsePurity. */
+// Mirrors loan/purity.go's ParsePurity. null if it doesn't match either shape or falls outside range.
 export function parsePurity(purity: string): { unit: PurityUnit; value: number } | null {
 	const karatMatch = /^(\d+)K$/.exec(purity);
 	if (karatMatch) {
@@ -76,28 +58,15 @@ export function parsePurity(purity: string): { unit: PurityUnit; value: number }
 	return null;
 }
 
-/* Resolves a stored purity string's per-gram rate off K24 — returns null
- * if the string doesn't parse (caller should treat that as "can't value
- * this ornament yet", matching the backend's ErrInvalidPurity). Always
- * derives off K24, even for exactly 22K/18K — see rateForPurityFull below
- * for the version that reads an independently-published K22/K18 instead,
- * where that distinction actually matters. */
+// null means "can't value this ornament yet" (matches backend's ErrInvalidPurity). Always derives off K24.
 export function rateForPurityString(k24: number, purity: string): number | null {
 	const parsed = parsePurity(purity);
 	if (!parsed) return null;
 	return parsed.unit === "karat" ? rateForKarat(k24, parsed.value) : rateForFineness(k24, parsed.value);
 }
 
-/* Same as rateForPurityString, but mirrors backend/internal/loan/purity.go's
- * rateForPurity exactly: an ornament at precisely 22K or 18K reads that
- * karat's own independently-published rate (Manual mode may have set it to
- * something other than K24×ratio) when one has actually been published
- * (>0), falling back to the K24-derived figure otherwise — 24K and every
- * other purity (16K, a custom fineness%, etc.) always derives off K24.
- * Use this wherever a live estimate needs to match what the backend will
- * actually compute/enforce (e.g. Edit Loan's eligible-amount preview);
- * rateForPurityString's plain K24-only derivation is intentionally kept
- * everywhere else (New Loan's own valuation panel) unchanged. */
+// Unlike rateForPurityString, exact 22K/18K use their own published rate if set (>0); everything else derives off K24.
+// Use where a live estimate must match the backend's actual enforcement (e.g. Edit Loan's eligible-amount preview).
 export function rateForPurityFull(rates: { k24: number; k22: number; k18: number }, purity: string): number | null {
 	const parsed = parsePurity(purity);
 	if (!parsed) return null;

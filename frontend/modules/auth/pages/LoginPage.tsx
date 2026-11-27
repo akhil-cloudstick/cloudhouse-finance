@@ -18,7 +18,14 @@ import {
 
 function LoginPageInner() {
   const searchParams = useSearchParams();
-  const { login, token, loading } = useAuth();
+  const { login, loginWithCode, token, loading } = useAuth();
+  /* "Login as" from the superadmin console arrives as ?login_as=<one-time code>. The sign-in form is never shown for
+   * it: only a spinner while the code is traded ("pending"), then straight on to the dashboard ("signed-in"). The
+   * form appears only if the code fails. While pending the page must not leave for the console with whatever
+   * session this browser already held for the business. */
+  const [loginAs, setLoginAs] = useState<"pending" | "signed-in" | null>(() =>
+    searchParams.get("login_as") ? "pending" : null,
+  );
   // Every string on this page used to be the hardcoded platform BRAND,
   // regardless of which business's /<slug>/login or subdomain a visitor
   // actually reached — BrandLogo already reads the real business's logo via
@@ -102,9 +109,26 @@ function LoginPageInner() {
    * condition. A navigation is in flight from that moment; re-issuing it is
    * the same abort by another route.
    */
+  const loginAsStartedRef = useRef(false);
+  useEffect(() => {
+    const code = searchParams.get("login_as");
+    if (!code || loading || loginAsStartedRef.current) return;
+    loginAsStartedRef.current = true;
+    // the code works once: take it out of the address bar (and history) straight away
+    const url = new URL(window.location.href);
+    url.searchParams.delete("login_as");
+    window.history.replaceState(null, "", url.toString());
+    loginWithCode(code)
+      .then(() => setLoginAs("signed-in"))
+      .catch((err) => {
+        setMsg({ text: err instanceof ApiError && err.message ? err.message : "Could not sign in. Click Login as again.", ok: false });
+        setLoginAs(null);
+      });
+  }, [searchParams, loading, loginWithCode]);
+
   const navigatedRef = useRef(false);
   useEffect(() => {
-    if (loading || !token || navigatedRef.current) return;
+    if (loading || !token || loginAs === "pending" || navigatedRef.current) return;
     navigatedRef.current = true;
     // Same host-vs-path distinction as everywhere else this page's business
     // feeds a URL: a host-resolved tenant never had the slug in its address
@@ -115,7 +139,7 @@ function LoginPageInner() {
     const slug = resolvedSlug ?? activeBusinessSlug();
     const includeInUrl = resolvedSlug === null || fromPath;
     window.location.replace(appPath(slug, undefined, includeInUrl));
-  }, [loading, token]);
+  }, [loading, token, loginAs]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -184,7 +208,7 @@ function LoginPageInner() {
   // URL to read) never showed this loading screen, so the client's first
   // paint must not either — only once linkSlug updates post-mount (an
   // ordinary re-render, not the hydration pass) is it safe to swap in.
-  if (linkSlug !== null && !brandingLoaded) {
+  if (loginAs !== null || (linkSlug !== null && !brandingLoaded)) {
     return (
       <div className="shell-loading" aria-busy="true" aria-label="Loading">
         <div className="shell-loading-spinner" />

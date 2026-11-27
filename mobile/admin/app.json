@@ -1,0 +1,93 @@
+{
+  "expo": {
+    "name": "CloudHouse Finance",
+    "slug": "cloudhousefinance",
+    "owner": "cloudhouse-production",
+    "version": "1.0.5",
+    "orientation": "default",
+    "icon": "./assets/cloudhouse.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cloudhouse.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.cloudhouse.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/cloudhouse-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "cloudhouse",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-screen-orientation",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-tile.png",
+          "imageWidth": 230,
+          "resizeMode": "contain",
+          "backgroundColor": "#6e1423"
+        }
+      ],
+      [
+        "expo-status-bar",
+        {
+          "style": "dark",
+          "backgroundColor": "transparent",
+          "translucent": true
+        }
+      ],
+      "expo-sharing",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CloudHouse Finance needs access to your photos to attach customer KYC documents.",
+          "cameraPermission": "CloudHouse Finance needs the camera to photograph customer KYC documents."
+        }
+      ],
+      "expo-document-picker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CloudHouse Finance needs the camera to scan your business QR code and packet label QR codes."
+        }
+      ],
+      "expo-asset",
+      "./withNoAutofillHighlight"
+    ],
+    "androidStatusBar": {
+      "backgroundColor": "#00000000",
+      "barStyle": "dark-content",
+      "translucent": true
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "expo-status-bar": {
+        "style": "dark"
+      },
+      "eas": {
+        "projectId": "82c9339c-3d9b-43f0-bcc7-8e8cab60ba0a"
+      }
+    }
+  }
+}

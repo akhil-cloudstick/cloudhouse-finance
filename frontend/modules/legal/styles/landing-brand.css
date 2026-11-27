@@ -1,0 +1,27 @@
+/* CloudHouse Finance's colours and fonts for the shared landing kit (landing-kit.css). The CloudHouse POS site
+ * sets the same tokens with its own brand. The fonts are the self-hosted Inter and Montserrat both root layouts
+ * already load (--font-sans / --font-display), the same files the POS site uses. */
+
+.lp {
+	--lp-font-sans: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+	--lp-font-display: var(--font-display), var(--font-sans), system-ui, sans-serif;
+
+	--lp-brand: #6e1423;
+	--lp-brand-dark: #47041f;
+	--lp-brand-on-dark: #e6c878;
+	--lp-tint: #f8eef0;
+	--lp-tint-line: #ecd3d8;
+	--lp-ring: rgba(110, 20, 35, 0.3);
+	--lp-grad: linear-gradient(135deg, #47041f 0%, #8a2035 55%, #c9a24b 100%);
+	--lp-grad-text: linear-gradient(90deg, #8a2035 0%, #c9a24b 100%);
+	--lp-glow-a: rgba(201, 162, 75, 0.16);
+	--lp-glow-b: rgba(110, 20, 35, 0.09);
+
+	--lp-ink: #2b1013;
+	--lp-ink2: #6b5155;
+	--lp-ink3: #8a7276;
+	--lp-line: #eee0e1;
+	--lp-line-strong: #dfc9cc;
+	--lp-bg: #ffffff;
+	--lp-bg-soft: #faf6f6;
+}

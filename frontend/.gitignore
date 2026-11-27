@@ -23,6 +23,7 @@ desktop/tenant_title_generated.go
 # desktop app: renderer build, installers, staged embed assets
 /dist-desktop/
 /dist/
+/dist-old/
 /desktop/assets/*
 !/desktop/assets/.gitkeep
 

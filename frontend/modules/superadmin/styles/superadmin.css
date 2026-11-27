@@ -853,6 +853,11 @@ body {
 .sa-table-biz {
   min-width: 900px;
 }
+/* Narrow tables (rebuild progress, version history) — no reason to force the
+   wide businesses-table minimum when 3-4 columns fit comfortably without it. */
+.sa-table-compact {
+  min-width: 0;
+}
 .sa-table-biz th,
 .sa-table-biz td {
   padding: 10px 10px;
@@ -1241,6 +1246,23 @@ body {
   border-color: var(--sa-brand);
   color: var(--sa-brand-deep);
   font-weight: 600;
+}
+
+/* A build/upload/verify still in progress — so a "Preparing…" row doesn't read as stuck. */
+@keyframes sa-spin { to { transform: rotate(360deg); } }
+.sa-spin {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 5px;
+  border-radius: 50%;
+  border: 2px solid var(--sa-brand-pale);
+  border-right-color: var(--sa-brand);
+  animation: sa-spin 0.7s linear infinite;
+  vertical-align: -1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-spin { animation: none; }
 }
 
 /* The label colour here was the console's one real bug: it read
@@ -1959,4 +1981,172 @@ body {
 .sa-field.has-err textarea,
 .sa-field.has-err .sa-select-btn {
   border-color: var(--sa-red);
+}
+
+/* "Login as" picker: a plain list instead of a table, so the action button is
+   always on screen (the console tables have a 760px floor and would scroll
+   sideways inside a modal). */
+.sa-modal.sa-loginas { max-width: 600px; }
+.sa-loginas-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sa-line);
+  border-radius: var(--sa-radius);
+  max-height: min(420px, calc(90vh - 260px));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.sa-loginas-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--sa-line);
+}
+.sa-loginas-row:last-child { border-bottom: 0; }
+.sa-loginas-row:hover { background: var(--sa-side-hover); }
+.sa-loginas-who {
+  flex: 1;
+  min-width: 0;
+}
+.sa-loginas-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sa-loginas-meta {
+  font-size: 12px;
+  color: var(--sa-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sa-loginas-row .sa-btn { flex-shrink: 0; }
+.sa-loginas-search { margin-bottom: 10px; }
+
+/* ── Businesses list: never a sideways scroll ────────────────────────────────
+   The table fits its card at every width. Columns drop out as the screen
+   narrows (each is still on the business's detail page), and on a phone each
+   row becomes a card: name and on/off switch on top, then the sign-in link,
+   then plan · status · renewal. Columns are matched by class (sa-col-*), not
+   position, so the same rules fit the Gold console and the ERP copy, which has
+   an extra "ERP customer" column. */
+.sa-table-wrap-fit { overflow-x: hidden; }
+.sa-table-biz { min-width: 0; width: 100%; }
+.sa-table-biz td { overflow-wrap: normal; }
+.sa-table-biz td,
+.sa-table-biz th { min-width: 0 !important; }
+.sa-table-biz .sa-col-biz { min-width: 160px !important; }
+.sa-table-biz .sa-biz-name { overflow-wrap: anywhere; }
+.sa-table-biz .sa-url { overflow-wrap: anywhere; }
+.sa-table-biz .sa-col-active { width: 1%; white-space: nowrap; }
+@media (max-width: 1400px) {
+  .sa-table-biz .sa-col-code,
+  .sa-table-biz .sa-col-langs { display: none; }
+}
+@media (max-width: 1024px) {
+  /* the copy button keeps only its icon; the link text above it is the label */
+  .sa-table-biz .sa-signin-row .sa-btn { font-size: 0; gap: 0; padding: 6px 8px; }
+  .sa-table-biz .sa-signin-row .sa-btn .sa-icon { width: 14px; height: 14px; flex: none; }
+  .sa-table-biz .sa-col-erp .sa-biz-sub { display: none; }
+}
+@media (max-width: 860px) {
+  .sa-table-wrap-fit { overflow-x: hidden; }
+  .sa-table-biz,
+  .sa-table-biz tbody { display: block; min-width: 0; width: 100%; }
+  .sa-table-biz thead { display: none; }
+  .sa-table-biz tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+    padding: 12px;
+    border-bottom: 1px solid var(--sa-line);
+  }
+  .sa-table-biz td { display: block; padding: 0; border: 0; background: transparent !important; }
+  .sa-table-biz tbody tr:hover { background: var(--sa-side-hover); }
+  .sa-table-biz .sa-col-biz { order: 1; flex: 1 1 0; min-width: 0 !important; }
+  .sa-table-biz .sa-col-active { order: 2; flex: none; width: auto; }
+  .sa-table-biz .sa-col-url { order: 3; flex: 1 1 100%; display: flex; align-items: center; gap: 8px; min-width: 0 !important; }
+  .sa-table-biz .sa-col-url .sa-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sa-table-biz .sa-col-url .sa-signin-row { flex: none; margin: 0; }
+  .sa-table-biz .sa-col-erp { order: 4; flex: 1 1 100%; }
+  .sa-table-biz .sa-col-erp .sa-biz-sub { display: none; }
+  .sa-table-biz .sa-col-plan,
+  .sa-table-biz .sa-col-status,
+  .sa-table-biz .sa-col-renewal { order: 5; flex: none; font-size: 12.5px; }
+  .sa-table-biz .sa-col-plan .sa-biz-sub { display: inline; margin-left: 4px; }
+  .sa-table-biz .sa-col-plan .sa-biz-sub::before { content: "· "; }
+}
+
+/* ===== Rebuild progress (DesktopReleaseModal, after "Confirm & start") =====
+   One stacked card per build instead of a table, so nothing scrolls sideways. */
+.sa-rb-sub { margin: 4px 0 0; font-size: 13px; color: var(--sa-muted); }
+.sa-rb { display: grid; gap: 14px; min-width: 0; }
+.sa-rb-summary { display: grid; gap: 8px; }
+.sa-rb-summary-top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.sa-rb-summary-top strong { font-weight: 600; }
+.sa-rb-summary-top span { color: var(--sa-muted); }
+.sa-rb-bar { height: 6px; border-radius: 99px; background: var(--sa-bg); overflow: hidden; }
+.sa-rb-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--sa-brand); transition: width 0.6s ease; }
+
+.sa-rb-job { border: 1px solid var(--sa-line); border-radius: var(--sa-radius); padding: 14px 16px; display: grid; gap: 12px; min-width: 0; }
+.sa-rb-job.done { border-color: color-mix(in oklch, var(--sa-green) 40%, var(--sa-line)); }
+.sa-rb-job.failed { border-color: color-mix(in oklch, var(--sa-red) 40%, var(--sa-line)); }
+.sa-rb-job-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sa-rb-os { width: 36px; height: 36px; border-radius: 9px; background: var(--sa-bg); display: grid; place-items: center; flex: none; }
+.sa-rb-os svg { width: 18px; height: 18px; fill: var(--sa-ink); }
+.sa-rb-who { flex: 1; min-width: 0; }
+.sa-rb-who b { display: block; font-size: 14px; }
+.sa-rb-who > span { font-size: 12px; color: var(--sa-muted); }
+.sa-rb-code { font-family: ui-monospace, "Cascadia Mono", monospace; background: var(--sa-bg); padding: 1px 6px; border-radius: 5px; }
+.sa-rb-state { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 99px; white-space: nowrap; }
+.sa-rb-state.run { background: var(--sa-amber-bg); color: var(--sa-amber); }
+.sa-rb-state.done { background: var(--sa-green-bg); color: var(--sa-green); }
+.sa-rb-state.failed { background: var(--sa-red-bg); color: var(--sa-red); }
+.sa-rb-state.cancelled { background: var(--sa-bg); color: var(--sa-muted); }
+
+.sa-rb-track { display: grid; gap: 8px; }
+.sa-rb-pct { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--sa-muted); font-variant-numeric: tabular-nums; }
+.sa-rb-job.done .sa-rb-bar > i { background: var(--sa-green); }
+.sa-rb-job.failed .sa-rb-bar > i { background: var(--sa-red); }
+.sa-rb-job.cancelled .sa-rb-bar > i { background: var(--sa-muted); }
+.sa-rb-job.run .sa-rb-bar > i {
+  background-image: linear-gradient(90deg, var(--sa-brand) 0%, color-mix(in oklch, var(--sa-brand) 55%, white) 50%, var(--sa-brand) 100%);
+  background-size: 200% 100%;
+  animation: sa-rb-shimmer 1.6s linear infinite;
+}
+@keyframes sa-rb-shimmer { to { background-position: -200% 0; } }
+
+.sa-rb-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.sa-rb-steps li { display: grid; justify-items: center; gap: 4px; font-size: 11px; color: var(--sa-muted); text-align: center; min-width: 0; }
+.sa-rb-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--sa-line); background: var(--sa-card); display: grid; place-items: center; }
+.sa-rb-dot svg { width: 10px; height: 10px; stroke: var(--sa-card); }
+.sa-rb-steps li.past .sa-rb-dot { background: var(--sa-brand); border-color: var(--sa-brand); }
+.sa-rb-steps li.now { color: var(--sa-ink); font-weight: 600; }
+.sa-rb-steps li.now .sa-rb-dot { border-color: var(--sa-brand); box-shadow: 0 0 0 4px var(--sa-brand-pale); }
+.sa-rb-job.run .sa-rb-steps li.now .sa-rb-dot { animation: sa-rb-pulse 1.4s ease-in-out infinite; }
+@keyframes sa-rb-pulse { 50% { box-shadow: 0 0 0 7px var(--sa-brand-pale); } }
+.sa-rb-job.done .sa-rb-steps li .sa-rb-dot { background: var(--sa-green); border-color: var(--sa-green); }
+.sa-rb-job.failed .sa-rb-steps li.now { color: var(--sa-red); }
+.sa-rb-job.failed .sa-rb-steps li.now .sa-rb-dot { background: var(--sa-red); border-color: var(--sa-red); box-shadow: none; }
+
+.sa-rb-msg { font-size: 12.5px; border-radius: var(--sa-radius-sm); padding: 8px 10px; }
+.sa-rb-msg.bad { background: var(--sa-red-bg); color: var(--sa-red); }
+.sa-rb-msg.ok { background: var(--sa-green-bg); color: var(--sa-green); }
+.sa-rb-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.sa-rb-actions a.sa-btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+@media (max-width: 520px) {
+  .sa-rb-steps li span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-rb-job.run .sa-rb-bar > i, .sa-rb-job.run .sa-rb-steps li.now .sa-rb-dot { animation: none; }
 }

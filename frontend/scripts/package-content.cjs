@@ -2,13 +2,13 @@ const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { loadEnvConfig } = require("@next/env");
+const { loadReleaseEnv } = require("./release-env.cjs");
 
 const root = path.join(__dirname, "..");
 const { version: pkgVersion } = require(path.join(root, "package.json"));
 const version = process.env.RELEASE_VERSION || pkgVersion;
 
-loadEnvConfig(root, false);
+loadReleaseEnv(root);
 
 function run(cmd, args, opts = {}) {
   const result = spawnSync(cmd, args, { stdio: "inherit", cwd: root, shell: cmd === "node" ? false : true, ...opts });

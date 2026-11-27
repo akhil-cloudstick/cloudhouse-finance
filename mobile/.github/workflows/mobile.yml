@@ -1,0 +1,362 @@
+# Builds the Finance apps on GitHub's machines (`eas build --local`), so no EAS build credits are used. Same setup as
+# CloudHouse ERP Mobile. Run it from Actions → Mobile build → Run workflow. Full guide: MOBILE-BUILDS.md.
+#
+#   app       admin = admin/ (CloudHouse Finance, for staff and admins)   customer = customer/ (CloudHouse Finance Customer, for borrowers)
+#   profile   preview      the real app. Android: APK published to the public releases repo; this link always serves the
+#                          newest one (the app also offers it itself, src/common/utils/app-update.ts):
+#                            https://github.com/akhil-cloudstick/cloudhouse-finance-releases/releases/download/admin-latest/cloudhouse-finance.apk
+#                            https://github.com/akhil-cloudstick/cloudhouse-finance-releases/releases/download/customer-latest/cloudhouse-customer.apk
+#                          iPhone: uploaded to TestFlight (the main app).
+#             development  "… Dev" app for developer phones (its own .dev id, installs next to the real app, loads the
+#                          code from the developer's Metro). Android: release tag <app>-dev; iPhone: its own TestFlight app.
+#             production   Android: AAB on the run page (Artifacts) for the Play Console. iPhone: uploaded to App Store Connect.
+name: Mobile build
+run-name: ${{ inputs.app }} · ${{ inputs.profile }} (${{ inputs.platform }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'admin = CloudHouse Finance (admin/), customer = CloudHouse Finance Customer (customer/)'
+        required: true
+        default: 'admin'
+        type: choice
+        options:
+          - admin
+          - customer
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - android
+          - ios
+      profile:
+        description: 'preview = real app (APK link + TestFlight). development = "… Dev" app for developer phones. production = Play Store AAB + App Store'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - development
+          - production
+
+env:
+  RELEASES_REPO: akhil-cloudstick/cloudhouse-finance-releases
+  APP_DIR: ${{ inputs.app == 'customer' && 'customer' || 'admin' }}
+  # File names of the published builds; app-update.ts in each app downloads <APK_NAME>.apk from its <app>-latest release.
+  APK_NAME: ${{ inputs.app == 'customer' && 'cloudhouse-customer' || 'cloudhouse-finance' }}
+  APP_TITLE: ${{ inputs.app == 'customer' && 'CloudHouse Finance Customer' || 'CloudHouse Finance' }}
+
+jobs:
+  # The run's title can't read files, so the version goes in each job's name (seen as soon as the run opens).
+  version:
+    name: Read version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - name: Checkout app.json
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: ${{ env.APP_DIR }}/app.json
+          sparse-checkout-cone-mode: false
+      - name: Read version
+        id: read
+        run: echo "version=$(node -p "require('./${APP_DIR}/app.json').expo.version")" >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: version
+    if: inputs.platform == 'all' || inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    name: Android (${{ inputs.app }}, ${{ inputs.profile }}) · v${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.app == 'customer' && 'customer' || 'admin' }}
+    env:
+      # Test builds: 64-bit ARM only (every phone sold since ~2017). Skipping the other three CPU types cuts the C++
+      # compile, the slowest part, by about three quarters. The Play Store AAB carries every type; Play hands each phone its own.
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: ${{ inputs.profile == 'production' && 'armeabi-v7a,arm64-v8a,x86,x86_64' || 'arm64-v8a' }}
+      GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g" -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      # The runner has ~14 GB free; a React Native release build needs more. These preinstalled tools aren't used here.
+      - name: Free disk space
+        working-directory: /
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL /opt/hostedtoolcache/go /opt/hostedtoolcache/PyPy /opt/hostedtoolcache/Ruby \
+            /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/vcpkg /usr/share/miniconda \
+            /usr/local/julia* /opt/microsoft /opt/google /opt/az /usr/lib/jvm/*-8-* /usr/lib/jvm/*-11-*
+          sudo docker system prune --all --force > /dev/null 2>&1 || true
+          df -h /
+
+      # The build itself runs on the runner's second, much larger disk (/mnt): a development build (debug native code for
+      # every library) outgrows the main disk ("Disk quota exceeded").
+      - name: Build on the large disk
+        working-directory: /
+        run: |
+          # A folder the build owns, with the work folder inside it: EAS deletes the work folder when done, which
+          # Linux refuses for a folder directly under /mnt ("EACCES: permission denied, rmdir").
+          sudo mkdir -p /mnt/eas
+          sudo chown "$USER" /mnt/eas
+          echo "EAS_LOCAL_BUILD_WORKINGDIR=/mnt/eas/work" >> "$GITHUB_ENV"
+          df -h /mnt
+
+      # Fails in seconds instead of after the ~25-minute build: creates and deletes a draft release with RELEASES_TOKEN.
+      - name: Check the release token
+        if: inputs.profile != 'production'
+        working-directory: /
+        env:
+          TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ -z "${TOKEN}" ]; then
+            echo "::error::The RELEASES_TOKEN secret is empty or missing in this repo (Settings → Secrets and variables → Actions → Repository secrets)."
+            exit 1
+          fi
+          api="https://api.github.com/repos/${RELEASES_REPO}/releases"
+          auth=(-H "Authorization: Bearer ${TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          tag="token-check-${GITHUB_RUN_ID}"
+          code=$(curl -s -o /tmp/check.json -w '%{http_code}' -X POST "${auth[@]}" "$api" -d "{\"tag_name\":\"${tag}\",\"name\":\"token check\",\"draft\":true}")
+          echo "GitHub answered HTTP ${code}: $(jq -c '{message, errors}' /tmp/check.json 2>/dev/null || cat /tmp/check.json)"
+          if [ "${code}" != "201" ]; then
+            echo "::error::RELEASES_TOKEN can't create releases in ${RELEASES_REPO} (HTTP ${code}: $(jq -r .message /tmp/check.json 2>/dev/null)). 401 = token wrong or expired; 403 = token lacks 'Contents: Read and write' on ${RELEASES_REPO}; 404 = token can't see ${RELEASES_REPO}."
+            exit 1
+          fi
+          # Remove the test draft; a failure here doesn't block the build.
+          curl -s -o /dev/null -X DELETE "${auth[@]}" "$api/$(jq -r .id /tmp/check.json)" || true
+          echo "RELEASES_TOKEN can publish to ${RELEASES_REPO}"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ${{ env.APP_DIR }}/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Gradle's downloaded libraries and build cache survive between runs, so later builds skip re-downloading them.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ inputs.app }}-${{ hashFiles(format('{0}/package-lock.json', env.APP_DIR), format('{0}/app.json', env.APP_DIR)) }}
+          restore-keys: gradle-${{ runner.os }}-${{ inputs.app }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Show release version
+        run: echo "::notice title=Release version::${APP_TITLE} v${VERSION} (${{ inputs.profile }})"
+
+      - name: Build APK
+        if: inputs.profile == 'preview'
+        run: eas build --local -p android --profile preview --non-interactive --output "build/${APK_NAME}.apk"
+
+      # "… Dev": its own app id, so it installs next to the real app.
+      - name: Build development APK
+        if: inputs.profile == 'development'
+        run: eas build --local -p android --profile development --non-interactive --output "build/${APK_NAME}-dev.apk"
+
+      - name: Build AAB (Play Store)
+        if: inputs.profile == 'production'
+        run: eas build --local -p android --profile production --non-interactive --output "build/${APK_NAME}.aab"
+
+      # Read by installed apps (app-update.ts): a higher version than the installed one is offered there, Android
+      # downloads the APK, iPhone opens the TestFlight link from the TESTFLIGHT_URL_<APP> repository variable.
+      - name: Write latest.json
+        if: inputs.profile != 'production'
+        env:
+          APP_KEY: ${{ inputs.app }}
+          PROFILE: ${{ inputs.profile }}
+          TESTFLIGHT_URL: ${{ inputs.profile == 'development' && (inputs.app == 'customer' && vars.TESTFLIGHT_DEV_URL_CUSTOMER || vars.TESTFLIGHT_DEV_URL_ADMIN) || (inputs.app == 'customer' && vars.TESTFLIGHT_URL_CUSTOMER || vars.TESTFLIGHT_URL_ADMIN) }}
+        run: |
+          node -e "
+            const dev = process.env.PROFILE === 'development';
+            const tag = process.env.APP_KEY + (dev ? '-dev' : '-latest');
+            const apk = process.env.APK_NAME + (dev ? '-dev' : '') + '.apk';
+            const latest = {
+              version: process.env.VERSION,
+              android: 'https://github.com/' + process.env.RELEASES_REPO + '/releases/download/' + tag + '/' + apk,
+              ios: process.env.TESTFLIGHT_URL || '',
+            };
+            require('fs').writeFileSync(dev ? 'build/latest-dev.json' : 'build/latest.json', JSON.stringify(latest, null, 2));
+            console.log(latest);
+          "
+
+      # Saved before publishing, so a failed upload never loses the build (download it from the run's Artifacts).
+      - name: Keep the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}-${{ inputs.profile }}-v${{ env.VERSION }}
+          path: ${{ env.APP_DIR }}/build/
+          retention-days: 30
+
+      # The rolling release the stable link and the app read: replaced on every preview build.
+      - name: Publish to <app>-latest
+        if: inputs.profile == 'preview'
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ env.RELEASES_REPO }}
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: ${{ inputs.app }}-latest
+          name: ${{ env.APP_TITLE }} (latest)
+          make_latest: false
+          overwrite_files: true
+          body: |
+            Newest ${{ env.APP_TITLE }}: v${{ env.VERSION }}.
+            Android: download `${{ env.APK_NAME }}.apk` below and install it. Already installed? The app offers new versions itself.
+            iPhone: install from TestFlight.
+          files: |
+            ${{ env.APP_DIR }}/build/${{ env.APK_NAME }}.apk
+            ${{ env.APP_DIR }}/build/latest.json
+
+      # One release per version, kept, so an older build can still be installed.
+      - name: Publish <app>-v<version>
+        if: inputs.profile == 'preview'
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ env.RELEASES_REPO }}
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: ${{ inputs.app }}-v${{ env.VERSION }}
+          name: ${{ env.APP_TITLE }} v${{ env.VERSION }}
+          make_latest: false
+          overwrite_files: true
+          files: ${{ env.APP_DIR }}/build/${{ env.APK_NAME }}.apk
+
+      # Read by the Dev app only; the real app reads <app>-latest, which this never touches.
+      - name: Publish to <app>-dev
+        if: inputs.profile == 'development'
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ env.RELEASES_REPO }}
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: ${{ inputs.app }}-dev
+          name: ${{ env.APP_TITLE }} Dev (developer app)
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          body: |
+            Developer app only (runs the code from a developer's PC). Users get the ${{ inputs.app }}-latest release.
+          files: |
+            ${{ env.APP_DIR }}/build/${{ env.APK_NAME }}-dev.apk
+            ${{ env.APP_DIR }}/build/latest-dev.json
+
+      # Shows the download link on the run's Summary page, so nobody has to look it up.
+      - name: Download link
+        if: inputs.profile != 'production'
+        run: |
+          base="https://github.com/${RELEASES_REPO}/releases/download"
+          if [ "${{ inputs.profile }}" = "development" ]; then
+            url="${base}/${{ inputs.app }}-dev/${APK_NAME}-dev.apk"; label="${APP_TITLE} Dev"
+          else
+            url="${base}/${{ inputs.app }}-latest/${APK_NAME}.apk"; label="${APP_TITLE}"
+          fi
+          {
+            echo "## 📱 ${label} v${VERSION}: Android download"
+            echo ""
+            echo "**[${url}](${url})**"
+            echo ""
+            echo "Open this link in Chrome on the phone, then tap Install. The link stays the same for every build."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  ios:
+    needs: version
+    if: inputs.platform == 'all' || inputs.platform == 'ios'
+    runs-on: macos-latest
+    name: iPhone (${{ inputs.app }}, ${{ inputs.profile }}) · v${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.app == 'customer' && 'customer' || 'admin' }}
+    env:
+      # preview: the real app → TestFlight. development: the "… Dev" app → its own TestFlight app. production: App Store.
+      IOS_PROFILE: ${{ inputs.profile == 'development' && 'development-testflight' || inputs.profile == 'preview' && 'preview-testflight' || 'production' }}
+      IPA_NAME: ${{ inputs.profile == 'development' && format('{0}-dev', inputs.app == 'customer' && 'cloudhouse-customer' || 'cloudhouse-finance') || (inputs.app == 'customer' && 'cloudhouse-customer' || 'cloudhouse-finance') }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ${{ env.APP_DIR }}/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      # pod install downloads React Native's prebuilt core (about 30 MB) with curl; a dropped HTTP/2 stream can fail the
+      # build. Retry downloads, over HTTP/1.1.
+      - name: Retry downloads
+        run: |
+          printf -- "--http1.1\n--retry 5\n--retry-delay 5\n--retry-all-errors\n--connect-timeout 30\n" > ~/.curlrc
+          cat ~/.curlrc
+
+      # Optional: the App Store Connect API key for the upload. Without the ASC_API_KEY_P8 secret (the .p8 file,
+      # base64), eas submit uses the key stored on EAS (`npx eas-cli credentials -p ios`).
+      - name: App Store Connect key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID || '9289TXK48L' }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID || '204e739c-06da-439b-8cc1-bbaa914fcf38' }}
+        run: |
+          if [ -z "${ASC_API_KEY_P8}" ]; then
+            echo "No ASC_API_KEY_P8 secret: eas submit uses the key stored on EAS."
+            exit 0
+          fi
+          mkdir -p certs
+          echo "${ASC_API_KEY_P8}" | base64 --decode > certs/AuthKey.p8
+          {
+            echo "EXPO_ASC_API_KEY_PATH=${PWD}/certs/AuthKey.p8"
+            echo "EXPO_ASC_KEY_ID=${ASC_KEY_ID}"
+            echo "EXPO_ASC_ISSUER_ID=${ASC_ISSUER_ID}"
+          } >> "$GITHUB_ENV"
+
+      # Signing (distribution certificate, App Store profile) comes from EAS — set up once with `npx eas-cli credentials -p ios`
+      # (with $env:APP_VARIANT="development" for the Dev app).
+      - name: Build IPA
+        run: eas build --local -p ios --profile "$IOS_PROFILE" --non-interactive --output "build/$IPA_NAME.ipa"
+
+      - name: Keep the IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}-${{ inputs.profile }}-v${{ env.VERSION }}-ipa
+          path: ${{ env.APP_DIR }}/build/${{ env.IPA_NAME }}.ipa
+          retention-days: 30
+
+      - name: Upload to App Store Connect / TestFlight
+        run: eas submit -p ios --profile "$IOS_PROFILE" --path "build/$IPA_NAME.ipa" --non-interactive

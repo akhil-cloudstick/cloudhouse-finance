@@ -47,6 +47,11 @@ type Config struct {
 	WhatsAppOrigin           string
 	WhatsAppAPIKey           string
 	WhatsAppSessionID        string
+	// ERPConsolePublicKey is the CloudHouse ERP's EC public key (PEM). Empty
+	// disables the ERP console sign-in (POST /superadmin/erp-session → 404).
+	ERPConsolePublicKey string
+	ERPConsoleAudience  string
+	ERPConsoleExpiry    time.Duration
 }
 
 func LoadConfig() Config {
@@ -84,6 +89,9 @@ func LoadConfig() Config {
 		WhatsAppOrigin:           getEnv("WHATSAPP_ORIGIN", "http://127.0.0.1:2785"),
 		WhatsAppAPIKey:           getEnv("WHATSAPP_API_KEY", ""),
 		WhatsAppSessionID:        getEnv("WHATSAPP_SESSION_ID", ""),
+		ERPConsolePublicKey:      getERPConsolePublicKey(),
+		ERPConsoleAudience:       getEnv("ERP_CONSOLE_AUDIENCE", "gold-finance"),
+		ERPConsoleExpiry:         parseERPConsoleExpiry(getEnv("ERP_CONSOLE_EXPIRY", "")),
 	}
 }
 
@@ -120,6 +128,48 @@ func parseJWTExpiry(raw string) time.Duration {
 	if err != nil || d <= 0 {
 		log.Printf("WARNING: JWT_EXPIRY=%q is invalid, falling back to %s", raw, defaultJWTExpiry)
 		return defaultJWTExpiry
+	}
+	return d
+}
+
+// getERPConsolePublicKey reads the ERP public key from ERP_CONSOLE_PUBLIC_KEY_FILE
+// (a path to the ERP's public_ec.pem) or, failing that, ERP_CONSOLE_PUBLIC_KEY
+// (the PEM inline; a literal "\n" is accepted for single-line .env values).
+func getERPConsolePublicKey() string {
+	if path := strings.TrimSpace(os.Getenv("ERP_CONSOLE_PUBLIC_KEY_FILE")); path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("WARNING: ERP_CONSOLE_PUBLIC_KEY_FILE=%q could not be read: %v — using the built-in ERP key", path, err)
+			return erpConsoleBuiltInPublicKey
+		}
+		return strings.TrimSpace(string(b))
+	}
+	if inline := strings.TrimSpace(strings.ReplaceAll(os.Getenv("ERP_CONSOLE_PUBLIC_KEY"), `\n`, "\n")); inline != "" {
+		return inline
+	}
+	return erpConsoleBuiltInPublicKey
+}
+
+// erpConsoleBuiltInPublicKey is the CloudHouse ERP's public key (internalprojectmanagementsystem/cloudhouse/public_ec.pem,
+// the same file local and live). It is used when no ERP_CONSOLE_PUBLIC_KEY_FILE / ERP_CONSOLE_PUBLIC_KEY is set, so a
+// deploy needs no key setting. A public key can only check ERP sign-ins, never make one. If the ERP key is ever
+// changed, update it here (or set ERP_CONSOLE_PUBLIC_KEY_FILE).
+const erpConsoleBuiltInPublicKey = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/Br0Hj6p9tU7BWxn6ZFJkejAYb15
+jgEivdbfymJevBKj4T2keIn/958zOU/x6OeLbgqHqoyaxTpo5jMwV2vQsw==
+-----END PUBLIC KEY-----`
+
+const defaultERPConsoleExpiry = 2 * time.Hour
+
+func parseERPConsoleExpiry(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultERPConsoleExpiry
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		log.Printf("WARNING: ERP_CONSOLE_EXPIRY=%q is invalid, falling back to %s", raw, defaultERPConsoleExpiry)
+		return defaultERPConsoleExpiry
 	}
 	return d
 }

@@ -6,8 +6,6 @@ import { BillViewModalContent } from "@/modules/cash/components/BillViewModalCon
 
 type BillLinkProps = { url?: string; title: string };
 
-/* A ledger entry's uploaded bill as a small image preview — click it to open
- * the same viewer the Expense Register's receipt thumbnail uses. */
 export function BillLink({ url, title }: BillLinkProps) {
   // A child modal: Close returns to the entry card the bill was opened from instead of closing it too.
   const { openChildModal } = useModal();

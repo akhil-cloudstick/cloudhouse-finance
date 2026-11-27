@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,20 @@ type Updater struct {
 	staged   string
 }
 
+// feedName is this OS's update feed in the tenant's folder. Windows keeps the original latest.json (apps already
+// installed read it); macOS and Linux have their own so one OS's release never overwrites another's.
+// Keep in step with scripts/feed-name.cjs.
+func feedName() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "latest-mac.json"
+	case "linux":
+		return "latest-linux.json"
+	default:
+		return "latest.json"
+	}
+}
+
 func New(current, baseURL string, emit Emitter) *Updater {
 	return &Updater{current: current, baseURL: strings.TrimRight(baseURL, "/"), emit: emit}
 }
@@ -54,7 +69,7 @@ func (u *Updater) Check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.baseURL+"/latest.json", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.baseURL+"/"+feedName(), nil)
 	if err != nil {
 		return u.fail(err)
 	}

@@ -7,14 +7,10 @@ type OrnamentPhotoSliderProps = {
   title: string;
   urls: string[];
   onClose: () => void;
-  // When given, a "Remove this photo" button appears (New Loan form only);
-  // the slider drops the photo from its own list and closes once it's empty.
+  // When given, a "Remove this photo" button appears; the slider closes once its list is empty.
   onRemove?: (url: string) => void;
 };
 
-/* Modal body that pages through every photo of one ornament — one large
- * image with prev/next, a counter, and a thumbnail strip. Open it with
- * openModal(<OrnamentPhotoSlider … />, true). */
 export function OrnamentPhotoSlider({ title, urls, onClose, onRemove }: OrnamentPhotoSliderProps) {
   const [list, setList] = useState(urls);
   const [i, setI] = useState(0);

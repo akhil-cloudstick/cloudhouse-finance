@@ -1,5 +1,9 @@
 name: desktop-release
 
+# Gives the backend an exact run to match against (not just "newest run around this time"),
+# which matters once multiple tenants dispatch within moments of each other (e.g. "rebuild all").
+run-name: ${{ github.event.inputs.correlation_id && format('{0}-{1}-{2}', github.event.inputs.tenant && github.event.inputs.tenant || 'common', github.event.inputs.version, github.event.inputs.correlation_id) || github.workflow }}
+
 on:
   push:
     tags: ["v*"]
@@ -7,6 +11,10 @@ on:
     inputs:
       tenant:
         description: "Tenant code (B2 folder name), e.g. ctfi. Blank = default/common build."
+        required: false
+        default: ""
+      correlation_id:
+        description: "Internal — set by the superadmin trigger to find this exact run afterward. Leave blank for a manual run."
         required: false
         default: ""
       version:
@@ -23,6 +31,12 @@ on:
         description: "OS(es) to build, comma-separated, e.g. \"win,linux\" (ignored for build_type=content, and for a tag push — which builds all three)."
         required: true
         default: "win"
+      is_dev:
+        description: "true = DESKTOP_API_BASE is your local backend (for testing with local tenants); false = the tenant's real production subdomain."
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
 
 jobs:
   win:
@@ -34,7 +48,10 @@ jobs:
         working-directory: frontend
     env:
       NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
-      DESKTOP_API_BASE: ${{ secrets.DESKTOP_API_BASE }}
+      # ===== ENVIRONMENT (mirrors common/services/httpClient.ts's isDevelopment switch) =====
+      # is_dev=true  -> development API: your own local backend (testing with local-only tenants)
+      # is_dev=false -> production API: this tenant's own real subdomain
+      DESKTOP_API_BASE: ${{ github.event.inputs.is_dev == 'false' && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || (secrets.LOCAL_API_BASE != '' && secrets.LOCAL_API_BASE || 'http://localhost:8080/api/v1') }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       S3_REGION: ${{ secrets.S3_REGION }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
@@ -57,6 +74,11 @@ jobs:
           go-version-file: frontend/desktop/go.mod
           cache-dependency-path: frontend/desktop/go.sum
       - run: npm ci
+      # package-win.cjs only makes the setup .exe when Inno Setup is installed (otherwise just the portable exe), so
+      # install it rather than rely on the runner image having it. Already present = a quick no-op.
+      - name: Install Inno Setup
+        if: ${{ github.event.inputs.build_type != 'content' }}
+        run: choco install innosetup -y --no-progress
       # "full" = the real per-tenant installer; "content" = the shared web-content package only.
       - if: ${{ github.event.inputs.build_type != 'content' }}
         run: npm run dist:win
@@ -80,7 +102,10 @@ jobs:
         working-directory: frontend
     env:
       NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
-      DESKTOP_API_BASE: ${{ secrets.DESKTOP_API_BASE }}
+      # ===== ENVIRONMENT (mirrors common/services/httpClient.ts's isDevelopment switch) =====
+      # is_dev=true  -> development API: your own local backend (testing with local-only tenants)
+      # is_dev=false -> production API: this tenant's own real subdomain
+      DESKTOP_API_BASE: ${{ github.event.inputs.is_dev == 'false' && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || (secrets.LOCAL_API_BASE != '' && secrets.LOCAL_API_BASE || 'http://localhost:8080/api/v1') }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       S3_REGION: ${{ secrets.S3_REGION }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
@@ -153,7 +178,10 @@ jobs:
         working-directory: frontend
     env:
       NEXT_PUBLIC_API_BASE: ${{ secrets.NEXT_PUBLIC_API_BASE }}
-      DESKTOP_API_BASE: ${{ secrets.DESKTOP_API_BASE }}
+      # ===== ENVIRONMENT (mirrors common/services/httpClient.ts's isDevelopment switch) =====
+      # is_dev=true  -> development API: your own local backend (testing with local-only tenants)
+      # is_dev=false -> production API: this tenant's own real subdomain
+      DESKTOP_API_BASE: ${{ github.event.inputs.is_dev == 'false' && format('https://{0}.cloudhousefinance.com/api/v1', github.event.inputs.tenant) || (secrets.LOCAL_API_BASE != '' && secrets.LOCAL_API_BASE || 'http://localhost:8080/api/v1') }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       S3_REGION: ${{ secrets.S3_REGION }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}

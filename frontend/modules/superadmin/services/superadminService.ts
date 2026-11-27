@@ -8,7 +8,7 @@
  * the wrong bearer token to a superadmin request. */
 import { apiRawFetch } from "@/common/services/httpClient";
 import { readSuperAdminToken } from "@/modules/superadmin/services/superadminSession";
-import type { LoginResponse, Tier, Business, CreateBusinessInput, PaymentMode, SubscriptionPayment, BusinessOverview, RecordPaymentInput, AuditLogEntry, Catalogue, ProfileInput, ThemeInput, AdminLogin, DesktopReleaseJob, DesktopReleaseHistoryEntry, TriggerDesktopReleaseInput } from "@/modules/superadmin/types/superadmin-types";
+import type { LoginResponse, Tier, Business, CreateBusinessInput, PaymentMode, SubscriptionPayment, BusinessOverview, RecordPaymentInput, AuditLogEntry, Catalogue, ProfileInput, ThemeInput, AdminLogin, LoginAsStaff, LoginAsStart, DesktopReleaseJob, DesktopReleaseHistoryEntry, TriggerDesktopReleaseInput } from "@/modules/superadmin/types/superadmin-types";
 
 export class SuperAdminApiError extends Error {
 	status: number;
@@ -216,6 +216,15 @@ export function getAdminLogin(id: number): Promise<AdminLogin> {
 	return request<AdminLogin>(`/superadmin/businesses/${id}/admin`);
 }
 
+export function listLoginAsStaff(id: number): Promise<LoginAsStaff[]> {
+	return request<LoginAsStaff[]>(`/superadmin/businesses/${id}/staff`);
+}
+
+/* "Login as" for debugging: returns a one-time code; the console opens the business's own site with it. */
+export function startLoginAs(id: number, employeeId: number): Promise<LoginAsStart> {
+	return request<LoginAsStart>(`/superadmin/businesses/${id}/staff/${employeeId}/login-as`, { method: "POST" });
+}
+
 export function updateAdminLogin(
 	id: number,
 	input: { name: string; username: string; password: string; reason: string },
@@ -303,28 +312,60 @@ export function clearSignature(id: number, reason: string): Promise<Business> {
 }
 
 // Desktop release jobs.
-export function triggerDesktopRelease(
+// The generated apiContract field map has no entry for tenant_code / build_type / is_dev / download_url, so these
+// calls name the backend's fields themselves. Sent as camelCase, tenantCode never reached the backend, which read the
+// missing code as "every business" — one business's Rebuild started a release for all of them.
+type RawReleaseJob = Omit<DesktopReleaseJob, "tenantCode" | "buildType" | "batchId" | "runUrl" | "downloadUrl"> & {
+	tenant_code: string;
+	build_type: DesktopReleaseJob["buildType"];
+	batch_id?: string;
+	run_url?: string;
+	download_url?: string;
+};
+
+function toReleaseJob(raw: RawReleaseJob): DesktopReleaseJob {
+	const { tenant_code, build_type, batch_id, run_url, download_url, ...rest } = raw;
+	return {
+		...rest,
+		tenantCode: tenant_code,
+		buildType: build_type,
+		batchId: batch_id ?? "",
+		runUrl: run_url ?? "",
+		downloadUrl: download_url ?? "",
+	};
+}
+
+export async function triggerDesktopRelease(
 	input: TriggerDesktopReleaseInput,
 ): Promise<{ jobs: DesktopReleaseJob[] }> {
-	return request<{ jobs: DesktopReleaseJob[] }>("/superadmin/desktop-releases", {
+	const res = await request<{ jobs: RawReleaseJob[] }>("/superadmin/desktop-releases", {
 		method: "POST",
-		body: JSON.stringify(input),
+		body: JSON.stringify({
+			tenant_code: input.tenantCode,
+			version: input.version,
+			build_type: input.buildType,
+			targets: input.targets,
+			reason: input.reason,
+		}),
 	});
+	return { jobs: (res?.jobs ?? []).map(toReleaseJob) };
 }
 
-export function listDesktopReleaseJobs(ids: number[]): Promise<DesktopReleaseJob[]> {
-	return request<DesktopReleaseJob[]>(`/superadmin/desktop-releases?ids=${ids.join(",")}`);
+export async function listDesktopReleaseJobs(ids: number[]): Promise<DesktopReleaseJob[]> {
+	const jobs = await request<RawReleaseJob[]>(`/superadmin/desktop-releases?ids=${ids.join(",")}`);
+	return (jobs ?? []).map(toReleaseJob);
 }
 
-export function cancelDesktopReleaseJob(id: number): Promise<DesktopReleaseJob> {
-	return request<DesktopReleaseJob>(`/superadmin/desktop-releases/${id}/cancel`, { method: "POST" });
+export async function cancelDesktopReleaseJob(id: number): Promise<DesktopReleaseJob> {
+	return toReleaseJob(await request<RawReleaseJob>(`/superadmin/desktop-releases/${id}/cancel`, { method: "POST" }));
 }
 
 // The plain "versions currently kept in the drive" list — not the live progress view above.
-export function listDesktopReleaseHistory(tenantCode: string): Promise<DesktopReleaseHistoryEntry[]> {
-	return request<DesktopReleaseHistoryEntry[]>(
+export async function listDesktopReleaseHistory(tenantCode: string): Promise<DesktopReleaseHistoryEntry[]> {
+	const rows = await request<{ tenant_code: string; os: string; version: string; download_url: string }[]>(
 		`/superadmin/desktop-releases/history?tenant_code=${encodeURIComponent(tenantCode)}`,
 	);
+	return (rows ?? []).map((r) => ({ tenantCode: r.tenant_code, os: r.os, version: r.version, downloadUrl: r.download_url }));
 }
 
 export function getCurrentDesktopVersion(tenantCode: string, buildType: "full" | "content" = "full"): Promise<{ version: string | null }> {

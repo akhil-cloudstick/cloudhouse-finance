@@ -213,7 +213,7 @@ reclassified here given this is the login path.
 
 Implemented in `backend/internal/customerauth/` plus `backend/internal/platform/`
 (`IssueCustomerToken`/`ParseCustomerToken`, `CustomerAuthMiddleware`) —
-sign-in for the customer mobile app (`customer-mobile/`), **completely
+sign-in for the customer mobile app (`mobile/customer/`), **completely
 separate from the employee auth system above.** A customer JWT carries
 `"type": "customer"` and is verified only by `CustomerAuthMiddleware`; an
 employee JWT has no such claim and is rejected by it, and vice versa a
@@ -911,7 +911,7 @@ above) — success responses wrap as `{"success": true, "data": ...}` (the
 paginated list's `{items, hasMore}` shape sits under `data`). This is the
 first customer-facing migrated module: `/api/v1/customer/gold-rate/latest`
 and `/history` reuse `goldrate.Handler.Latest`/`List` verbatim, so the
-customer app's `getLatest`/`getHistory` (`customer-mobile/src/api/goldRate.ts`)
+customer app's `getLatest`/`getHistory` (`mobile/customer/src/api/goldRate.ts`)
 already unwrap the same envelope.
 
 Implemented in `backend/internal/goldrate/`. No authentication/RBAC yet.
@@ -1172,7 +1172,7 @@ paginated `{items, hasMore}` shape sits under `data`); `DELETE` returns
 Service Unavailable** (previously the same). This same `Handler`/`Service`
 backs the customer app's `/customer/profile/*` routes
 (`customer_mobile_handler.go`) — those are migrated together with this
-section, and `customer-mobile/src/api/profile.ts` has been updated to match.
+section, and `mobile/customer/src/api/profile.ts` has been updated to match.
 
 Implemented in `backend/internal/customer/`. No authentication/RBAC yet —
 admin-only by convention. The consolidated Customer Module: personal/KYC

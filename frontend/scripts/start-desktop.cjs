@@ -1,7 +1,7 @@
 const { spawn, spawnSync } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
-const { loadEnvConfig } = require("@next/env");
+const { loadReleaseEnv } = require("./release-env.cjs");
 const {
   fetchTenantBranding,
   generateIconFromLogo,
@@ -13,9 +13,7 @@ const {
 } = require("./tenant-icon.cjs");
 
 const root = path.join(__dirname, "..");
-loadEnvConfig(root, true);
-// The real S3_* values live only in backend/.env now — fills in whatever frontend's own env didn't set.
-loadEnvConfig(path.join(root, "..", "backend"), true);
+loadReleaseEnv(root, true);
 
 const port = 3004;
 const devURL = `http://localhost:${port}`;

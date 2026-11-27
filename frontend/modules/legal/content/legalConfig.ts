@@ -17,7 +17,7 @@ export const CONTACT_WEBSITE = "https://cloudhousefinance.com";
 export const CONTACT_EMAIL ="support@cloudhousetechnologies.com";
 /* One number, shown and dialled the same way everywhere. The product page listed two
  * (+91 4802737360 and 0480-27327360); the second has an extra digit for a 0480 landline,
- * so the first is used. Mobile keeps a copy in mobile/src/modules/support/pages/SupportScreen.tsx. */
+ * so the first is used. Mobile keeps a copy in mobile/admin/src/modules/support/pages/SupportScreen.tsx. */
 export const CONTACT_PHONE_DISPLAY = "+91 480 2737360";
 export const CONTACT_PHONE_TEL = "+914802737360";
 export const CONTACT_LEGAL_NAME = "CloudHouse Technologies Pvt. Ltd.";

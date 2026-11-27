@@ -1,14 +1,14 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { loadEnvConfig } = require("@next/env");
+const { loadReleaseEnv } = require("./release-env.cjs");
 const { fetchTenantBranding, writeWindowTitleOverride, updateUrl, contentUrl } = require("./tenant-icon.cjs");
 
 const root = path.join(__dirname, "..");
 const { version: pkgVersion } = require(path.join(root, "package.json"));
 const version = process.env.RELEASE_VERSION || pkgVersion;
 
-loadEnvConfig(root, false);
+loadReleaseEnv(root);
 
 function run(cmd, args, opts = {}) {
   const result = spawnSync(cmd, args, { stdio: "inherit", cwd: root, shell: cmd === "node" ? false : true, ...opts });
@@ -81,7 +81,8 @@ async function main() {
   const ldflags = `-s -w -X main.version=${version} -X main.updateURL=${updateUrl(branding?.slug)} -X main.contentUpdateURL=${contentUrl()}`;
   run("go", ["build", "-tags", "desktop,production", "-ldflags", `"${ldflags}"`, "-o", `"${execPath}"`, "."], {
     cwd: path.join(root, "desktop"),
-    env: { ...process.env, GOOS: "darwin", GOARCH: "amd64" },
+    // Wails' macOS webview binds WebKit via cgo — CGO_ENABLED=0 (fine for Windows) silently drops every cgo file.
+    env: { ...process.env, GOOS: "darwin", GOARCH: "amd64", CGO_ENABLED: "1" },
   });
   fs.chmodSync(execPath, 0o755);
 

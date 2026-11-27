@@ -20,7 +20,7 @@ import { BusinessDetail } from "@/modules/superadmin/components/BusinessDetail";
 import { BusinessWizard } from "@/modules/superadmin/components/BusinessWizard";
 import { DevToolsPinModal } from "@/modules/superadmin/components/DevToolsPinModal";
 import type { IconName, StepId } from "@/modules/superadmin/types/dashboard-types";
-import { formatDate, quotaText, MODULE_LABELS, LANGUAGE_LABELS } from "@/modules/superadmin/utils/dashboardHelpers";
+import { formatDate, quotaText, LANGUAGE_LABELS } from "@/modules/superadmin/utils/dashboardHelpers";
 
 type Tab = "businesses" | "tiers" | "audit";
 
@@ -363,15 +363,14 @@ export default function SuperAdminDashboardPage() {
                   <table className="sa-table sa-table-biz">
                     <thead>
                       <tr>
-                        <th>Business</th>
+                        <th className="sa-col-biz">Business</th>
                         <th className="sa-col-code">Code</th>
-                        <th>URL</th>
-                        <th>Plan</th>
-                        <th>Status</th>
-                        <th>Modules</th>
-                        <th>Languages</th>
-                        <th>Renewal</th>
-                        <th>Active</th>
+                        <th className="sa-col-url">URL</th>
+                        <th className="sa-col-plan">Plan</th>
+                        <th className="sa-col-status">Status</th>
+                        <th className="sa-col-langs">Languages</th>
+                        <th className="sa-col-renewal">Renewal</th>
+                        <th className="sa-col-active">Active</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -387,7 +386,7 @@ export default function SuperAdminDashboardPage() {
                             setDetailId(b.id);
                           }}
                         >
-                          <td>
+                          <td className="sa-col-biz">
                             <div className="sa-biz">
                               {/* The business's own identity as its staff see
                                 * it — a logo when set, otherwise a swatch of
@@ -412,7 +411,7 @@ export default function SuperAdminDashboardPage() {
                           <td className="sa-col-code">
                             <code>{b.code}</code>
                           </td>
-                          <td>
+                          <td className="sa-col-url">
                             <a className="sa-url" href={businessSignInLink(b)} target="_blank" rel="noreferrer">
                               {businessSignInLink(b).replace(/^https?:\/\//, "")}
                             </a>
@@ -437,22 +436,19 @@ export default function SuperAdminDashboardPage() {
                               </a>
                             </div>
                           </td>
-                          <td>
+                          <td className="sa-col-plan">
                             {b.tier?.name ?? tierName(b.tierId)}
                             <span className="sa-biz-sub">
                               {b.singleBranch ? "Single branch" : quotaText(b.tier?.branchQuota ?? 1)}
                             </span>
                           </td>
-                          <td>
+                          <td className="sa-col-status">
                             <span className={`sa-chip ${b.status}`}>{b.status}</span>
                           </td>
-                          <td>
-                            <GrantChips values={b.modules} labels={MODULE_LABELS} emptyLabel="none" />
-                          </td>
-                          <td>
+                          <td className="sa-col-langs">
                             <GrantChips values={b.languages} labels={LANGUAGE_LABELS} emptyLabel="English" />
                           </td>
-                          <td>
+                          <td className="sa-col-renewal">
                             {b.subscriptionExpiresAt ? (
                               <span
                                 style={{
@@ -474,7 +470,7 @@ export default function SuperAdminDashboardPage() {
                           {/* View, Edit and Delete live on the detail page — the
                             * row itself opens it. Only the quick on/off switch
                             * stays here. */}
-                          <td className="sa-actions">
+                          <td className="sa-actions sa-col-active">
                             <label
                               className="sa-toggle"
                               title={b.status === "suspended" ? "Reactivate business" : "Suspend business"}

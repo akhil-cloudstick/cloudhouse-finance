@@ -1927,6 +1927,18 @@ const ROUTES: [string, string, string, string][] = [
  ],
  [
   "GET",
+  "/superadmin/businesses/:id/staff",
+  "GET",
+  "/superadmin/users/:user_id/businesses/:id/staff"
+ ],
+ [
+  "POST",
+  "/superadmin/businesses/:id/staff/:employee_id/login-as",
+  "POST",
+  "/superadmin/users/:user_id/businesses/:id/staff/:employee_id/login-as"
+ ],
+ [
+  "GET",
   "/superadmin/businesses/:id",
   "GET",
   "/superadmin/users/:user_id/businesses/:id"

@@ -96,6 +96,12 @@ func assetOptions() *assetserver.Options {
 // The window has no native frame; the page draws its own title bar (DesktopTitleBar.tsx).
 const framelessWindow = true
 
+// The window's opening size; a screen smaller than this opens it maximised (App.domReady).
+const (
+	windowWidth  = 1440
+	windowHeight = 900
+)
+
 var nonIDChars = regexp.MustCompile(`[^a-z0-9]+`)
 
 // One lock per business, so two different tenants' apps can still run side by side.
@@ -129,13 +135,14 @@ func main() {
 		// (DesktopContextMenu.tsx), PIN-gating Inspect every time.
 		EnableDefaultContextMenu: false,
 		Title:                    windowTitle,
-		Width:                    1440,
-		Height:                   900,
-		MinWidth:                 1100,
-		MinHeight:                700,
+		Width:                    windowWidth,
+		Height:                   windowHeight,
+		MinWidth:                 960,
+		MinHeight:                560,
 		Frameless:                framelessWindow,
 		AssetServer:              assetOptions(),
 		OnStartup:                app.startup,
+		OnDomReady:               app.domReady,
 		OnShutdown:               app.shutdown,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               instanceID(),

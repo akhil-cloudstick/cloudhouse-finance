@@ -44,17 +44,12 @@ function RateTile({ k, r, small }: RateTileProps) {
   );
 }
 
-/* Ported from legacy/app.js's `renderGoldRates()` / `rateTile()`. Now backed
- * by the real /gold-rates API via GoldRatesProvider instead of the mock
- * db.rates/db.rateHistory localStorage pair. */
 export function GoldRatesPage() {
   const { latest, version } = useGoldRates();
   const { openModal } = useModal();
   const basePageSize = useResponsivePageSize(15, 15);
   const { cards, size: pageSize, more } = useScrollPageSize(basePageSize);
   const smallScreen = useIsSmallScreen();
-  // Hidden rather than disabled when the role cannot record a rate — see
-  // Customers.tsx.
   const { can } = useAuth();
   const canCreateRates = can("Gold_Rate_Management", "can_create_gold_rate");
 

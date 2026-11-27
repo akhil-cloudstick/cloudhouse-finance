@@ -197,7 +197,7 @@ reset-password. Proven with two businesses that both have an `admin` user. See
 `documents/multitenancy_plan.md` for the detail, including why a slugged URL
 needs a server-side fallback under `output: "export"`.
 
-**Still open:** the **borrower app** (`customer-mobile/`) is a separate client
+**Still open:** the **borrower app** (`mobile/customer/`) is a separate client
 and has not had the same treatment. Its `/customer/auth/*` endpoints already
 accept `businessCode`, so it is client work — tracked under Step 5.
 

@@ -1,6 +1,8 @@
 const path = require("node:path");
 const { fetchTenantBranding } = require("./tenant-icon.cjs");
 const { loadReleaseEnv } = require("./release-env.cjs");
+const fs = require("node:fs");
+const { FEED_FILE } = require("./feed-name.cjs");
 
 loadReleaseEnv(path.join(__dirname, ".."));
 
@@ -27,8 +29,15 @@ async function resolveTenantFolder() {
 async function main() {
   const tenantFolder = await resolveTenantFolder();
   const folder = [S3_ENDPOINT.replace(/\/+$/, ""), S3_BUCKET, baseFolder, tenantFolder].filter(Boolean).join("/");
-  const feedName = buildType === "content" ? "latest-content.json" : "latest.json";
+  // verifies each feed this machine just built (one per OS, see feed-name.cjs)
+  const dist = path.join(__dirname, "..", buildType === "content" ? "dist-content" : "dist");
+  const isFeed = (f) => (buildType === "content" ? f === "latest-content.json" : FEED_FILE.test(f));
+  const local = fs.existsSync(dist) ? fs.readdirSync(dist).filter(isFeed) : [];
+  const feeds = local.length ? local : [buildType === "content" ? "latest-content.json" : "latest.json"];
+  for (const feedName of feeds) await verify(folder, tenantFolder, feedName);
+}
 
+async function verify(folder, tenantFolder, feedName) {
   const feed = await fetch(`${folder}/${feedName}`);
   if (!feed.ok) throw new Error(`feed returned ${feed.status}`);
   const manifest = await feed.json();

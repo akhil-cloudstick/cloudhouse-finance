@@ -8,9 +8,7 @@ import { BillLink } from "@/modules/cash/components/BillLink";
 
 type RowInfoModalContentProps = { row: LedgerRowView; onChanged?: () => void };
 
-/* The info popup for a ledger row with no cash movement behind it (a loan or
- * personal-loan payment, an opening row…): it can't load an entry, so it shows
- * what the row itself carries. */
+// For a row with no cash movement behind it (e.g. a loan payment); shows what the row itself carries.
 export function RowInfoModalContent({ row }: RowInfoModalContentProps) {
   const { closeModal } = useModal();
   // Loan repayments, the sanction and the loan's other records are edited from their own ledger, not from here.

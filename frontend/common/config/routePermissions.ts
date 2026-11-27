@@ -1,25 +1,5 @@
-/* Every route the router can reach, mapped to the permission that gates it.
- * module: null means always reachable (Dashboard).
- *
- * The ONE place that mapping lives, read three ways:
- *   - AppShell's View renders NoAccess for a route the role can't view, which
- *     stops a typed/bookmarked URL — including detail routes (a customer/loan/
- *     packet id), which need the same permission as their list page (§11);
- *   - navigate() (common/services/appRoutes.ts) and AppShell's link interceptor
- *     refuse a jump to such a route with a toast, so a link, button or KPI
- *     card never lands the user on that NoAccess page;
- *   - pages use useCanOpenRoute() to not offer the link at all.
- *
- * Keep in step with APP_ROUTES in routes.ts: that decides whether a URL
- * segment IS a route, this decides WHO may reach it. A route missing here is
- * reachable by anyone.
- *
- * A leaf module (no imports), like routes.ts, so common/services/appRoutes.ts can
- * read it without a cycle.
- */
-/* multiBranchOnly: the route only exists for a business with more than one
- * branch — on a single-branch plan it is treated exactly like an optional
- * module that is off (no nav entry, no link, ModuleUnavailable if typed). */
+// Keep in step with APP_ROUTES in routes.ts: that decides whether a URL segment IS a route, this decides WHO may reach it.
+// multiBranchOnly: on a single-branch plan, treated like an optional module that's off.
 export type RouteGate = { module: string | null; key?: string; tenantModule?: string; multiBranchOnly?: boolean };
 
 export const ROUTE_PERMISSIONS: Record<string, RouteGate> = {
@@ -48,9 +28,7 @@ export const ROUTE_PERMISSIONS: Record<string, RouteGate> = {
   calendar: { module: "Reminder_Management", key: "can_view_reminder_module" },
   branches: { module: "Branch_Management", key: "can_view_branch_module", tenantModule: "branches", multiBranchOnly: true },
   banks: { module: "Bank_Management", key: "can_view_bank_module" },
-  // Drill-down-only routes off the Cash & Expenses page — reuse can_view_cash_module
-  // (viewing a party's ledger is a drill-down of data the user can already
-  // see there, not a new resource) rather than a new permission.
+  // Drill-downs off the Cash & Expenses page reuse can_view_cash_module rather than a new permission.
   "ledger-bank": { module: "Cash_Management", key: "can_view_cash_module" },
   // Opened from Branch Management's Ledger link — gated like that link.
   "ledger-branch": { module: "Branch_Management", key: "can_view_branch_ledger", tenantModule: "branches", multiBranchOnly: true },
@@ -68,20 +46,16 @@ export const ROUTE_PERMISSIONS: Record<string, RouteGate> = {
 type Can = (moduleKey: string, permissionKey: string) => boolean;
 type HasModule = (key: string) => boolean;
 
-/** "loan/12" → "loan"; a route name passes through. */
 export function baseRoute(route: string): string {
   const cut = route.indexOf("/");
   return cut >= 0 ? route.slice(0, cut) : route;
 }
 
-/** Whether the role holds the route's permission. Unknown routes are allowed. */
 export function routePermitted(route: string, can: Can): boolean {
   const gate = ROUTE_PERMISSIONS[baseRoute(route)];
   return !gate || gate.module === null || can(gate.module, gate.key!);
 }
 
-/** Whether the business is entitled to the route at all: its optional module
- * is granted, and it is not a multi-branch-only route on a single-branch plan. */
 export function routeEntitled(route: string, hasModule: HasModule, singleBranch = false): boolean {
   const gate = ROUTE_PERMISSIONS[baseRoute(route)];
   if (!gate) return true;
@@ -89,7 +63,6 @@ export function routeEntitled(route: string, hasModule: HasModule, singleBranch 
   return !(singleBranch && gate.multiBranchOnly);
 }
 
-/** routePermitted plus the business's entitlement (routeEntitled). */
 export function routeAllowed(route: string, can: Can, hasModule: HasModule, singleBranch = false): boolean {
   return routePermitted(route, can) && routeEntitled(route, hasModule, singleBranch);
 }
@@ -102,7 +75,6 @@ export function setNavigationGuard(fn: ((route: string) => boolean) | null) {
   guard = fn;
 }
 
-/** True when a jump to `route` may go ahead; allowed until a guard is set. */
 export function navigationAllowed(route: string): boolean {
   return !guard || guard(route);
 }

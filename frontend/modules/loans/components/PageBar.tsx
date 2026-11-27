@@ -4,8 +4,7 @@
 
 type PageBarProps = { page: number; total: number; pageSize: number; onChange: (p: number) => void; children?: React.ReactNode };
 
-/* Prev / Next footer under a table. Always rendered, even for a single page,
- * so every table on this page ends the same way. */
+// Always rendered, even for a single page, so every table ends the same way.
 export function PageBar({ page, total, pageSize, onChange, children }: PageBarProps) {
 	const pages = Math.max(1, Math.ceil(total / pageSize));
 	return (

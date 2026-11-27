@@ -8,7 +8,7 @@ import { offlineReady } from "@/common/offline/state";
 import { isDesktop, offlineStore } from "@/common/services/desktopBridge";
 import { isReachable } from "@/common/offline/network";
 import { clearAuthExpired, consumeExpiredMarker } from "@/common/offline/syncProblem";
-import { login as loginRequest } from "@/common/services/authService";
+import { login as loginRequest, loginAs as loginAsRequest } from "@/common/services/authService";
 import { type AuthEmployee, type LoginResponse } from "@/common/types/auth-types";
 import { fetchMyPermissions } from "@/common/services/permissionService";
 import { type PermissionMap } from "@/common/types/permission-types";
@@ -42,6 +42,8 @@ type JwtPayload = {
 	employeeId?: number;
 	role?: string;
 	branchId?: number;
+	// set only on a "Login as" session opened from the superadmin console
+	imp?: number;
 	exp?: number;
 	iat?: number;
 };
@@ -95,6 +97,11 @@ type AuthContextValue = {
 	setSelectedBranch: (branchId: number | null) => void;
 	loading: boolean;
 	login: (identifier: string, password: string, businessCode?: string) => Promise<AuthEmployee>;
+	// Trades a one-time code from the superadmin console's "Login as" for a session. Nothing is saved for offline
+	// sign-in, so the employee's own login is untouched.
+	loginWithCode: (code: string) => Promise<AuthEmployee>;
+	// The superadmin behind a "Login as" session; null for an ordinary sign-in.
+	impersonatedBy: number | null;
 	logout: () => void;
 	// Permission map — see the house role-permission standard's §9. Fetched on
 	// login and on every app mount (fetchPermissions below), never derived
@@ -311,6 +318,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
 		[loadPermissions, loadApprovalWorkflow]
 	);
 
+	const loginWithCode = useCallback(
+		async (loginCode: string) => {
+			const code = businessCodeForRequest();
+			const res = await loginAsRequest(loginCode);
+			writeSession(code || null, res.token, JSON.stringify(res.employee));
+			clearAuthExpired();
+			clearSelectedBranch(code || null);
+			setSelectedBranchIdState(null);
+			setToken(res.token);
+			setEmployee(res.employee);
+			setPermissionsLoaded(false);
+			void loadPermissions(res.employee);
+			void loadApprovalWorkflow();
+			return res.employee;
+		},
+		[loadPermissions, loadApprovalWorkflow]
+	);
+
 	/* Signs out of THIS business only. Another business signed in in another
 	 * tab keeps its session, which is the point of keying by slug — logging out
 	 * of one customer's books must not log you out of another's. */
@@ -384,6 +409,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 		setOwnBranchFallback(employee?.branch ?? null, canViewBranches);
 	}, [employee, canViewBranches]);
 
+	const impersonatedBy = useMemo(() => decodeJwtPayload(token || "")?.imp ?? null, [token]);
+
 	const isSystem = employee?.isSystem === true;
 	const isCrossBranch = can("Branch_Management", "can_view_all_branches");
 
@@ -415,6 +442,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 			setSelectedBranch,
 			loading,
 			login,
+			loginWithCode,
+			impersonatedBy,
 			logout,
 			permissions,
 			permissionsLoaded,
@@ -435,6 +464,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 			setSelectedBranch,
 			loading,
 			login,
+			loginWithCode,
+			impersonatedBy,
 			logout,
 			permissions,
 			permissionsLoaded,

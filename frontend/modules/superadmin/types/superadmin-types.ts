@@ -227,6 +227,22 @@ export type ThemeInput = {
  * back, and an empty one on update keeps the current password. */
 export type AdminLogin = { employeeId: number; name: string; username: string; phone: string };
 
+/* One employee of a business, for the console's "Login as" list. canLogin is false when the employee has no
+ * password set (they never sign in themselves). */
+export type LoginAsStaff = {
+	id: number;
+	name: string;
+	username: string;
+	role: string;
+	branchName: string;
+	isSystem: boolean;
+	isActive: boolean;
+	canLogin: boolean;
+};
+
+// A one-time, one-minute code the business's own site trades for the session.
+export type LoginAsStart = { code: string; businessCode: string };
+
 // One real build: one tenant (or "common" for a content release), one OS.
 export type DesktopReleaseJob = {
 	id: number;
@@ -237,6 +253,9 @@ export type DesktopReleaseJob = {
 	buildType: "full" | "content";
 	status: "queued" | "preparing" | "building" | "uploading" | "verifying" | "done" | "failed" | "cancelled";
 	createdAt: string;
+	updatedAt: string;
+	runUrl: string; // the GitHub run's log; "" until the run is found
+	downloadUrl: string; // the installer once done; "" otherwise
 };
 
 // One version currently kept in B2 for a tenant — the plain history list, not the live in-progress view.
@@ -248,7 +267,7 @@ export type DesktopReleaseHistoryEntry = {
 };
 
 export type TriggerDesktopReleaseInput = {
-	tenantCode?: string; // "" or "all" = every tenant; ignored for buildType "content"
+	tenantCode: string; // one tenant code, or "all" = every tenant; ignored for buildType "content"
 	version: string;
 	buildType: "full" | "content";
 	targets?: string[]; // e.g. ["win"]

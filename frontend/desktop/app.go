@@ -61,6 +61,26 @@ func (a *App) startup(ctx context.Context) {
 	a.lan.Start()
 }
 
+// The window opens at 1440x900 with its title bar drawn by the page (frameless). On a smaller screen — a 1366x768
+// laptop at 125% scaling has ~1093x614 logical px — centring that size pushes the title bar above the screen and
+// leaves no way to minimise or close, so a screen too small for it opens maximised instead.
+func (a *App) domReady(ctx context.Context) {
+	screens, err := runtime.ScreenGetAll(ctx)
+	if err != nil {
+		return
+	}
+	for _, s := range screens {
+		if !s.IsCurrent {
+			continue
+		}
+		// room for the taskbar below the window
+		if s.Size.Width < windowWidth+40 || s.Size.Height < windowHeight+80 {
+			runtime.WindowMaximise(ctx)
+		}
+		return
+	}
+}
+
 func (a *App) shutdown(ctx context.Context) {
 	a.lan.Stop()
 	markCleanExit()

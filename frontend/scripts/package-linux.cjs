@@ -1,15 +1,16 @@
 const { spawnSync } = require("node:child_process");
+const { feedNameFor } = require("./feed-name.cjs");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { loadEnvConfig } = require("@next/env");
+const { loadReleaseEnv } = require("./release-env.cjs");
 const { fetchTenantBranding, writeWindowTitleOverride, updateUrl, contentUrl } = require("./tenant-icon.cjs");
 
 const root = path.join(__dirname, "..");
 const { version: pkgVersion } = require(path.join(root, "package.json"));
 const version = process.env.RELEASE_VERSION || pkgVersion;
 
-loadEnvConfig(root, false);
+loadReleaseEnv(root);
 
 function run(cmd, args, opts = {}) {
   const result = spawnSync(cmd, args, { stdio: "inherit", cwd: root, shell: cmd === "node" ? false : true, ...opts });
@@ -55,7 +56,9 @@ async function main() {
   // webkit2_41: Wails' own build tag for Ubuntu 24.04+, which only ships webkit2gtk-4.1 (not 4.0).
   run("go", ["build", "-tags", "desktop,production,webkit2_41", "-ldflags", `"${ldflags}"`, "-o", `"${target}"`, "."], {
     cwd: path.join(root, "desktop"),
-    env: { ...process.env, GOOS: "linux", GOARCH: "amd64" },
+    // Wails' Linux webview binds GTK/WebKitGTK via cgo — CGO_ENABLED=0 (fine for Windows) silently
+    // drops every cgo file, so the package fails to even find its own Frontend type.
+    env: { ...process.env, GOOS: "linux", GOARCH: "amd64", CGO_ENABLED: "1" },
   });
   fs.chmodSync(target, 0o755);
 
@@ -66,7 +69,7 @@ async function main() {
     sha512: crypto.createHash("sha512").update(bytes).digest("hex"),
     size: bytes.length,
   };
-  fs.writeFileSync(path.join(dist, "latest.json"), JSON.stringify(manifest, null, 2));
+  fs.writeFileSync(path.join(dist, feedNameFor("linux")), JSON.stringify(manifest, null, 2));
 
   console.log(`built ${file}`);
 }
