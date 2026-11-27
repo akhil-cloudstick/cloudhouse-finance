@@ -163,7 +163,8 @@ function desktopSlugFromApiBase(): string | null {
  * since wails.localhost never names a business itself. */
 export function businessSlugFromHost(hostname?: string): string | null {
 	const host = (hostname ?? (typeof window === "undefined" ? "" : window.location.hostname)).toLowerCase();
-	if (host === DESKTOP_HOST) return desktopSlugFromApiBase();
+	// Windows serves the app from wails.localhost, macOS from wails://wails (host "wails"): neither names a business.
+	if (host === DESKTOP_HOST || host === "wails") return desktopSlugFromApiBase();
 	return subdomainLabel(host);
 }
 

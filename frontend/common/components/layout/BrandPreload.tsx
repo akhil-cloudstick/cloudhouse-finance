@@ -61,7 +61,7 @@ const script = `
     if (!/^[a-z0-9][a-z0-9-]*$/.test(linked)) linked = "";
     var slug = (first && /^[a-z0-9][a-z0-9-]*$/.test(first) && !reserved.test(first))
       ? first
-      : (linked || (location.hostname === "wails.localhost" && desktopSlug) || localStorage.getItem("cloudhouse_active_business") || "default");
+      : (linked || ((location.hostname === "wails.localhost" || location.hostname === "wails") && desktopSlug) || localStorage.getItem("cloudhouse_active_business") || "default");
     var hex = localStorage.getItem(${JSON.stringify(BRAND_COLOR_KEY_PREFIX)} + slug) || ${JSON.stringify(DEFAULT_BRAND_COLOR)};
     var m = /^#?([0-9a-f]{6})$/i.exec(hex);
     // Not a bare return: the tab icon below must still be installed.

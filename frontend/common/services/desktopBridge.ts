@@ -23,7 +23,7 @@ export type DesktopPlatform = "win" | "mac" | "linux" | "web";
 /* Wails injects its runtime only into the first page of a dev session, but every
  * page of the desktop window shares one origin, so later pages load it themselves.
  * Inline in <head>; does nothing in a browser or in the packaged app. */
-export const DESKTOP_RUNTIME_LOADER = `if(location.hostname==="wails.localhost"&&!window.go){document.write('<script src="/wails/runtime.js"></'+'script><script src="/wails/ipc.js"></'+'script>')}`;
+export const DESKTOP_RUNTIME_LOADER = `if((location.hostname==="wails.localhost"||location.hostname==="wails")&&!window.go){document.write('<script src="/wails/runtime.js"></'+'script><script src="/wails/ipc.js"></'+'script>')}`;
 
 const NOT_IN_BROWSER = "not available in the browser";
 
